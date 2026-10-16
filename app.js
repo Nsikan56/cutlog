@@ -125,7 +125,7 @@ function renderTotals() {
   $('calSub').textContent = `of ${T.calLo.toLocaleString()}–${T.calHi.toLocaleString()}`;
   $('proNum').textContent = pro;
   setArc($('proArc'), pro / T.protein);
-  $('proSub').textContent = pro >= T.protein ? `${T.protein}g target hit` : `${T.protein - pro}g to ${T.protein}g`;
+  $('proSub').textContent = pro >= T.protein ? `${T.protein}g target hit` : `${T.protein - pro}g to go`;
   const st = $('status'); st.className = 'status';
   if (!es.length) st.textContent = 'Scan, snap or search what you eat and the rings fill up.';
   else if (cal < T.calLo) st.textContent = `${(T.calLo - cal).toLocaleString()} kcal under your cut range. Room for a high-protein snack before your cutoff.`;

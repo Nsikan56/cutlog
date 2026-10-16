@@ -33,6 +33,46 @@ const BUILTIN_FOODS = [
   {name:"Cream cheese, light", kcal100:200, pro100:7.9},
 ].map((f,i)=>({...f, id:"b"+i, source:"built-in"}));
 
+
+/* Common Nigerian foods. Typical home-cooked values per 100 g (estimates: oil and recipes vary). */
+const NG_FOODS = [
+  {name:"Jollof rice", alias:"jellof party rice nigerian", kcal100:170, pro100:3, piece:300, pieceLabel:"plate", cup:190},
+  {name:"Fried rice (Nigerian)", alias:"party", kcal100:180, pro100:4, piece:300, pieceLabel:"plate", cup:190},
+  {name:"White rice and stew", alias:"rice stew tomato", kcal100:155, pro100:2.8, piece:350, pieceLabel:"plate"},
+  {name:"Ofada rice", alias:"brown local rice", kcal100:130, pro100:2.8, piece:300, pieceLabel:"plate", cup:190},
+  {name:"Eba (garri)", alias:"swallow cassava", kcal100:160, pro100:0.6, piece:250, pieceLabel:"wrap (fist size)"},
+  {name:"Garri, dry (for soaking)", alias:"gari cassava flakes", kcal100:360, pro100:1, cup:140},
+  {name:"Pounded yam", alias:"iyan swallow", kcal100:118, pro100:1.5, piece:250, pieceLabel:"wrap (fist size)"},
+  {name:"Amala", alias:"swallow yam flour elubo", kcal100:130, pro100:1.6, piece:250, pieceLabel:"wrap (fist size)"},
+  {name:"Fufu (cassava)", alias:"akpu swallow", kcal100:150, pro100:0.8, piece:250, pieceLabel:"wrap (fist size)"},
+  {name:"Semo (semolina swallow)", alias:"semovita swallow", kcal100:115, pro100:3.5, piece:250, pieceLabel:"wrap (fist size)"},
+  {name:"Boiled yam", alias:"yam", kcal100:116, pro100:1.5, piece:100, pieceLabel:"slice"},
+  {name:"Fried yam", alias:"dundun yam chips", kcal100:260, pro100:2, piece:40, pieceLabel:"chip"},
+  {name:"Fried plantain (dodo)", alias:"dodo plantain", kcal100:230, pro100:1.5, piece:180, pieceLabel:"whole plantain"},
+  {name:"Boiled plantain", alias:"plantain unripe", kcal100:116, pro100:0.8, piece:180, pieceLabel:"plantain"},
+  {name:"Beans porridge (ewa)", alias:"ewa beans porridge agoyin", kcal100:150, pro100:7, cup:250},
+  {name:"Moi moi", alias:"moimoi bean pudding", kcal100:150, pro100:8, piece:130, pieceLabel:"wrap"},
+  {name:"Akara (bean fritters)", alias:"akara kosai bean cake", kcal100:300, pro100:12, piece:25, pieceLabel:"ball"},
+  {name:"Egusi soup", alias:"melon soup", kcal100:220, pro100:10, piece:150, pieceLabel:"ladle"},
+  {name:"Okra soup", alias:"okro ila", kcal100:90, pro100:5, piece:150, pieceLabel:"ladle"},
+  {name:"Efo riro", alias:"vegetable soup spinach", kcal100:150, pro100:7, piece:150, pieceLabel:"ladle"},
+  {name:"Ogbono soup", alias:"draw soup", kcal100:200, pro100:8, piece:150, pieceLabel:"ladle"},
+  {name:"Pepper soup (goat or chicken)", alias:"peppersoup", kcal100:70, pro100:9, piece:350, pieceLabel:"bowl"},
+  {name:"Tomato stew", alias:"obe ata stew sauce", kcal100:120, pro100:1.5, piece:100, pieceLabel:"ladle"},
+  {name:"Suya (beef)", alias:"beef kebab", kcal100:230, pro100:28, piece:60, pieceLabel:"stick"},
+  {name:"Fried chicken (Nigerian)", alias:"chicken", kcal100:250, pro100:25, piece:120, pieceLabel:"piece"},
+  {name:"Fried fish (croaker or mackerel)", alias:"fish titus", kcal100:230, pro100:22, piece:150, pieceLabel:"piece"},
+  {name:"Meat pie", alias:"pastry", kcal100:300, pro100:8, piece:150, pieceLabel:"pie"},
+  {name:"Puff-puff", alias:"puff puff", kcal100:330, pro100:6, piece:25, pieceLabel:"ball"},
+  {name:"Chin chin", alias:"chinchin snack", kcal100:480, pro100:8, piece:30, pieceLabel:"handful"},
+  {name:"Indomie noodles (dry weight)", alias:"noodles instant", kcal100:437, pro100:8.6, piece:70, pieceLabel:"pack (70 g)"},
+  {name:"Agege bread", alias:"bread", kcal100:270, pro100:8, piece:40, pieceLabel:"slice"},
+  {name:"Pap / ogi (akamu)", alias:"pap ogi akamu custard", kcal100:50, pro100:0.5, cup:250},
+  {name:"Groundnuts, roasted", alias:"peanuts", kcal100:585, pro100:24, piece:30, pieceLabel:"handful"},
+  {name:"Zobo (sweetened)", alias:"hibiscus drink", kcal100:45, pro100:0, cup:250},
+].map((f,i)=>({...f, id:"ng"+i, source:"built-in", est:true}));
+BUILTIN_FOODS.push(...NG_FOODS);
+
 /* Starting quick meals (estimates from Kan's usual plates) */
 const STARTER_MEALS = [
   {name:"Protein pancakes + 2 eggs + 2 sausages", kcal:780, pro:65},

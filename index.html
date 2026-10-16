@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>Cut Log</title>
-<meta name="app-v" content="31">
+<meta name="app-v" content="32">
 <meta name="theme-color" content="#F2F4F8" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#0B0E14" media="(prefers-color-scheme: dark)">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -17,7 +17,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Barlow:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="style.css?v=31">
+<link rel="stylesheet" href="style.css?v=32">
 </head>
 <body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -86,7 +86,7 @@
   </section>
 
   <section class="card">
-    <div class="card-h"><h2 id="wTitle">Morning weigh-in</h2><span class="count">lb</span></div>
+    <div class="card-h"><h2 id="wTitle">Morning weigh-in</h2><span class="count u-w">lb</span></div>
     <div class="noscale" id="noScale" hidden>
       <p class="hint">No scale, no problem. Track your waist below instead. If you can weigh in now and then (a gym or pharmacy scale works), it sharpens your trend.</p>
       <button class="btn ghost" id="haveScale">Log a weigh-in anyway</button>
@@ -101,7 +101,7 @@
     </div>
     <div class="wdone" id="wDone" hidden>
       <div class="wdone-main">
-        <span class="wdone-n"><span id="wNum">–</span><small>lb</small></span>
+        <span class="wdone-n"><span id="wNum">–</span><small class="u-w">lb</small></span>
         <span class="wdone-tag"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span id="wTag">Logged today</span></span>
         <span class="wdone-delta" id="wDelta"></span>
         <span class="wdone-next" id="wNext" hidden></span>
@@ -120,14 +120,14 @@
   </section>
 
   <section class="card" id="waistCard">
-    <div class="card-h"><h2>Waist</h2><span class="count">inches</span></div>
+    <div class="card-h"><h2>Waist</h2><span class="count u-l">inches</span></div>
     <div class="wrow" id="zForm">
       <input id="zIn" type="number" inputmode="decimal" step="0.25" min="15" max="80" placeholder="Around your belly button" aria-label="Waist in inches">
       <button class="btn" id="zSave">Save</button>
     </div>
     <div class="wdone" id="zDone" hidden>
       <div class="wdone-main">
-        <span class="wdone-n"><span id="zNum">–</span><small>in</small></span>
+        <span class="wdone-n"><span id="zNum">–</span><small class="u-ls">in</small></span>
         <span class="wdone-tag"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span id="zTag">Logged today</span></span>
         <span class="wdone-delta" id="zDelta"></span>
         <span class="wdone-next" id="zNext"></span>
@@ -152,7 +152,7 @@
     </div>
     <section class="hero trend-hero">
       <span class="eyebrow">Weight trend</span>
-      <div class="pace"><span class="pace-n" id="tRate">–</span><span class="pace-u">lb / week</span></div>
+      <div class="pace"><span class="pace-n" id="tRate">–</span><span class="pace-u"><span class="u-w">lb</span> / week</span></div>
       <p class="status" id="tRead">Log a few morning weigh-ins to see your trend.</p>
       <div class="tstats">
         <div><span class="k">Change</span><span class="v" id="tChange">–</span></div>
@@ -236,18 +236,22 @@
         <label>Calories low<input id="tLo" type="number" inputmode="numeric"></label>
         <label>Calories high<input id="tHi" type="number" inputmode="numeric"></label>
         <label>Protein (g)<input id="tPro" type="number" inputmode="numeric"></label>
-        <label>Goal weight (lb)<input id="tGoal" type="number" inputmode="decimal" step="0.1"></label>
-        <label class="full">Starting weight (lb, for milestones)<input id="tStart" type="number" inputmode="decimal" step="0.1" placeholder="Your first weigh-in"></label>
+        <label><span>Goal weight (<span class="u-w">lb</span>)</span><input id="tGoal" type="number" inputmode="decimal" step="0.1"></label>
+        <label class="full"><span>Starting weight (<span class="u-w">lb</span>, for milestones)</span><input id="tStart" type="number" inputmode="decimal" step="0.1" placeholder="Your first weigh-in"></label>
         <div class="pform-btns full"><button class="btn" type="submit">Save</button><button class="btn ghost" type="button" id="goalCancel">Cancel</button></div>
       </form>
       </div>
     </section>
     <section class="card">
-      <div class="card-h"><h2>Weigh-ins</h2></div>
+      <div class="card-h"><h2>Weigh-ins and units</h2></div>
       <div class="seg2" id="pScale" role="group" aria-label="How often you weigh in">
         <button type="button" data-v="daily">Every morning</button><button type="button" data-v="weekly">Once a week</button><button type="button" data-v="none">No scale</button>
       </div>
       <p class="hint" id="pScaleHint"></p>
+      <div class="ob-label">Units</div>
+      <div class="seg2" id="pUnits" role="group" aria-label="Units">
+        <button type="button" data-v="imperial">lb · inches</button><button type="button" data-v="metric">kg · cm</button>
+      </div>
     </section>
     <section class="card">
       <div class="card-h"><h2>Account and sync</h2><span class="count" id="acctState"></span></div>
@@ -302,8 +306,8 @@
 <div class="toast" id="toast" role="status" hidden></div>
 <input type="file" id="photoIn" accept="image/*" capture="environment" hidden>
 
-<script src="firebase-config.js?v=31"></script>
-<script src="foods.js?v=31"></script>
-<script src="app.js?v=31"></script>
+<script src="firebase-config.js?v=32"></script>
+<script src="foods.js?v=32"></script>
+<script src="app.js?v=32"></script>
 </body>
 </html>

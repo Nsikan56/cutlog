@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '31';
+const APP_V = '32';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -64,7 +64,7 @@ function seed() {
     v: 1,
     targets: { calLo: 2000, calHi: 2300, protein: 150, goal: null, mode: 'lose' },
     meals: [], foods: [], recent: [], log: {}, weights: {}, slotPref: {},
-    onboarded: false, name: '', startWeight: null, milestones: {}, msInit: false, scale: 'daily', waist: {},
+    onboarded: false, name: '', startWeight: null, milestones: {}, msInit: false, scale: 'daily', waist: {}, units: 'imperial',
     stamps: { meta: 0, days: {} },   // last-change time per synced document
     dirty: [],                       // documents waiting to upload: 'meta' or 'd:YYYY-MM-DD'
   };
@@ -260,14 +260,14 @@ function renderWeights() {
   if (!noneMode) { f.hidden = logged; $('wDateRow').hidden = logged; $('wDone').hidden = !logged; }
   if (logged) {
     const lw = S.weights[loggedDate];
-    $('wNum').textContent = (+lw).toFixed(1);
+    $('wNum').textContent = fW(lw);
     $('wTag').textContent = loggedDate === t ? 'Logged today' : `Logged ${parseIso(loggedDate).toLocaleDateString(undefined, { weekday: 'long' })}`;
     const prev = [...arr].reverse().find(w => w.date < loggedDate);
     const dl = $('wDelta'); dl.className = 'wdone-delta';
     if (prev) {
       const x = lw - prev.lb, days = daysBetween(prev.date, loggedDate);
       const when = loggedDate === t ? (days === 1 ? 'yesterday' : `${days} days ago`) : (days === 1 ? 'the day before' : `${days} days earlier`);
-      dl.textContent = Math.abs(x) < 0.05 ? `Same as ${when}` : `${x > 0 ? '+' : '−'}${Math.abs(x).toFixed(1)} lb vs ${when}`;
+      dl.textContent = Math.abs(x) < 0.05 ? `Same as ${when}` : `${x > 0 ? '+' : '−'}${fW(Math.abs(x))} ${wU()} vs ${when}`;
       dl.classList.add(goodness(x));
     } else dl.textContent = 'Your first weigh-in. The trend starts here.';
     const nx = $('wNext'); nx.hidden = sc !== 'weekly';
@@ -275,21 +275,22 @@ function renderWeights() {
     f.dataset.date = loggedDate;
   } else if (!noneMode && document.activeElement !== $('wIn')) {
     const ed = f.dataset.date;
-    $('wIn').value = editing && ed && S.weights[ed] != null ? S.weights[ed] : '';
-    $('wIn').placeholder = sc === 'daily' ? 'Weight after waking' : 'Your weight in lb';
+    $('wIn').value = editing && ed && S.weights[ed] != null ? fWs(S.weights[ed]) : '';
+    $('wIn').placeholder = sc === 'daily' ? 'Weight after waking' : `Your weight in ${wU()}`;
     $('wDateBtn').textContent = sc === 'daily' ? 'Weighed on another day?' : 'Weighed on a different day?';
   }
   const a = avgBetween(arr, shift(t, -6), t), b = avgBetween(arr, shift(t, -13), shift(t, -7));
   const n7 = arr.filter(w => w.date >= shift(t, -6)).length, useLatest = sc !== 'daily' && n7 < 2 && last;
   $('avgK').textContent = useLatest ? 'Latest' : '7-day avg';
-  $('avg7').textContent = useLatest ? (+last.lb).toFixed(1) : a ? a.toFixed(1) : '–';
+  $('avg7').textContent = useLatest ? fW(last.lb) : a ? fW(a) : '–';
   const d = $('delta'); d.className = 'v';
-  if (a && b) { const x = a - b; d.textContent = (x > 0 ? '+' : x < 0 ? '−' : '') + Math.abs(x).toFixed(1); d.classList.add(goodness(x)); } else d.textContent = '–';
+  if (a && b) { const x = a - b; d.textContent = (x > 0 ? '+' : x < 0 ? '−' : '') + fW(Math.abs(x)); d.classList.add(goodness(x)); } else d.textContent = '–';
   const G = S.targets.goal;
-  $('goalK').textContent = mode() === 'maintain' ? (G ? `From ${G}` : 'From goal') : G ? `To ${G}` : 'To goal';
+  $('goalK').textContent = mode() === 'maintain' ? (G ? `From ${fWs(G)}` : 'From goal') : G ? `To ${fWs(G)}` : 'To goal';
   const cur = a || (useLatest ? last.lb : null);
-  $('toGoal').textContent = cur && G ? Math.abs(cur - G).toFixed(1) : '–';
-  const pts = arr.filter(w => w.date >= shift(t, -27));
+  $('toGoal').textContent = cur && G ? fW(Math.abs(cur - G)) : '–';
+  const darr = arr.map(w => ({ date: w.date, lb: toW(w.lb) }));   // chart in display units
+  const pts = darr.filter(w => w.date >= shift(t, -27));
   const ch = $('chart');
   if (pts.length < 2) {
     ch.innerHTML = '';
@@ -306,7 +307,7 @@ function renderWeights() {
   const X = s => L + (parseIso(s).getTime() - t0) / (t1 - t0) * (W - L - R);
   const Y = v => T + (hi - v) / (hi - lo) * (H - T - B);
   const ticks = [lo, Math.round((lo + hi) / 2), hi];
-  const av = pts.map(p => [X(p.date), Y(avgBetween(arr, shift(p.date, -6), p.date))]);
+  const av = pts.map(p => [X(p.date), Y(avgBetween(darr, shift(p.date, -6), p.date))]);
   const line = av.map(p => p.map(n => n.toFixed(1)).join(',')).join(' ');
   const area = `${av[0][0].toFixed(1)},${H - B} ${line} ${av[av.length - 1][0].toFixed(1)},${H - B}`;
   const lastPt = av[av.length - 1];
@@ -329,9 +330,9 @@ const MODE_HINT = {
 function renderSettings() {
   const T = S.targets;
   if ($('goalForm').hidden) {
-    $('tLo').value = T.calLo; $('tHi').value = T.calHi; $('tPro').value = T.protein; $('tGoal').value = T.goal ?? '';
-    $('tStart').value = S.startWeight ?? '';
-    $('tStart').placeholder = weightsArr()[0] ? `First weigh-in: ${weightsArr()[0].lb}` : 'Your first weigh-in';
+    $('tLo').value = T.calLo; $('tHi').value = T.calHi; $('tPro').value = T.protein; $('tGoal').value = T.goal != null ? fWs(T.goal) : '';
+    $('tStart').value = S.startWeight != null ? fWs(S.startWeight) : '';
+    $('tStart').placeholder = weightsArr()[0] ? `First weigh-in: ${fWs(weightsArr()[0].lb)}` : 'Your first weigh-in';
   }
   if ($('pNameForm').hidden) $('pName').value = S.name || '';
   $('pNameVal').textContent = S.name || 'Not set'; $('pNameVal').classList.toggle('muted', !S.name);
@@ -339,8 +340,8 @@ function renderSettings() {
   $('gvMode').textContent = MODES[mode()];
   $('gvCal').textContent = `${T.calLo.toLocaleString()}–${T.calHi.toLocaleString()} kcal`;
   $('gvPro').textContent = `${T.protein}g a day`;
-  $('gvGoal').textContent = T.goal ? `${T.goal} lb` : 'Not set';
-  $('gvStart').textContent = sw != null ? `${sw} lb${S.startWeight == null ? ' (first weigh-in)' : ''}` : 'Not set';
+  $('gvGoal').textContent = T.goal ? `${fWs(T.goal)} ${wU()}` : 'Not set';
+  $('gvStart').textContent = sw != null ? `${fWs(sw)} ${wU()}${S.startWeight == null ? ' (first weigh-in)' : ''}` : 'Not set';
   $('goalHint').textContent = MODE_HINT[mode()]; $('goalHint').hidden = !$('goalForm').hidden;
   $('youName').textContent = S.name || 'Add your name';
   $('youName').classList.toggle('muted', !S.name);
@@ -350,6 +351,7 @@ function renderSettings() {
   [...$('pMode').children].forEach(c => c.setAttribute('aria-pressed', c.dataset.v === pm));
   $('pModeHint').textContent = MODE_HINT[pm];
   [...$('pScale').children].forEach(c => c.setAttribute('aria-pressed', c.dataset.v === scale()));
+  [...$('pUnits').children].forEach(c => c.setAttribute('aria-pressed', c.dataset.v === (S.units || 'imperial')));
   $('pScaleHint').textContent = SCALE_HINT[scale()];
   $('foodCount').textContent = S.foods.length ? `${S.foods.length}` : '';
   renderHeader();
@@ -358,8 +360,28 @@ function renderSettings() {
 }
 function safe(fn) { try { fn(); } catch (e) { console.error('Cut Log render:', fn.name, e); } }
 function renderAll() {
-  [renderDay, renderTotals, renderRows, renderWeights, renderSettings, renderSync].forEach(safe);
+  [renderUnits, renderDay, renderTotals, renderRows, renderWeights, renderSettings, renderSync].forEach(safe);
   if (typeof tab !== 'undefined' && tab === 'trends') safe(renderTrends);
+}
+
+/* ---------- units: data is stored in lb and inches; only display and input convert ---------- */
+const KG = 0.45359237;
+const metric = () => S.units === 'metric';
+const wU = () => metric() ? 'kg' : 'lb', lU = () => metric() ? 'cm' : 'in';
+const toW = lb => metric() ? lb * KG : lb, fromW = v => metric() ? v / KG : v;
+const fW = lb => toW(lb).toFixed(1);                                  // 211.6 / 96.0
+const fWs = lb => String(Math.round(toW(lb) * 10) / 10);              // 198 / 89.8
+const rW = lb => metric() ? Math.round(lb * 100) / 100 : r1(lb);
+const toL = i => metric() ? i * 2.54 : i, fromL = v => metric() ? v / 2.54 : v;
+const fL = i => metric() ? String(Math.round(i * 2.54 * 2) / 2) : String(Math.round(i * 100) / 100);
+const PACE = () => metric() ? { lose: '0.5–0.7 kg', gain: '0.25 kg' } : { lose: '1–1.5 lb', gain: '0.5 lb' };
+function renderUnits() {
+  document.querySelectorAll('.u-w').forEach(e => { e.textContent = wU(); });
+  document.querySelectorAll('.u-l').forEach(e => { e.textContent = metric() ? 'cm' : 'inches'; });
+  document.querySelectorAll('.u-ls').forEach(e => { e.textContent = lU(); });
+  $('zIn').step = metric() ? '0.5' : '0.25';
+  $('zIn').setAttribute('aria-label', `Waist in ${metric() ? 'centimetres' : 'inches'}`);
+  $('wIn').setAttribute('aria-label', `Weight in ${metric() ? 'kilograms' : 'pounds'}`);
 }
 
 /* ---------- weigh-in frequency ---------- */
@@ -582,6 +604,7 @@ function openAmount(f, preset, opts = {}) {
     <div class="chips" id="aUnits" role="group" aria-label="Unit">${units.map(u => `<button class="chip" data-u="${u.key}" aria-pressed="${u.key === unit}" title="${esc(u.long || u.label)}">${esc(u.key === 'serving' && f.servingLabel ? 'serving · ' + f.servingLabel : u.label)}</button>`).join('')}</div>
     <div class="result"><div><span class="num" id="aK">0</span><small>kcal</small></div><div class="pro"><span class="num" id="aP">0g</span><small>protein</small></div></div>
     ${picking ? '' : slotChips(slot)}
+    ${f.est ? '<p class="hint">Homemade dishes vary a lot with oil and portion size. This is a typical estimate; tap "Numbers look wrong?" to set your own.</p>' : ''}
     <p class="hint" id="aNote" hidden>Spoon sizes are approximate: about 15 g per tablespoon and 5 g per teaspoon. A heaping spoon is closer to 25 g.</p>
     <button class="btn" id="aAdd">${esc(cta)}</button>
     ${NOT_SAVED.includes(f.source) ? '' : '<button class="btn ghost" id="aFix">Numbers look wrong? Fix them</button>'}
@@ -884,7 +907,7 @@ function openSearch() {
       $('online').hidden = true;
     } else {
       const words = q.split(/\s+/);
-      const match = f => words.every(w => (f.name + ' ' + (f.brand || '')).toLowerCase().includes(w));
+      const match = f => words.every(w => (f.name + ' ' + (f.brand || '') + ' ' + (f.alias || '')).toLowerCase().includes(w));
       items = [...S.foods.filter(match), ...BUILTIN_FOODS.filter(match)].slice(0, 30).map(f => ({ f }));
       $('results').innerHTML = items.length ? listHtml(items) : '<p class="empty">No match in your foods. Try searching online.</p>';
       $('online').hidden = false;
@@ -1011,7 +1034,7 @@ function renderSync() {
   b.className = 'sync ' + cls; $('syncText').textContent = txt; renderAcct();
 }
 function dayDoc(d) { return { entries: S.log[d] || [], weight: S.weights[d] ?? null, waist: S.waist?.[d] ?? null, updatedAt: S.stamps.days[d] || Date.now() }; }
-function metaDoc() { return { targets: S.targets, meals: S.meals, foods: S.foods, recent: S.recent, theme: S.theme || 'cobalt', slotPref: S.slotPref || {}, name: S.name || '', scale: S.scale || 'daily', startWeight: S.startWeight ?? null, milestones: S.milestones || {}, msInit: !!S.msInit, updatedAt: S.stamps.meta || Date.now() }; }
+function metaDoc() { return { targets: S.targets, meals: S.meals, foods: S.foods, recent: S.recent, theme: S.theme || 'cobalt', slotPref: S.slotPref || {}, name: S.name || '', scale: S.scale || 'daily', units: S.units || 'imperial', startWeight: S.startWeight ?? null, milestones: S.milestones || {}, msInit: !!S.msInit, updatedAt: S.stamps.meta || Date.now() }; }
 function applyDay(id, data) {
   if (data.entries && data.entries.length) S.log[id] = data.entries; else delete S.log[id];
   if (data.weight != null) S.weights[id] = data.weight; else delete S.weights[id];
@@ -1020,7 +1043,7 @@ function applyDay(id, data) {
   S.dirty = S.dirty.filter(k => k !== 'd:' + id);
 }
 function applyMeta(data) {
-  ['targets', 'meals', 'foods', 'recent', 'theme', 'slotPref', 'name', 'scale', 'startWeight', 'milestones', 'msInit'].forEach(k => { if (data[k] !== undefined) S[k] = data[k]; });
+  ['targets', 'meals', 'foods', 'recent', 'theme', 'slotPref', 'name', 'scale', 'units', 'startWeight', 'milestones', 'msInit'].forEach(k => { if (data[k] !== undefined) S[k] = data[k]; });
   S.onboarded = true; delete S.metaUnsynced;   // this account was already set up somewhere
   S.targets = Object.assign({ mode: 'lose' }, S.targets); S.milestones ||= {};
   applyTheme(); if (typeof hideOnboarding === 'function') hideOnboarding();
@@ -1214,18 +1237,19 @@ function barChart(days, vals, opts) {
   return svg;
 }
 function weightChart(from, to) {
-  const arr = weightsArr(), pts = arr.filter(w => w.date >= from && w.date <= to);
+  const arr = weightsArr().map(w => ({ date: w.date, lb: toW(w.lb) })), pts = arr.filter(w => w.date >= from && w.date <= to);
+  const G = S.targets.goal ? toW(S.targets.goal) : null;
   if (pts.length < 2) return '<p class="empty">Two or more weigh-ins in this range will draw your trend here.</p>';
   const W = 520, H = 180, L = 40, R = 12, T = 12, B = 24;
   const t0 = parseIso(from).getTime(), t1 = parseIso(to).getTime();
-  const lbs = pts.map(p => p.lb).concat(S.targets.goal >= Math.min(...pts.map(p => p.lb)) - 3 ? [S.targets.goal] : []);
+  const lbs = pts.map(p => p.lb).concat(G != null && G >= Math.min(...pts.map(p => p.lb)) - 3 ? [G] : []);
   const lo = Math.floor(Math.min(...lbs) - 1), hi = Math.ceil(Math.max(...lbs) + 1);
   const X = s => L + (parseIso(s).getTime() - t0) / (t1 - t0) * (W - L - R), Y = v => T + (hi - v) / (hi - lo) * (H - T - B);
   const av = pts.map(p => [X(p.date), Y(avgBetween(arr, shift(p.date, -6), p.date))]);
   const line = av.map(p => p.map(n => n.toFixed(1)).join(',')).join(' ');
   let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Weight trend"><defs><linearGradient id="twg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--accent)" stop-opacity=".22"/><stop offset="1" stop-color="var(--accent)" stop-opacity="0"/></linearGradient></defs>`;
   niceTicks(lo, hi).forEach(v => { svg += `<line x1="${L}" x2="${W - R}" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--line)"/><text x="${L - 6}" y="${Y(v) + 4}" text-anchor="end" ${TXT}>${v}</text>`; });
-  if (S.targets.goal >= lo && S.targets.goal <= hi) svg += `<line x1="${L}" x2="${W - R}" y1="${Y(S.targets.goal)}" y2="${Y(S.targets.goal)}" stroke="var(--protein)" stroke-width="1.5" stroke-dasharray="5 4"/><text x="${W - R}" y="${Y(S.targets.goal) - 5}" text-anchor="end" font-size="11" fill="var(--protein)" font-family="Barlow, system-ui, sans-serif">Goal ${S.targets.goal}</text>`;
+  if (G != null && G >= lo && G <= hi) svg += `<line x1="${L}" x2="${W - R}" y1="${Y(G)}" y2="${Y(G)}" stroke="var(--protein)" stroke-width="1.5" stroke-dasharray="5 4"/><text x="${W - R}" y="${Y(G) - 5}" text-anchor="end" font-size="11" fill="var(--protein)" font-family="Barlow, system-ui, sans-serif">Goal ${fWs(S.targets.goal)}</text>`;
   svg += `<polygon points="${av[0][0].toFixed(1)},${H - B} ${line} ${av[av.length - 1][0].toFixed(1)},${H - B}" fill="url(#twg)"/>`;
   pts.forEach(p => { svg += `<circle cx="${X(p.date)}" cy="${Y(p.lb)}" r="3" fill="var(--muted)" opacity=".5"/>`; });
   const last = av[av.length - 1];
@@ -1272,10 +1296,10 @@ function renderBurn() {
   }
   conf.textContent = e.conf + ' confidence'; conf.className = 'conf ' + (e.conf === 'High' ? 'ok' : '');
   const m = mode();
-  const [dLo, dHi, label] = m === 'lose' ? [-750, -500, 'For 1–1.5 lb a week'] : m === 'gain' ? [200, 400, 'For a lean gain'] : [-150, 150, 'To hold steady'];
+  const [dLo, dHi, label] = m === 'lose' ? [-750, -500, `For ${PACE().lose} a week`] : m === 'gain' ? [200, 400, 'For a lean gain'] : [-150, 150, 'To hold steady'];
   const lo = Math.max(1200, r50(e.burn + dLo)), hi = Math.max(lo + 100, r50(e.burn + dHi));
   const T = S.targets, same = T.calLo === lo && T.calHi === hi;
-  const lossTxt = e.perWeek < -0.05 ? `lost ${Math.abs(e.perWeek).toFixed(1)} lb a week` : e.perWeek > 0.05 ? `gained ${e.perWeek.toFixed(1)} lb a week` : 'held your weight steady';
+  const lossTxt = e.perWeek < -0.05 ? `lost ${fW(Math.abs(e.perWeek))} ${wU()} a week` : e.perWeek > 0.05 ? `gained ${fW(e.perWeek)} ${wU()} a week` : 'held your weight steady';
   box.innerHTML = `
     <div class="burn-n"><span class="num" id="burnNum">${r50(e.burn).toLocaleString()}</span><span class="u">kcal a day</span></div>
     <p class="hint">Over the last 4 weeks you ate about ${Math.round(e.intake).toLocaleString()} kcal a day and ${lossTxt}. That works out to this daily burn, including your training.</p>
@@ -1299,10 +1323,10 @@ function renderTrends() {
   // weight
   const rate = slopePerWeek(inR);
   const now = avgBetween(arr, shift(to, -6), to);
-  $('tRate').textContent = rate == null ? '–' : (rate > 0 ? '+' : rate < 0 ? '−' : '') + Math.abs(rate).toFixed(1);
-  $('tNow').textContent = now ? now.toFixed(1) : '–';
-  $('tChange').textContent = inR.length >= 2 ? ((d => (d > 0 ? '+' : d < 0 ? '−' : '') + Math.abs(d).toFixed(1))(avgBetween(arr, shift(to, -6), to) - avgBetween(arr, inR[0].date, shift(inR[0].date, 6)))) : '–';
-  $('tGoalK').textContent = T.goal ? `Reach ${T.goal}` : 'Reach goal';
+  $('tRate').textContent = rate == null ? '–' : (rate > 0 ? '+' : rate < 0 ? '−' : '') + fW(Math.abs(rate));
+  $('tNow').textContent = now ? fW(now) : '–';
+  $('tChange').textContent = inR.length >= 2 ? ((d => (d > 0 ? '+' : d < 0 ? '−' : '') + fW(Math.abs(d)))(avgBetween(arr, shift(to, -6), to) - avgBetween(arr, inR[0].date, shift(inR[0].date, 6)))) : '–';
+  $('tGoalK').textContent = T.goal ? `Reach ${fWs(T.goal)}` : 'Reach goal';
   const read = $('tRead'); read.className = 'status';
   const dir = mode() === 'lose' ? -1 : mode() === 'gain' ? 1 : 0;
   const reached = T.goal && now && ((dir < 0 && now <= T.goal) || (dir > 0 && now >= T.goal));
@@ -1311,12 +1335,12 @@ function renderTrends() {
       : 'No weigh-ins yet. Your waist on the Today tab tracks progress without a scale.'; }
   else if (reached) {
     $('tEta').textContent = 'Reached'; read.className = 'status ok';
-    read.textContent = `You've reached ${T.goal} lb on your 7-day average. Switch to Maintaining in the You tab to hold it.`;
+    read.textContent = `You've reached ${fWs(T.goal)} ${wU()} on your 7-day average. Switch to Maintaining in the You tab to hold it.`;
   }
   else if (dir === 0) {
     $('tEta').textContent = T.goal ? 'At goal' : '–';
-    if (Math.abs(rate) <= 0.3) { read.className = 'status ok'; read.textContent = `Holding steady at ${rate > 0 ? '+' : rate < 0 ? '−' : ''}${Math.abs(rate).toFixed(1)} lb a week. Nicely maintained.`; }
-    else { read.className = 'status hi'; read.textContent = `${rate < 0 ? 'Losing' : 'Gaining'} ${Math.abs(rate).toFixed(1)} lb a week. ${rate < 0 ? 'Add' : 'Trim'} about 200 kcal a day to hold steady.`; }
+    if (Math.abs(rate) <= 0.3) { read.className = 'status ok'; read.textContent = `Holding steady at ${rate > 0 ? '+' : rate < 0 ? '−' : ''}${fW(Math.abs(rate))} ${wU()} a week. Nicely maintained.`; }
+    else { read.className = 'status hi'; read.textContent = `${rate < 0 ? 'Losing' : 'Gaining'} ${fW(Math.abs(rate))} ${wU()} a week. ${rate < 0 ? 'Add' : 'Trim'} about 200 kcal a day to hold steady.`; }
   } else {
     const towards = dir * rate;      // positive = moving toward goal
     if (towards > 0.05) {
@@ -1324,9 +1348,9 @@ function renderTrends() {
       $('tEta').textContent = eta.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
       const r = Math.abs(rate), verb = dir < 0 ? 'Losing' : 'Gaining';
       const [slow, fast] = dir < 0 ? [0.5, 1.6] : [0.2, 0.8];
-      if (r < slow) read.textContent = `${verb} ${r.toFixed(1)} lb a week, which is slow. ${dir < 0 ? 'Trimming' : 'Adding'} about 200 kcal a day would speed it up.`;
-      else if (r <= fast) { read.className = 'status ok'; read.textContent = `${verb} ${r.toFixed(1)} lb a week, a steady pace${dir < 0 ? ' that protects your strength' : ' for lean gains'}.`; }
-      else { read.className = 'status hi'; read.textContent = `${verb} ${r.toFixed(1)} lb a week, on the fast side. ${dir < 0 ? 'Adding' : 'Trimming'} 200–300 kcal a day would ease the pace.`; }
+      if (r < slow) read.textContent = `${verb} ${fW(r)} ${wU()} a week, which is slow. ${dir < 0 ? 'Trimming' : 'Adding'} about 200 kcal a day would speed it up.`;
+      else if (r <= fast) { read.className = 'status ok'; read.textContent = `${verb} ${fW(r)} ${wU()} a week, a steady pace${dir < 0 ? ' that protects your strength' : ' for lean gains'}.`; }
+      else { read.className = 'status hi'; read.textContent = `${verb} ${fW(r)} ${wU()} a week, on the fast side. ${dir < 0 ? 'Adding' : 'Trimming'} 200–300 kcal a day would ease the pace.`; }
     } else { $('tEta').textContent = '–'; read.className = 'status hi'; read.textContent = `Your weight isn't moving toward your goal over this range. Check that you're logging everything, and aim for the ${dir < 0 ? 'low' : 'high'} end of your calorie range.`; }
   }
   renderBurn(); renderMilestones();
@@ -1388,14 +1412,17 @@ function trendNow() {
   if (scale() !== 'daily') { const r = weightsArr().filter(x => x.date >= shift(t, -13)); if (r.length) return r[r.length - 1].lb; }   // weekly: latest weigh-in
   return null;
 }
-function waistProgress() { const z = waistArr(); return z.length >= 2 ? { first: z[0].v, now: z[z.length - 1].v, prog: z[0].v - z[z.length - 1].v } : null; }
+function waistProgress() { const z = waistArr(); return z.length >= 2 ? { first: z[0].v, now: z[z.length - 1].v, prog: toL(z[0].v - z[z.length - 1].v) } : null; }   // prog in inches or cm
+const waistStep = () => metric() ? 2 : 1;
+const waistName = k => metric() ? `Waist down ${k} cm` : `Waist down ${k} inch${k > 1 ? 'es' : ''}`;
 const startW = () => S.startWeight ?? weightsArr()[0]?.lb ?? null;
-const stepLb = () => mode() === 'gain' ? 2.5 : 5;
+const stepLb = () => metric() ? (mode() === 'gain' ? 1 : 2) : (mode() === 'gain' ? 2.5 : 5);   // in display units
 function weightProgress() {
   const now = trendNow(), s = startW(), m = mode();
   if (now == null || s == null || m === 'maintain') return null;
   const dir = m === 'lose' ? -1 : 1;
-  return { now, s, dir, prog: (now - s) * dir, total: S.targets.goal ? (S.targets.goal - s) * dir : null };
+  // progress in display units (lb or kg)
+  return { now, s, dir, prog: toW((now - s) * dir), total: S.targets.goal ? toW((S.targets.goal - s) * dir) : null };
 }
 function earnedNow() {
   const out = [], m = mode(), T = S.targets;
@@ -1407,22 +1434,22 @@ function earnedNow() {
   PRO_STREAKS.forEach(n => { if (ps >= n) out.push({ id: 'protein-' + n, title: `Protein goal ${n} days running`, sub: `${T.protein}g or more every day for ${n} days.` }); });
   const wp = weightProgress();
   if (wp) {
-    const step = stepLb(), toGo = T.goal ? ` · ${Math.abs(wp.now - T.goal).toFixed(1)} lb to go` : '';
+    const step = stepLb(), u = wU(), toGo = T.goal ? ` · ${fW(Math.abs(wp.now - T.goal))} ${u} to go` : '';
     for (let k = step; k <= wp.prog + 1e-9; k += step)
-      out.push({ id: `w-${m}-${k}`, title: `${m === 'lose' ? 'Down' : 'Up'} ${k} lb`, sub: `Your 7-day average is ${wp.now.toFixed(1)} lb${toGo}.` });
+      out.push({ id: metric() ? `w-${m}-kg-${k}` : `w-${m}-${k}`, title: `${m === 'lose' ? 'Down' : 'Up'} ${k} ${u}`, sub: `Your average is ${fW(wp.now)} ${u}${toGo}.` });
     if (wp.total != null && wp.total >= 4) {
-      if (wp.prog >= wp.total / 2) out.push({ id: `half-${m}-${T.goal}`, title: `Halfway to ${T.goal} lb`, sub: `${Math.max(0, wp.total - wp.prog).toFixed(1)} lb to go. Keep going.` });
-      if (wp.prog >= wp.total) out.push({ id: `goal-${m}-${T.goal}`, title: `Goal reached: ${T.goal} lb`, sub: 'Switch to Maintaining in the You tab to hold it, or set a new goal.' });
+      if (wp.prog >= wp.total / 2) out.push({ id: `half-${m}-${T.goal}`, title: `Halfway to ${fWs(T.goal)} ${wU()}`, sub: `${Math.max(0, wp.total - wp.prog).toFixed(1)} ${wU()} to go. Keep going.` });
+      if (wp.prog >= wp.total) out.push({ id: `goal-${m}-${T.goal}`, title: `Goal reached: ${fWs(T.goal)} ${wU()}`, sub: 'Switch to Maintaining in the You tab to hold it, or set a new goal.' });
     }
   }
   if (waistArr().length) out.push({ id: 'first-waist', title: 'First waist measurement', sub: 'Measure again in a week or two to see it move.' });
   const zp = waistProgress();
-  if (zp && m === 'lose') for (let k = 1; k <= zp.prog + 1e-9; k++)
-    out.push({ id: `waist-down-${k}`, title: `Waist down ${k} inch${k > 1 ? 'es' : ''}`, sub: `From ${zp.first}″ to ${zp.now}″. That's fat coming off.` });
+  if (zp && m === 'lose') for (let k = waistStep(); k <= zp.prog + 1e-9; k += waistStep())
+    out.push({ id: metric() ? `waist-down-cm-${k}` : `waist-down-${k}`, title: waistName(k), sub: `From ${fmtIn(zp.first)} to ${fmtIn(zp.now)}. That's fat coming off.` });
   if (m === 'maintain' && T.goal) {
     const t = todayIso(), w = weightsArr().filter(x => x.date >= shift(t, -13));
     if (w.length >= 7 && (parseIso(t) - parseIso(w[0].date)) / 864e5 >= 10 && w.every(x => Math.abs(x.lb - T.goal) <= 2.5))
-      out.push({ id: `hold-14-${T.goal}`, title: 'Held steady for 2 weeks', sub: `Every weigh-in within 2.5 lb of ${T.goal}.` });
+      out.push({ id: `hold-14-${T.goal}`, title: 'Held steady for 2 weeks', sub: `Every weigh-in within ${metric() ? '1.1 kg' : '2.5 lb'} of ${fWs(T.goal)} ${wU()}.` });
   }
   return out;
 }
@@ -1482,14 +1509,15 @@ function renderMilestones() {
   if (wp) {
     const k = Math.floor(Math.max(0, wp.prog) / step + 1e-9) * step + step;
     const capped = wp.total != null && wp.total > 0 && k > wp.total;
-    const label = capped ? `Goal: ${S.targets.goal} lb` : `${mode() === 'lose' ? 'Down' : 'Up'} ${k} lb`;
+    const label = capped ? `Goal: ${fWs(S.targets.goal)} ${wU()}` : `${mode() === 'lose' ? 'Down' : 'Up'} ${k} ${wU()}`;
     const left = capped ? wp.total - wp.prog : k - wp.prog;
-    nexts.push({ label, meta: `${Math.max(0, left).toFixed(1)} lb to go`, frac: 1 - Math.max(0, left) / step });
+    nexts.push({ label, meta: `${Math.max(0, left).toFixed(1)} ${wU()} to go`, frac: 1 - Math.max(0, left) / step });
   } else if (mode() !== 'maintain' && scale() !== 'none') nexts.push({ label: 'Weight milestones', meta: scale() === 'daily' ? 'Weigh in 3 mornings this week to start' : 'Log a weigh-in to start', frac: scale() === 'daily' ? Math.min(1, weightsArr().filter(x => x.date >= shift(todayIso(), -6)).length / 3) : 0 });
   if (mode() === 'lose' && (scale() === 'none' || waistArr().length)) {
     const zp = waistProgress();
     if (!zp) nexts.push({ label: 'Waist milestones', meta: waistArr().length ? 'Measure again in a week or two' : 'Log your waist to start', frac: waistArr().length ? 0.5 : 0 });
-    else { const k = Math.floor(Math.max(0, zp.prog) + 1e-9) + 1; nexts.push({ label: `Waist down ${k} inch${k > 1 ? 'es' : ''}`, meta: `${(k - zp.prog).toFixed(2).replace(/0$/, '')}″ to go`, frac: 1 - (k - zp.prog) }); }
+    else { const st = waistStep(), k = Math.floor(Math.max(0, zp.prog) / st + 1e-9) * st + st, left = k - zp.prog;
+      nexts.push({ label: waistName(k), meta: `${metric() ? left.toFixed(1) + ' cm' : left.toFixed(2).replace(/0$/, '') + '″'} to go`, frac: 1 - left / st }); }
   }
   const ls = logStreak(), ns = MS_STREAKS.find(n => n > ls);
   if (ns) nexts.push({ label: `${ns}-day logging streak`, meta: `${ns - ls} day${ns - ls > 1 ? 's' : ''} to go`, frac: ls / ns });
@@ -1503,7 +1531,7 @@ function renderMilestones() {
 }
 
 /* =================== FIRST-RUN SETUP =================== */
-const OB = { scale: 'daily', sex: 'male', age: '', hu: 'ft', cm: '', ft: '', inch: '', lb: '', act: 'active', goal: 'lose', goalLb: '' };
+const OB = { units: 'imperial', scale: 'daily', sex: 'male', age: '', hu: 'ft', cm: '', ft: '', inch: '', lb: '', act: 'active', goal: 'lose', goalLb: '' };
 const ACTS = [
   ['low', 'Mostly sitting', 'Desk job, little exercise', 1.2],
   ['light', 'Lightly active', 'On your feet some, or 1–2 workouts a week', 1.375],
@@ -1525,18 +1553,19 @@ function showOnboarding(step = 1) {
   if (step === 2) {
     b.innerHTML = `<div class="ob-step"><span class="ob-n">Step 1 of 2</span><h2>About you</h2><p class="hint">Your age, height and sex are used once to suggest your starting targets and aren't saved.</p></div>
       <div class="ob-form">
+        <label>Units ${obSeg('obUnits', [['imperial', 'lb · ft · in'], ['metric', 'kg · cm']], OB.units)}</label>
         <label>Your first name<input id="obName" maxlength="30" value="${esc(OB.name || '')}" placeholder="What should the app call you?" autocomplete="given-name"></label>
         <label>Sex (for the calorie formula)${obSeg('obSex', [['male', 'Male'], ['female', 'Female']], OB.sex)}</label>
         <label>Age<input id="obAge" type="number" inputmode="numeric" min="14" max="100" value="${OB.age}" placeholder="e.g. 27"></label>
         <label>Height ${obSeg('obHu', [['ft', 'ft / in'], ['cm', 'cm']], OB.hu)}
           <div class="grid2" id="obFt" ${OB.hu === 'cm' ? 'hidden' : ''}><input id="obFeet" type="number" inputmode="numeric" placeholder="ft" value="${OB.ft}" aria-label="Feet"><input id="obIn" type="number" inputmode="decimal" placeholder="in" value="${OB.inch}" aria-label="Inches"></div>
           <input id="obCm" type="number" inputmode="decimal" placeholder="cm" value="${OB.cm}" aria-label="Centimetres" ${OB.hu === 'ft' ? 'hidden' : ''}></label>
-        <label>Current weight (lb)<input id="obLb" type="number" inputmode="decimal" step="0.1" value="${OB.lb}" placeholder="e.g. 185"></label>
+        <label>Current weight (${OB.units === 'metric' ? 'kg' : 'lb'})<input id="obLb" type="number" inputmode="decimal" step="0.1" value="${OB.lb}" placeholder="${OB.units === 'metric' ? 'e.g. 84' : 'e.g. 185'}"></label>
         <div class="ob-label">How active are you?</div>
         <div class="ob-cards" id="obAct">${ACTS.map(([v, t, s]) => `<button type="button" class="ob-card" data-v="${v}" aria-pressed="${v === OB.act}"><strong>${t}</strong><span>${s}</span></button>`).join('')}</div>
         <label>Your goal ${obSeg('obGoal', [['lose', 'Lose fat'], ['maintain', 'Maintain'], ['gain', 'Build']], OB.goal)}</label>
         <label>How often can you weigh yourself? ${obSeg('obScale', [['daily', 'Every morning'], ['weekly', 'Once a week'], ['none', 'No scale']], OB.scale)}</label>
-        <label id="obGoalW" ${OB.goal === 'maintain' ? 'hidden' : ''}>Goal weight (lb)<input id="obGoalLb" type="number" inputmode="decimal" step="0.1" value="${OB.goalLb}" placeholder="e.g. 175"></label>
+        <label id="obGoalW" ${OB.goal === 'maintain' ? 'hidden' : ''}>Goal weight (${OB.units === 'metric' ? 'kg' : 'lb'})<input id="obGoalLb" type="number" inputmode="decimal" step="0.1" value="${OB.goalLb}" placeholder="${OB.units === 'metric' ? 'e.g. 79' : 'e.g. 175'}"></label>
         <p class="err" id="obErr" hidden></p>
       </div>
       <div class="ob-actions"><button class="btn" id="obNext">See my targets</button><button class="btn ghost" id="obBack">Back</button></div>`;
@@ -1546,18 +1575,21 @@ function showOnboarding(step = 1) {
     seg('obSex', 'sex'); seg('obHu', 'hu', () => { $('obFt').hidden = OB.hu === 'cm'; $('obCm').hidden = OB.hu === 'ft'; });
     seg('obGoal', 'goal', () => { $('obGoalW').hidden = OB.goal === 'maintain'; });
     seg('obAct', 'act'); seg('obScale', 'scale');
+    seg('obUnits', 'units', () => { keep(); OB.hu = OB.units === 'metric' ? 'cm' : 'ft'; showOnboarding(2); });
     $('obBack').onclick = () => { keep(); showOnboarding(1); };
     $('obNext').onclick = () => {
       keep();
-      const cm = OB.hu === 'cm' ? +OB.cm : (+OB.ft * 12 + (+OB.inch || 0)) * 2.54, lb = +OB.lb, age = +OB.age, g = +OB.goalLb;
+      const toLb = v => OB.units === 'metric' ? v / KG : v;
+      const cm = OB.hu === 'cm' ? +OB.cm : (+OB.ft * 12 + (+OB.inch || 0)) * 2.54, lb = toLb(+OB.lb), age = +OB.age, g = toLb(+OB.goalLb);
       const err = m => { $('obErr').textContent = m; $('obErr').hidden = false; };
       if (!(age >= 14 && age <= 100)) return err('Enter your age.');
       if (!(cm >= 120 && cm <= 230)) return err('Enter your height.');
-      if (!(lb >= 80 && lb <= 600)) return err('Enter your current weight in pounds.');
-      if (OB.goal !== 'maintain' && !(g >= 80 && g <= 600)) return err('Enter your goal weight in pounds.');
+      const unitName = OB.units === 'metric' ? 'kilograms' : 'pounds';
+      if (!(lb >= 80 && lb <= 600)) return err(`Enter your current weight in ${unitName}.`);
+      if (OB.goal !== 'maintain' && !(g >= 80 && g <= 600)) return err(`Enter your goal weight in ${unitName}.`);
       if (OB.goal === 'lose' && g >= lb) return err('For fat loss, your goal weight should be below your current weight.');
       if (OB.goal === 'gain' && g <= lb) return err('To build, your goal weight should be above your current weight.');
-      OB.calc = suggestTargets(cm, lb, age);
+      OB.calc = suggestTargets(cm, lb, age, g);
       showOnboarding(3);
     };
   }
@@ -1570,17 +1602,18 @@ function showOnboarding(step = 1) {
         <label>Calories low<input id="obLo" type="number" inputmode="numeric" value="${c.lo}"></label>
         <label>Calories high<input id="obHi" type="number" inputmode="numeric" value="${c.hi}"></label>
         <label>Protein (g)<input id="obPro" type="number" inputmode="numeric" value="${c.pro}"></label>
-        <label>Goal weight (lb)<input id="obG" type="number" inputmode="decimal" step="0.1" value="${c.goal}"></label>
+        <label>Goal weight (${OB.units === 'metric' ? 'kg' : 'lb'})<input id="obG" type="number" inputmode="decimal" step="0.1" value="${c.goalShown}"></label>
       </div>
-      <p class="hint">${OB.goal === 'lose' ? 'This aims for about 1–1.5 lb a week. ' : OB.goal === 'gain' ? 'This aims for a slow, lean gain of about 0.5 lb a week. ' : ''}After two weeks of logging, the "Your real burn" card on Trends works out your actual burn from your own data and can fine-tune these.</p>
+      <p class="hint">${OB.goal === 'lose' ? `This aims for about ${OB.units === 'metric' ? '0.5–0.7 kg' : '1–1.5 lb'} a week. ` : OB.goal === 'gain' ? `This aims for a slow, lean gain of about ${OB.units === 'metric' ? '0.25 kg' : '0.5 lb'} a week. ` : ''}After two weeks of logging, the "Your real burn" card on Trends works out your actual burn from your own data and can fine-tune these.</p>
       <p class="err" id="obErr" hidden></p>
       <div class="ob-actions"><button class="btn" id="obDone">Start logging</button><button class="btn ghost" id="obBack">Back</button></div>`;
     $('obBack').onclick = () => showOnboarding(2);
     $('obDone').onclick = () => {
-      const lo = +$('obLo').value, hi = +$('obHi').value, pr = +$('obPro').value, g = +$('obG').value;
+      const lo = +$('obLo').value, hi = +$('obHi').value, pr = +$('obPro').value, g = OB.units === 'metric' ? Math.round(+$('obG').value / KG * 100) / 100 : r1(+$('obG').value);
       if (!(lo > 0 && hi >= lo && pr > 0 && g > 0)) { $('obErr').textContent = 'Check the numbers: the low calories must be below the high.'; $('obErr').hidden = false; return; }
       S.targets = { calLo: lo, calHi: hi, protein: pr, goal: g, mode: OB.goal };
-      S.name = (OB.name || '').slice(0, 30); S.startWeight = r1(+OB.lb); S.scale = OB.scale || 'daily';
+      S.units = OB.units || 'imperial';
+      S.name = (OB.name || '').slice(0, 30); S.startWeight = rW(OB.calc.lbNow); S.scale = OB.scale || 'daily';
       S.onboarded = true; S.msInit = true; if (!Sync.user) S.metaUnsynced = true;
       touchMeta(); hideOnboarding(); renderAll(); haptic();
       const hi5 = S.name ? `, ${S.name}` : '';
@@ -1589,7 +1622,7 @@ function showOnboarding(step = 1) {
   }
   replay(b, 'swap-in'); $('onboard').scrollTop = 0;
 }
-function suggestTargets(cm, lb, age) {
+function suggestTargets(cm, lb, age, goalLb) {
   const kg = lb * 0.4536, f = ACTS.find(a => a[0] === OB.act)[3];
   const bmr = 10 * kg + 6.25 * cm - 5 * age + (OB.sex === 'male' ? 5 : -161);
   const tdee = Math.round(bmr * f / 50) * 50, floor = OB.sex === 'male' ? 1500 : 1200;
@@ -1598,9 +1631,10 @@ function suggestTargets(cm, lb, age) {
   else if (OB.goal === 'gain') { lo = tdee + 200; hi = tdee + 400; }
   else { lo = tdee - 150; hi = tdee + 150; }
   lo = Math.max(floor, Math.round(lo / 50) * 50); hi = Math.max(lo + 100, Math.round(hi / 50) * 50);
-  const goal = OB.goal === 'maintain' ? r1(lb) : r1(+OB.goalLb);
+  const goal = OB.goal === 'maintain' ? lb : goalLb;          // in lb
   const pro = Math.min(250, Math.max(90, Math.round((OB.goal === 'lose' ? goal : lb) * 0.8 / 5) * 5));
-  return { tdee, lo, hi, pro, goal };
+  const shown = v => String(Math.round((OB.units === 'metric' ? v * KG : v) * 10) / 10);
+  return { tdee, lo, hi, pro, goal, goalShown: shown(goal), lbNow: lb };
 }
 function hideOnboarding() {
   const o = $('onboard'); if (o.hidden) return;
@@ -1637,6 +1671,11 @@ function openGoalEdit(open) {
 }
 $('goalEdit').onclick = () => openGoalEdit(true);
 $('goalCancel').onclick = () => openGoalEdit(false);
+$('pUnits').onclick = e => {
+  const b = e.target.closest('[data-v]'); if (!b || b.dataset.v === (S.units || 'imperial')) return;
+  S.units = b.dataset.v; touchMeta(); renderAll(); if (tab === 'trends') renderTrends(); haptic();
+  toast(metric() ? 'Showing kilograms and centimetres' : 'Showing pounds and inches');
+};
 $('pScale').onclick = e => {
   const b = e.target.closest('[data-v]'); if (!b || b.dataset.v === scale()) return;
   S.scale = b.dataset.v; delete $('wForm').dataset.editing; touchMeta(); renderAll(); haptic();
@@ -1661,12 +1700,12 @@ $('rows').onclick = e => {
   openAmount(entryFood(en), en.food ? { qty: en.qty, unit: en.unit } : { qty: 1, unit: 'serving' }, { editId: en.id });
 };
 $('wSave').onclick = () => {
-  const v = parseFloat($('wIn').value), t = todayIso(), f = $('wForm');
-  if (!(v >= 80 && v <= 500)) { toast('Enter your weight in pounds.'); return; }
+  const v = fromW(parseFloat($('wIn').value)), t = todayIso(), f = $('wForm');
+  if (!(v >= 80 && v <= 500)) { toast(`Enter your weight in ${metric() ? 'kilograms' : 'pounds'}.`); return; }
   let d = !$('wDateWrap').hidden && $('wDate').value ? $('wDate').value : (f.dataset.editing === '1' && f.dataset.date) || t;
   if (d > t) { toast("That date hasn't happened yet."); return; }
   if (daysBetween(d, t) > 90) { toast('Pick a date within the last 3 months.'); return; }
-  S.weights[d] = r1(v); touchDay(d);
+  S.weights[d] = rW(v); touchDay(d);
   delete f.dataset.editing; $('wDateWrap').hidden = true; $('wDateBtn').hidden = false; $('wIn').blur(); $('wIn').value = '';
   renderWeights();
   replay($('wDone'), 'done-in'); replay($('avg7'), 'pop'); haptic(); toast(d === t ? 'Weigh-in saved' : `Saved for ${shortDate(d)}`);
@@ -1687,14 +1726,14 @@ $('haveScale').onclick = () => { $('wForm').dataset.editing = '1'; $('wForm').da
 /* ---------- waist ---------- */
 function waistArr() { return Object.entries(S.waist || {}).map(([date, v]) => ({ date, v: +v })).sort((a, b) => (a.date < b.date ? -1 : 1)); }
 const WAIST_EVERY = 14;
-const fmtIn = v => `${(Math.round(v * 100) / 100).toString()}″`;
+const fmtIn = v => metric() ? `${fL(v)} cm` : `${fL(v)}″`;
 function renderWaist() {
   const z = waistArr(), t = todayIso(), f = $('zForm');
   const last = z[z.length - 1], first = z[0], editing = f.dataset.editing === '1', fresh = f.dataset.fresh === '1';
   const logged = !!last && !editing && !fresh && daysBetween(last.date, t) < WAIST_EVERY;
   f.hidden = logged; $('zDone').hidden = !logged;
   if (logged) {
-    $('zNum').textContent = (Math.round(last.v * 100) / 100).toString();
+    $('zNum').textContent = fL(last.v);
     $('zTag').textContent = last.date === t ? 'Logged today' : `Measured ${shortDate(last.date)}`;
     const prev = z[z.length - 2], dl = $('zDelta'); dl.className = 'wdone-delta';
     if (prev) {
@@ -1706,7 +1745,7 @@ function renderWaist() {
     $('zNext').textContent = `Next check: ${shortDate(nd)}`;
     $('zNew').hidden = last.date === t;
   } else if (document.activeElement !== $('zIn')) {
-    $('zIn').value = editing && last ? last.v : '';
+    $('zIn').value = editing && last ? fL(last.v) : '';
   }
   $('zStats').hidden = z.length < 2;
   $('zStart').textContent = first ? fmtIn(first.v) : '–';
@@ -1721,10 +1760,10 @@ function renderWaist() {
     : 'Measure at your belly button, relaxed, every two weeks. Waist going down while your weight holds steady means fat loss, not muscle loss.';
 }
 $('zSave').onclick = () => {
-  const v = parseFloat($('zIn').value), t = todayIso(), f = $('zForm');
-  if (!(v >= 15 && v <= 80)) { toast('Enter your waist in inches.'); return; }
+  const v = parseFloat($('zIn').value), t = todayIso(), f = $('zForm');   // entered in inches or cm
+  if (!(fromL(v) >= 15 && fromL(v) <= 80)) { toast(`Enter your waist in ${metric() ? 'centimetres' : 'inches'}.`); return; }
   const z = waistArr(), d = f.dataset.editing === '1' && z.length ? z[z.length - 1].date : t;
-  S.waist[d] = Math.round(v * 4) / 4; touchDay(d);
+  S.waist[d] = metric() ? Math.round(fromL(v) * 100) / 100 : Math.round(v * 4) / 4; touchDay(d);
   delete f.dataset.editing; delete f.dataset.fresh; $('zIn').value = ''; $('zIn').blur();
   renderWaist(); replay($('zDone'), 'done-in'); haptic(); toast('Waist saved');
 };
@@ -1733,12 +1772,12 @@ $('zNew').onclick = () => { $('zForm').dataset.fresh = '1'; renderWaist(); repla
 $('zIn').addEventListener('keydown', e => { if (e.key === 'Enter') $('zSave').click(); });
 $('tForm').onsubmit = e => {
   e.preventDefault();
-  const lo = +$('tLo').value, hi = +$('tHi').value, pr = +$('tPro').value, g = +$('tGoal').value, sw = $('tStart').value.trim();
+  const lo = +$('tLo').value, hi = +$('tHi').value, pr = +$('tPro').value, g = rW(fromW(+$('tGoal').value)), sw = $('tStart').value.trim();
   if (!(lo > 0 && hi >= lo && pr > 0 && g > 0)) { toast('Check the targets: the low number must be below the high one.'); return; }
-  if (sw && !(+sw >= 80 && +sw <= 600)) { toast('Starting weight should be in pounds.'); return; }
+  if (sw && !(fromW(+sw) >= 80 && fromW(+sw) <= 600)) { toast(`Starting weight should be in ${metric() ? 'kilograms' : 'pounds'}.`); return; }
   const newMode = $('pMode').dataset.pending || mode(), changed = newMode !== mode();
   S.targets = { ...S.targets, calLo: lo, calHi: hi, protein: pr, goal: g, mode: newMode };
-  S.startWeight = sw ? r1(+sw) : null;
+  S.startWeight = sw ? rW(fromW(+sw)) : null;
   document.activeElement?.blur?.(); openGoalEdit(false); touchMeta(); renderAll(); haptic();
   toast(changed ? `Goal set to ${MODES[newMode]}` : 'Goal and targets saved');
 };

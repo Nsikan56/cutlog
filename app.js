@@ -247,26 +247,106 @@ function toast(msg, action) {
 /* When building a meal, food flows hand their result back here instead of logging it */
 let pick = null, draft = null;
 
-/* ---------- sheet ---------- */
+/* ---------- sheet (draggable, with resting points like iOS) ---------- */
+const sheetEl = $('sheet'), scrimEl = $('scrim'), sheetBody = $('sheetBody');
+const SH = { y: 0, open: false, hideTimer: null, drag: null };
 let onSheetClose = null;
+const EASE = 'cubic-bezier(.2,.8,.2,1)';
+function sheetH() { return sheetEl.offsetHeight || 1; }
+function detents() { return [0, sheetH()]; }   // open where it opens, or closed
+function setY(y, animate) {
+  SH.y = y;
+  const tr = animate ? `transform .36s ${EASE}` : 'none';
+  sheetEl.style.transition = tr; sheetEl.style.transform = `translateY(${y}px)`;
+  const p = Math.max(0, Math.min(1, 1 - y / sheetH()));
+  scrimEl.style.transition = animate ? 'opacity .36s' : 'none'; scrimEl.style.opacity = p;
+  const app = $('app');
+  app.style.transition = animate ? tr : 'none';
+  app.style.transformOrigin = `50% ${scrollY + innerHeight / 2}px`;
+  app.style.transform = p > 0.001 ? `scale(${1 - 0.04 * p})` : '';
+}
 function openSheet(title, html, cleanup) {
   if (onSheetClose) { try { onSheetClose(); } catch (e) {} }
+  clearTimeout(SH.hideTimer);
   $('sheetTitle').textContent = title;
-  $('sheetBody').innerHTML = html;
-  $('sheetBody').scrollTop = 0;
-  $('sheet').hidden = false; $('scrim').hidden = false;
-  document.body.style.overflow = 'hidden';
+  sheetBody.innerHTML = html;
+  sheetBody.scrollTop = 0;
   onSheetClose = cleanup || null;
+  sheetEl.style.pointerEvents = ''; scrimEl.style.pointerEvents = '';
+  if (!SH.open) {
+    SH.open = true;
+    sheetEl.hidden = false; scrimEl.hidden = false;
+    document.body.style.overflow = 'hidden';
+    setY(sheetH(), false);
+    sheetEl.getBoundingClientRect();          // commit the start position before animating in
+    requestAnimationFrame(() => setY(0, true));
+  } else if (SH.y !== 0) setY(0, true);
 }
 function closeSheet() {
   pick = null; draft = null;
   if (onSheetClose) { try { onSheetClose(); } catch (e) {} onSheetClose = null; }
-  $('sheet').hidden = true; $('scrim').hidden = true;
-  document.body.style.overflow = '';
+  if (!SH.open) return;
+  SH.open = false; SH.drag = null;
+  sheetEl.style.pointerEvents = 'none'; scrimEl.style.pointerEvents = 'none';
+  setY(sheetH(), true);
+  clearTimeout(SH.hideTimer);
+  SH.hideTimer = setTimeout(() => {
+    sheetEl.hidden = true; scrimEl.hidden = true;
+    sheetEl.style.pointerEvents = ''; scrimEl.style.pointerEvents = '';
+    document.body.style.overflow = ''; $('app').style.transform = '';
+  }, 360);
 }
 $('sheetClose').onclick = closeSheet;
-$('scrim').onclick = closeSheet;
-document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('sheet').hidden) closeSheet(); });
+scrimEl.onclick = closeSheet;
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && SH.open) closeSheet(); });
+
+/* finger tracking */
+function dragStart(y, t, target) {
+  if (!SH.open) return;
+  SH.drag = { y0: y, startY: SH.y, mode: null, inBody: sheetBody.contains(target), samples: [[y, t]] };
+}
+function dragMove(y, t, e) {
+  const d = SH.drag; if (!d) return;
+  if (!d.mode) {
+    const dy = y - d.y0;
+    if (Math.abs(dy) < 6) return;
+    const atTop = sheetBody.scrollTop <= 0;
+    d.mode = !d.inBody || (dy > 0 && atTop) ? 'drag' : 'scroll';
+    d.y0 = y;
+  }
+  if (d.mode !== 'drag') return;
+  if (e.cancelable) e.preventDefault();
+  let ny = d.startY + (y - d.y0);
+  if (ny < 0) ny = -Math.pow(-ny, 0.7);      // rubber band above the top
+  setY(ny, false);
+  d.samples.push([y, t]); if (d.samples.length > 5) d.samples.shift();
+}
+function dragEnd() {
+  const d = SH.drag; SH.drag = null;
+  if (!d || d.mode !== 'drag') return;
+  const b = d.samples[d.samples.length - 1], a = d.samples.find(s => b[1] - s[1] <= 80) || d.samples[0];
+  const v = b[1] > a[1] ? (b[0] - a[0]) / (b[1] - a[1]) : 0;   // px per ms, + is down
+  const ds = detents(), closed = ds[ds.length - 1];
+  const moved = SH.y - d.startY;
+  let target;
+  // close on a downward flick or when pulled past a third of the way; otherwise spring back
+  if (v > 1 || (moved > sheetH() / 3 && v > -0.2)) target = closed;
+  else target = 0;
+  if (target >= closed - 1) closeSheet(); else setY(target, true);
+}
+sheetEl.addEventListener('touchstart', e => dragStart(e.touches[0].clientY, e.timeStamp, e.target), { passive: true });
+sheetEl.addEventListener('touchmove', e => dragMove(e.touches[0].clientY, e.timeStamp, e), { passive: false });
+sheetEl.addEventListener('touchend', dragEnd);
+sheetEl.addEventListener('touchcancel', dragEnd);
+/* mouse: drag by the handle or title bar on a laptop */
+sheetEl.addEventListener('pointerdown', e => {
+  if (e.pointerType !== 'mouse' || !e.target.closest('.grab, .sheet-head') || e.target.closest('button')) return;
+  dragStart(e.clientY, e.timeStamp, e.target);
+  const mv = ev => dragMove(ev.clientY, ev.timeStamp, ev);
+  const up = () => { removeEventListener('pointermove', mv); removeEventListener('pointerup', up); dragEnd(); };
+  addEventListener('pointermove', mv); addEventListener('pointerup', up);
+});
+addEventListener('resize', () => { if (SH.open && !SH.drag) setY(0, false); });
 
 /* ---------- amount step (shared by every flow) ---------- */
 function openAmount(f, preset, opts = {}) {
@@ -667,7 +747,7 @@ function openMealEditor(d) {
   if ($('mDelete')) $('mDelete').onclick = () => {
     const i = S.meals.findIndex(x => x.id === d.id); if (i < 0) return;
     const [gone] = S.meals.splice(i, 1); touchMeta(); openMeals();
-    toast(`Deleted ${gone.name}`, { label: 'Undo', fn: () => { S.meals.splice(i, 0, gone); touchMeta(); if (!$('sheet').hidden && $('sheetTitle').textContent === 'My meals') openMeals(); } });
+    toast(`Deleted ${gone.name}`, { label: 'Undo', fn: () => { S.meals.splice(i, 0, gone); touchMeta(); if (SH.open && $('sheetTitle').textContent === 'My meals') openMeals(); } });
   };
 }
 
@@ -775,7 +855,7 @@ async function initSync() {
     Sync.auth.onAuthStateChanged(u => {
       stopUser();
       if (u) startUser(u); else setSync('signedout');
-      if (!$('sheet').hidden && $('sheetTitle').textContent === 'Cloud sync') openAccount();
+      if (SH.open && $('sheetTitle').textContent === 'Cloud sync') openAccount();
     });
   } catch (e) {
     setSync('offline');   // scripts couldn't load (no connection); the app still works on this phone

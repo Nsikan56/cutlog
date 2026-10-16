@@ -597,8 +597,11 @@ function openAmount(f, preset, opts = {}) {
     rememberFood(f); pushRecent(f, q, unit); touchMeta(); renderSettings();
     if (picking) { pick = null; picking.onDone(f, q, unit, v); return; }
     if (editing) {
+      const moved = editEntry && slotOf(editEntry) !== slot;
       if (editEntry) Object.assign(editEntry, { kcal: r1(v.kcal), pro: r1(v.pro), detail, food: f, qty: q, unit, slot });
-      touchDay(day); renderTotals(); renderRows(); closeSheet(); toast('Entry updated'); return;
+      if (moved) { S.slotPref[f.id] = slot; touchMeta(); }      // moving a food teaches the app where it usually goes
+      touchDay(day); renderTotals(); renderRows(); closeSheet();
+      toast(moved ? `Moved to ${SLOTS.find(s => s[0] === slot)[1]}. It'll go there next time too.` : 'Entry updated'); return;
     }
     S.slotPref[f.id] = slot;
     // logging the same thing again in the same meal adds to the existing line
@@ -967,6 +970,7 @@ function renderAcct() {
   const cfg = window.FIREBASE_CONFIG;
   $('acctState').textContent = $('syncText').textContent;
   $('acctText').textContent = !cfg?.apiKey ? 'Everything is saved on this phone.'
+    : Sync.user && Sync.state === 'denied' ? `Signed in as ${Sync.user.email}, but this email isn't on the invite list yet. Your log is saved on this phone.`
     : Sync.user ? `Signed in as ${Sync.user.email}. Your log syncs to the cloud and your other devices.`
     : 'Sign in to back up your log and use it on your laptop too.';
   $('acctBtn').textContent = Sync.user ? 'Manage account' : 'Sign in';
@@ -975,7 +979,7 @@ function renderSync() {
   const b = $('syncBtn'); if (!b) return;
   const map = {
     local: ['', 'This phone'], loading: ['busy', 'Connecting…'], signedout: ['bad', 'Sign in to sync'],
-    syncing: ['busy', 'Saving…'], synced: ['ok', 'Synced'], offline: ['bad', 'Offline'], error: ['bad', 'Sync paused'],
+    syncing: ['busy', 'Saving…'], synced: ['ok', 'Synced'], offline: ['bad', 'Offline'], error: ['bad', 'Sync paused'], denied: ['bad', 'Not invited'],
   };
   const [cls, txt] = map[Sync.state] || map.local;
   b.className = 'sync ' + cls; $('syncText').textContent = txt; renderAcct();
@@ -1030,7 +1034,9 @@ async function flush() {
     Sync.flushing = false;
     if (S.dirty.length) flush(); else setSync('synced');
   } catch (e) {
-    Sync.flushing = false; setSync(navigator.onLine ? 'error' : 'offline');
+    Sync.flushing = false;
+    if (e?.code === 'permission-denied') { setSync('denied'); return; }
+    setSync(navigator.onLine ? 'error' : 'offline');
     clearTimeout(Sync.timer); Sync.timer = setTimeout(flush, 15000);
   }
 }
@@ -1052,7 +1058,7 @@ function startUser(user) {
     if (snap.metadata.hasPendingWrites) return;
     if (snap.exists) { seenMeta = true; if (mergeRemote('meta', 'main', snap.data())) { persist(); renderAll(); } }
     if (!gotMeta) { gotMeta = true; firstDone(); }
-  }, () => setSync('error')));
+  }, e => setSync(e?.code === 'permission-denied' ? 'denied' : 'error')));
   Sync.unsub.push(base.collection('days').onSnapshot(qs => {
     let changed = false;
     qs.docChanges().forEach(c => {
@@ -1062,7 +1068,7 @@ function startUser(user) {
     });
     if (changed) { persist(); renderAll(); }
     if (!gotDays) { gotDays = true; firstDone(); }
-  }, () => setSync('error')));
+  }, e => setSync(e?.code === 'permission-denied' ? 'denied' : 'error')));
 }
 function stopUser() { Sync.unsub.forEach(u => { try { u(); } catch (e) {} }); Sync.unsub = []; Sync.user = null; }
 async function initSync() {
@@ -1107,6 +1113,15 @@ function openAccount() {
     openSheet('Cloud sync', `<div class="acct"><strong>Can't reach the sync service</strong><span class="hint">You might be offline. Your entries are safe on this phone and will sync once you're connected.</span></div>
       <button class="btn" id="retry">Try again</button>`);
     $('retry').onclick = () => { closeSheet(); initSync(); };
+    return;
+  }
+  if (Sync.user && Sync.state === 'denied') {
+    openSheet('Cloud sync', `<div class="acct"><strong>This email isn't on the invite list yet</strong>
+      <span class="hint">You're signed in as ${esc(Sync.user.email)}, but syncing is limited to invited friends. Ask the person who shared the app to add this email. Your log is still saved on this phone and will sync as soon as you're added.</span></div>
+      <button class="btn" id="retryInv">Check again</button>
+      <button class="btn ghost" id="signOut">Sign out</button>`);
+    $('retryInv').onclick = () => { closeSheet(); const u = Sync.user; stopUser(); startUser(u); };
+    $('signOut').onclick = () => Sync.auth.signOut();
     return;
   }
   if (Sync.user) {

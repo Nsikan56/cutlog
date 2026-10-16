@@ -325,10 +325,21 @@ async function lookupBarcode(code) {
   }
   return {};
 }
-let scanReader = null;
-function stopScan() { if (scanReader) { try { scanReader.reset(); } catch (e) {} scanReader = null; } }
+const ZXW = 'https://cdn.jsdelivr.net/npm/zxing-wasm@2.2.4/dist/iife/reader/index.js';
+const BC_OPTS = { formats: ['EAN-13', 'EAN-8', 'UPC-A', 'UPC-E'], tryHarder: true, maxNumberOfSymbols: 1 };
+const scan = { stream: null, timer: null, stop: true, track: null };
+function stopScan() {
+  scan.stop = true; clearTimeout(scan.timer);
+  if (scan.stream) { scan.stream.getTracks().forEach(t => t.stop()); scan.stream = null; scan.track = null; }
+}
+async function decodeBarcode(input) {
+  const r = await ZXingWASM.readBarcodes(input, BC_OPTS);
+  const ok = r.find(b => b.isValid && b.text);
+  return ok ? ok.text : null;
+}
 async function handleCode(code) {
   stopScan();
+  if (navigator.vibrate) navigator.vibrate(50);
   $('sheetBody').innerHTML = `<div class="loading"><div class="spinner"></div>Looking up ${esc(code)}…</div>`;
   const r = await lookupBarcode(code);
   if (r.food) { openAmount(r.food, S.recent.find(x => x.food.id === r.food.id)); return; }
@@ -341,36 +352,63 @@ async function handleCode(code) {
 }
 function openScan() {
   openSheet('Scan barcode', `
-    <div class="video-wrap"><video id="scanVideo" playsinline muted></video><div class="aim"></div><div class="laser"></div></div>
-    <p class="hint" id="scanHint">Line the barcode up inside the box and hold steady.</p>
+    <div class="video-wrap"><video id="scanVideo" playsinline muted autoplay></video><div class="aim"></div><div class="laser"></div>
+      <button class="torch" id="torch" hidden aria-label="Flashlight">Light</button></div>
+    <p class="hint" id="scanHint">Starting camera…</p>
     <button class="btn ghost" id="snapCode">Take a photo of the barcode instead</button>
     <div class="wrow"><input id="codeIn" inputmode="numeric" placeholder="Or type the barcode number" aria-label="Barcode number"><button class="btn" id="codeGo">Look up</button></div>`,
     stopScan);
   $('codeGo').onclick = () => { const c = $('codeIn').value.replace(/\D/g, ''); if (c.length >= 8) handleCode(c); else toast('Barcodes are 8 to 13 digits.'); };
   $('snapCode').onclick = () => pickPhoto(async file => {
-    if (!window.ZXing) { toast('Scanner is still loading. Try again in a moment.'); return; }
-    const url = URL.createObjectURL(file);
-    try { const res = await new ZXing.BrowserMultiFormatReader(scanHints()).decodeFromImageUrl(url); handleCode(res.getText()); }
-    catch (e) { toast("Couldn't read that barcode. Try again closer, or type the number."); }
-    finally { URL.revokeObjectURL(url); }
+    try {
+      await loadScript(ZXW);
+      const t = await decodeBarcode(file);
+      if (t) handleCode(t); else toast("Couldn't find a barcode in that photo. Fill the frame with it and try again.");
+    } catch (e) { toast("The scanner didn't load. Check your connection, or type the number."); }
   });
   startLiveScan();
 }
-function scanHints() {
-  const h = new Map(), F = ZXing.BarcodeFormat;
-  h.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E]);
-  h.set(ZXing.DecodeHintType.TRY_HARDER, true);
-  return h;
-}
-function startLiveScan(tries = 0) {
-  if ($('sheet').hidden || !$('scanVideo')) return;
-  if (!window.ZXing) { if (tries < 40) setTimeout(() => startLiveScan(tries + 1), 250); else $('scanHint').textContent = "The scanner didn't load. Check your connection, or type the number."; return; }
-  if (!navigator.mediaDevices?.getUserMedia) { $('scanHint').textContent = "Live camera isn't available here. Use the photo button or type the number."; return; }
-  scanReader = new ZXing.BrowserMultiFormatReader(scanHints(), 200);
-  let done = false;
-  scanReader.decodeFromConstraints({ video: { facingMode: 'environment' } }, $('scanVideo'), res => {
-    if (res && !done) { done = true; if (navigator.vibrate) navigator.vibrate(60); handleCode(res.getText()); }
-  }).catch(() => { if ($('scanHint')) $('scanHint').textContent = 'Camera access was blocked. Allow the camera for this app, or use the photo button.'; });
+async function startLiveScan() {
+  const hint = $('scanHint'), v = $('scanVideo');
+  scan.stop = false;
+  try { await loadScript(ZXW); } catch (e) { hint.textContent = "The scanner didn't load. Check your connection, or type the number."; return; }
+  if (!navigator.mediaDevices?.getUserMedia) { hint.textContent = "Live camera isn't available here. Use the photo button or type the number."; return; }
+  try {
+    scan.stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } } });
+  } catch (e) { hint.textContent = 'Camera access was blocked. Allow the camera for this app, or use the photo button.'; return; }
+  if (scan.stop || !$('scanVideo')) { stopScan(); return; }
+  v.srcObject = scan.stream;
+  try { await v.play(); } catch (e) {}
+  scan.track = scan.stream.getVideoTracks()[0];
+  try {
+    const caps = scan.track.getCapabilities ? scan.track.getCapabilities() : {};
+    if (caps.focusMode && caps.focusMode.includes('continuous')) await scan.track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] });
+    if (caps.torch) {
+      let on = false; $('torch').hidden = false;
+      $('torch').onclick = async () => { on = !on; try { await scan.track.applyConstraints({ advanced: [{ torch: on }] }); $('torch').classList.toggle('on', on); } catch (e) {} };
+    }
+  } catch (e) {}
+  hint.textContent = 'Line the barcode up inside the box, about a hand-length away.';
+  const c = document.createElement('canvas'), x = c.getContext('2d', { willReadFrequently: true });
+  const hits = {};
+  const tick = async () => {
+    if (scan.stop) return;
+    const vw = v.videoWidth, vh = v.videoHeight, cw = v.clientWidth, ch = v.clientHeight;
+    if (v.readyState >= 2 && vw && cw) {
+      // read only the strip inside the on-screen box (video is cropped to fill its frame)
+      const s = Math.max(cw / vw, ch / vh), visW = cw / s, visH = ch / s;
+      const sw = visW * 0.9, sh = visH * 0.5, sx = (vw - sw) / 2, sy = (vh - sh) / 2;
+      const k = Math.min(1, 1280 / sw);
+      c.width = Math.round(sw * k); c.height = Math.round(sh * k);
+      x.drawImage(v, sx, sy, sw, sh, 0, 0, c.width, c.height);
+      try {
+        const t = await decodeBarcode(x.getImageData(0, 0, c.width, c.height));
+        if (t) { hits[t] = (hits[t] || 0) + 1; if (hits[t] >= 2) { handleCode(t); return; } }   // two matching reads = no misreads
+      } catch (e) {}
+    }
+    scan.timer = setTimeout(tick, 40);
+  };
+  tick();
 }
 
 /* ---------- photo input ---------- */

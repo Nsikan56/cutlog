@@ -82,7 +82,7 @@ function unitsFor(f) {
     u.push({ key: 'tbsp', label: 'tbsp', long: 'tablespoon', g: 15 });
     u.push({ key: 'tsp', label: 'tsp', long: 'teaspoon', g: 5 });
     if (f.cup) u.push({ key: 'cup', label: 'cup', g: f.cup });
-    u.push({ key: 'oz', label: 'oz', g: 28.35 });
+    u.push({ key: 'oz', label: 'oz (weight)', long: 'ounce by weight, 28 g', g: 28.35 });
   }
   return u;
 }
@@ -235,7 +235,8 @@ function pushRecent(f, qty, unit) {
 /* ---------- toast ---------- */
 let toastTimer;
 function toast(msg, action) {
-  const t = $('toast'); t.textContent = msg; t.hidden = false;
+  const t = $('toast'); t.textContent = ''; t.hidden = false;
+  const m = document.createElement('span'); m.className = 'toast-msg'; m.textContent = msg; t.appendChild(m);
   if (action) {
     const b = document.createElement('button'); b.className = 'toast-act'; b.textContent = action.label;
     b.onclick = () => { t.hidden = true; clearTimeout(toastTimer); action.fn(); };

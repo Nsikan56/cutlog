@@ -255,3 +255,10 @@ body{padding-bottom:calc(86px + env(safe-area-inset-bottom,0px))}
 #burnBody{display:flex;flex-direction:column;gap:12px}
 .suggest .v small{font-family:var(--body);font-size:12px;color:var(--muted);font-weight:600;margin-left:3px}
 .suggest .v{font-size:clamp(15px,4.6vw,21px);white-space:nowrap}
+
+/* toast: one-line bar above the tab bar */
+.toast{left:max(16px,env(safe-area-inset-left,0px));right:max(16px,env(safe-area-inset-right,0px));transform:none;max-width:528px;margin:0 auto;
+  border-radius:14px;padding:0;gap:0;background:var(--raised);color:var(--ink);border:1px solid var(--line);
+  box-shadow:0 10px 30px rgba(0,0,0,.35);font-size:15px;font-weight:600;overflow:hidden}
+.toast-msg{flex:1;min-width:0;padding:14px 16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.toast-act{flex:none;align-self:stretch;padding:0 18px;border-left:1px solid var(--line);font-size:14px;letter-spacing:.04em}

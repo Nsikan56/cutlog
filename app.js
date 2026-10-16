@@ -749,6 +749,9 @@ $('importIn').onchange = async () => {
 };
 document.addEventListener('visibilitychange', () => { if (!document.hidden) { renderAll(); if (Sync.user) flush(); } });
 
+/* app feel: no pinch zoom (iOS ignores the viewport setting) */
+['gesturestart', 'gesturechange'].forEach(t => document.addEventListener(t, e => e.preventDefault(), { passive: false }));
+
 renderAll();
 initSync();
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});

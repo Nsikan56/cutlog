@@ -97,7 +97,9 @@ function unitWord(f, unitKey, qty) {
   const u = unitsFor(f).find(x => x.key === unitKey);
   if (!u) return '';
   const short = { g: 'g', tbsp: 'tbsp', tsp: 'tsp', oz: 'oz', cup: qty === 1 ? 'cup' : 'cups', serving: qty === 1 ? 'serving' : 'servings' }[u.key];
-  return short || (u.label + (qty !== 1 && !/s$/.test(u.label) ? 's' : ''));
+  if (short) return short;
+  if (qty === 1 || /s$/.test(u.label)) return u.label;
+  return /o$/.test(u.label) ? u.label + 'es' : u.label + 's';
 }
 function perLine(f) {
   if (f.kcal100 != null) {
@@ -108,7 +110,7 @@ function perLine(f) {
   if (f.kcalServ != null) return `${Math.round(f.kcalServ)} kcal · ${r1(f.proServ || 0)}g protein per serving`;
   return '';
 }
-function stepFor(unit) { return unit === 'g' ? 10 : (unit === 'piece' || unit === 'serving') ? 1 : 0.5; }
+function stepFor(unit) { return unit === 'g' ? 10 : unit === 'piece' ? 1 : 0.5; }
 
 /* ---------- rendering ---------- */
 function entriesFor(d) { return S.log[d] || []; }
@@ -145,7 +147,7 @@ function renderRows() {
   r.innerHTML = es.map(e => {
     const time = e.at ? new Date(e.at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : '';
     const sub = [e.detail, time].filter(Boolean).join(' · ');
-    return `<div class="row"><span class="n">${esc(e.name)}${sub ? `<small>${esc(sub)}</small>` : ''}</span>
+    return `<div class="row" data-id="${esc(e.id)}"><span class="n">${esc(e.name)}${sub ? `<small>${esc(sub)}</small>` : ''}</span>
       <span class="c">${Math.round(e.kcal)}<small>kcal</small></span><span class="pill">${Math.round(e.pro)}g</span>
       <button class="x" data-del="${esc(e.id)}" aria-label="Remove ${esc(e.name)}">${icon('i-x')}</button></div>`;
   }).join('');
@@ -205,26 +207,44 @@ function renderSettings() {
 function renderAll() { renderDay(); renderTotals(); renderRows(); renderWeights(); renderSettings(); renderSync(); if (typeof tab !== 'undefined' && tab === 'trends') renderTrends(); }
 
 /* ---------- log actions ---------- */
-function addEntry(name, kcal, pro, detail) {
-  (S.log[day] ||= []).push({ id: uid(), name, kcal: r1(kcal), pro: r1(pro), detail: detail || '', at: Date.now() });
+function addEntry(name, kcal, pro, detail, src) {
+  const e = { id: uid(), name, kcal: r1(kcal), pro: r1(pro), detail: detail || '', at: Date.now() };
+  if (src) { e.food = src.food; e.qty = src.qty; e.unit = src.unit; }
+  (S.log[day] ||= []).push(e);
   touchDay(day); renderTotals(); renderRows();
 }
+function removeEntry(id) {
+  const list = entriesFor(day), i = list.findIndex(x => x.id === id); if (i < 0) return;
+  const [gone] = list.splice(i, 1), d = day;
+  if (!list.length) delete S.log[d];
+  touchDay(d); renderTotals(); renderRows();
+  toast(`Removed ${gone.name}`, { label: 'Undo', fn: () => { (S.log[d] ||= []).splice(i, 0, gone); touchDay(d); renderTotals(); renderRows(); } });
+}
+const NOT_SAVED = ['built-in', 'meal', 'entry'];
 function rememberFood(f) {
-  if (f.source !== 'built-in') {
+  if (!NOT_SAVED.includes(f.source)) {
     const i = S.foods.findIndex(x => x.id === f.id);
     if (i >= 0) S.foods[i] = f; else S.foods.unshift(f);
   }
 }
 function pushRecent(f, qty, unit) {
+  if (NOT_SAVED.includes(f.source) && f.source !== 'built-in') return;
   S.recent = [{ food: f, qty, unit }, ...S.recent.filter(r => r.food.id !== f.id)].slice(0, 12);
 }
 
 /* ---------- toast ---------- */
 let toastTimer;
-function toast(msg) {
+function toast(msg, action) {
   const t = $('toast'); t.textContent = msg; t.hidden = false;
-  clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, 2600);
+  if (action) {
+    const b = document.createElement('button'); b.className = 'toast-act'; b.textContent = action.label;
+    b.onclick = () => { t.hidden = true; clearTimeout(toastTimer); action.fn(); };
+    t.appendChild(b);
+  }
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, action ? 5000 : 2600);
 }
+/* When building a meal, food flows hand their result back here instead of logging it */
+let pick = null, draft = null;
 
 /* ---------- sheet ---------- */
 let onSheetClose = null;
@@ -238,6 +258,7 @@ function openSheet(title, html, cleanup) {
   onSheetClose = cleanup || null;
 }
 function closeSheet() {
+  pick = null; draft = null;
   if (onSheetClose) { try { onSheetClose(); } catch (e) {} onSheetClose = null; }
   $('sheet').hidden = true; $('scrim').hidden = true;
   document.body.style.overflow = '';
@@ -247,14 +268,16 @@ $('scrim').onclick = closeSheet;
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('sheet').hidden) closeSheet(); });
 
 /* ---------- amount step (shared by every flow) ---------- */
-function openAmount(f, preset) {
+function openAmount(f, preset, opts = {}) {
   const units = unitsFor(f);
   if (!units.length) { toast('This food has no calorie data. Try the label photo instead.'); return; }
   let unit = preset?.unit && units.some(u => u.key === preset.unit) ? preset.unit
     : (units.find(u => u.key === 'piece') || units.find(u => u.key === 'serving') || units[0]).key;
   const startQty = preset?.qty ?? (unit === 'g' ? 100 : 1);
   const dayName = $('dayLabel').textContent;
-  openSheet('How much?', `
+  const editing = opts.editId, picking = pick;
+  const cta = picking ? picking.label : editing ? 'Save changes' : `Add to ${dayName === 'Today' ? 'today' : dayName}`;
+  openSheet(editing ? 'Edit entry' : 'How much?', `
     <div class="food-head"><strong>${esc(f.name)}</strong><span>${esc([f.brand, perLine(f)].filter(Boolean).join(' · '))}</span></div>
     <div class="stepper">
       <button id="aMinus" aria-label="Less">−</button>
@@ -264,8 +287,9 @@ function openAmount(f, preset) {
     <div class="chips" id="aUnits" role="group" aria-label="Unit">${units.map(u => `<button class="chip" data-u="${u.key}" aria-pressed="${u.key === unit}" title="${esc(u.long || u.label)}">${esc(u.key === 'serving' && f.servingLabel ? 'serving · ' + f.servingLabel : u.label)}</button>`).join('')}</div>
     <div class="result"><div><span class="num" id="aK">0</span><small>kcal</small></div><div class="pro"><span class="num" id="aP">0g</span><small>protein</small></div></div>
     <p class="hint" id="aNote" hidden>Spoon sizes are approximate: about 15 g per tablespoon and 5 g per teaspoon. A heaping spoon is closer to 25 g.</p>
-    <button class="btn" id="aAdd">Add to ${esc(dayName === 'Today' ? 'today' : dayName)}</button>
-    <button class="btn ghost" id="aFix">Numbers look wrong? Fix them</button>`);
+    <button class="btn" id="aAdd">${esc(cta)}</button>
+    ${NOT_SAVED.includes(f.source) ? '' : '<button class="btn ghost" id="aFix">Numbers look wrong? Fix them</button>'}
+    ${editing ? '<button class="btn danger" id="aDel">Remove from log</button>' : ''}`);
   const upd = () => {
     const v = calc(f, parseFloat($('aQty').value), unit);
     $('aK').textContent = Math.round(v.kcal); $('aP').textContent = Math.round(v.pro) + 'g';
@@ -283,7 +307,8 @@ function openAmount(f, preset) {
     upd();
   };
   upd();
-  $('aFix').onclick = () => {
+  if ($('aDel')) $('aDel').onclick = () => { closeSheet(); removeEntry(editing); };
+  if ($('aFix')) $('aFix').onclick = () => {
     const g = f.servingG || null;
     const per = f.kcalServ != null ? { kcal: f.kcalServ, pro: f.proServ }
       : g ? { kcal: f.kcal100 * g / 100, pro: (f.pro100 || 0) * g / 100 } : { kcal: f.kcal100, pro: f.pro100 };
@@ -293,10 +318,16 @@ function openAmount(f, preset) {
   $('aAdd').onclick = () => {
     const q = parseFloat($('aQty').value);
     if (!(q > 0)) { toast('Enter how much you had.'); return; }
-    const v = calc(f, q, unit);
-    rememberFood(f); pushRecent(f, q, unit); touchMeta();
-    addEntry(f.name, v.kcal, v.pro, `${fmtQty(q)} ${unitWord(f, unit, q)}`);
-    renderSettings(); closeSheet(); toast(`Added ${Math.round(v.kcal)} kcal · ${Math.round(v.pro)}g protein`);
+    const v = calc(f, q, unit), detail = `${fmtQty(q)} ${unitWord(f, unit, q)}`;
+    rememberFood(f); pushRecent(f, q, unit); touchMeta(); renderSettings();
+    if (picking) { pick = null; picking.onDone(f, q, unit, v); return; }
+    if (editing) {
+      const e = entriesFor(day).find(x => x.id === editing);
+      if (e) Object.assign(e, { kcal: r1(v.kcal), pro: r1(v.pro), detail, food: f, qty: q, unit });
+      touchDay(day); renderTotals(); renderRows(); closeSheet(); toast('Entry updated'); return;
+    }
+    addEntry(f.name, v.kcal, v.pro, detail, { food: f, qty: q, unit });
+    closeSheet(); toast(`Added ${Math.round(v.kcal)} kcal · ${Math.round(v.pro)}g protein`);
   };
 }
 
@@ -517,12 +548,14 @@ function listHtml(items) {
     <span class="meta">${esc(it.meta || (it.f.kcal100 != null ? Math.round(it.f.kcal100) + ' kcal/100g' : Math.round(it.f.kcalServ) + ' kcal/serv'))}</span></button>`).join('');
 }
 function openSearch() {
-  openSheet('Search foods', `
+  openSheet(pick ? 'Add an ingredient' : 'Search foods', `
+    ${pick ? '<button class="btn ghost" id="pickScan">Scan a barcode instead</button>' : ''}
     <input id="q" type="search" placeholder="Sweet potato, eggs, yogurt…" aria-label="Search foods" autocomplete="off">
     <div class="list" id="results"></div>
     <button class="btn ghost" id="online" hidden>Search packaged foods online</button>
     <button class="btn ghost" id="custom">Enter a food by hand</button>`);
   let items = [];
+  if ($('pickScan')) $('pickScan').onclick = openScan;
   const show = () => {
     const q = $('q').value.trim().toLowerCase();
     if (!q) {
@@ -554,32 +587,87 @@ function openSearch() {
 }
 
 /* ---------- meals ---------- */
+function mealFood(m) { return { id: 'meal-' + m.id, name: m.name, source: 'meal', kcalServ: m.kcal, proServ: m.pro }; }
+function entryFood(e) { return e.food || { id: 'entry-' + e.id, name: e.name, source: 'entry', kcalServ: e.kcal, proServ: e.pro }; }
 function openMeals() {
-  const es = entriesFor(day);
   openSheet('My meals', `
-    <div class="list" id="mealList">${S.meals.length ? S.meals.map((m, i) => `<button class="item" data-m="${i}"><span class="nm">${esc(m.name)}</span>
-      <span class="meta">${m.kcal} kcal · ${m.pro}g</span></button>`).join('') : '<p class="empty">No saved meals yet.</p>'}</div>
-    <h3>Save a new meal</h3>
-    ${es.length ? `<button class="btn ghost" id="fromDay">Fill in from everything logged ${day === todayIso() ? 'today' : 'this day'}</button>` : ''}
-    <label>Name<input id="mName" placeholder="e.g. Post-gym chicken bowl"></label>
-    <div class="grid2"><label>Calories<input id="mK" type="number" inputmode="numeric"></label><label>Protein (g)<input id="mP" type="number" inputmode="numeric"></label></div>
-    <button class="btn" id="mSave">Save meal</button>
-    ${S.meals.length ? `<details><summary>Remove a meal</summary><div class="mlist" id="mDel">${S.meals.map((m, i) => `<div class="mrow"><span>${esc(m.name)}</span><button class="x" data-md="${i}" aria-label="Remove ${esc(m.name)}">${icon('i-x')}</button></div>`).join('')}</div></details>` : ''}`);
+    <div class="list" id="mealList">${S.meals.length ? S.meals.map((m, i) => `<div class="meal-row">
+        <button class="item" data-m="${i}"><span class="nm">${esc(m.name)}<small>${m.items?.length ? `${m.items.length} ingredient${m.items.length > 1 ? 's' : ''}${m.servings > 1 ? ` · makes ${m.servings}` : ''}` : 'quick meal'}</small></span>
+        <span class="meta">${m.kcal} kcal · ${m.pro}g</span></button>
+        <button class="edit" data-edit="${i}" aria-label="Edit ${esc(m.name)}">Edit</button></div>`).join('') : '<p class="empty">No saved meals yet. Build one from the foods you cook with.</p>'}</div>
+    <p class="hint">Tap a meal to log one serving. You can change the amount afterwards by tapping it in your log.</p>
+    <button class="btn" id="newMeal">Build a new meal</button>`);
   $('mealList').onclick = e => {
+    const ed = e.target.closest('[data-edit]');
+    if (ed) { const m = S.meals[+ed.dataset.edit]; openMealEditor(JSON.parse(JSON.stringify({ ...m, items: m.items || [] }))); return; }
     const b = e.target.closest('[data-m]'); if (!b) return;
-    const m = S.meals[+b.dataset.m]; addEntry(m.name, m.kcal, m.pro, 'saved meal'); closeSheet(); toast(`Added ${m.kcal} kcal · ${m.pro}g protein`);
+    const m = S.meals[+b.dataset.m];
+    addEntry(m.name, m.kcal, m.pro, '1 serving', { food: mealFood(m), qty: 1, unit: 'serving' });
+    closeSheet(); toast(`Added ${m.kcal} kcal · ${m.pro}g protein`);
+  };
+  $('newMeal').onclick = () => openMealEditor({ id: null, name: '', servings: 1, items: [], kcal: '', pro: '' });
+}
+function mealTotals(d) {
+  const t = d.items.reduce((a, it) => { const v = calc(it.food, it.qty, it.unit); return { kcal: a.kcal + v.kcal, pro: a.pro + v.pro }; }, { kcal: 0, pro: 0 });
+  const n = Math.max(1, +d.servings || 1);
+  return { kcal: t.kcal / n, pro: t.pro / n, totalK: t.kcal };
+}
+function openMealEditor(d) {
+  draft = d;
+  const hasItems = d.items.length > 0, t = mealTotals(d);
+  const es = entriesFor(day);
+  openSheet(d.id ? 'Edit meal' : 'Build a meal', `
+    <label>Meal name<input id="mName" value="${esc(d.name)}" placeholder="e.g. Chicken sweet potato bowl"></label>
+    <h3>Ingredients</h3>
+    <div class="list" id="ingList">${hasItems ? d.items.map((it, i) => `<div class="meal-row">
+        <button class="item" data-ing="${i}"><span class="nm">${esc(it.food.name)}<small>${fmtQty(it.qty)} ${esc(unitWord(it.food, it.unit, it.qty))}</small></span>
+        <span class="meta">${Math.round(calc(it.food, it.qty, it.unit).kcal)} kcal</span></button>
+        <button class="x" data-rm="${i}" aria-label="Remove ${esc(it.food.name)}">${icon('i-x')}</button></div>`).join('') : '<p class="empty">Add what goes into it, like 200 g ground chicken and 2 sweet potatoes.</p>'}</div>
+    <button class="btn ghost" id="addIng">+ Add ingredient</button>
+    ${es.length && !hasItems ? `<button class="btn ghost" id="fromDay">Use everything logged ${day === todayIso() ? 'today' : 'this day'}</button>` : ''}
+    <label>Makes how many servings?<input id="mServ" type="number" inputmode="decimal" min="1" step="1" value="${d.servings || 1}"></label>
+    ${hasItems ? `<div class="result"><div><span class="num" id="mK">${Math.round(t.kcal)}</span><small>kcal / serving</small></div><div class="pro"><span class="num" id="mP">${Math.round(t.pro)}g</span><small>protein / serving</small></div></div>`
+      : `<p class="hint">No ingredients? Type the totals for one serving instead.</p>
+         <div class="grid2"><label>Calories<input id="mKin" type="number" inputmode="numeric" value="${d.kcal ?? ''}"></label><label>Protein (g)<input id="mPin" type="number" inputmode="numeric" value="${d.pro ?? ''}"></label></div>`}
+    <button class="btn" id="mSave">Save meal</button>
+    ${d.id ? '<button class="btn danger" id="mDelete">Delete meal</button>' : ''}`);
+  const keep = () => { d.name = $('mName').value; d.servings = Math.max(1, parseFloat($('mServ').value) || 1); if ($('mKin')) { d.kcal = $('mKin').value; d.pro = $('mPin').value; } };
+  const back = () => openMealEditor(d);
+  $('mServ').oninput = () => { keep(); if (hasItems) { const t2 = mealTotals(d); $('mK').textContent = Math.round(t2.kcal); $('mP').textContent = Math.round(t2.pro) + 'g'; } };
+  $('addIng').onclick = () => {
+    keep();
+    pick = { label: 'Add to meal', onDone: (f, q, u) => { draft = d; d.items.push({ food: f, qty: q, unit: u }); back(); } };
+    openSearch();
+  };
+  $('ingList').onclick = e => {
+    const rm = e.target.closest('[data-rm]');
+    if (rm) { keep(); d.items.splice(+rm.dataset.rm, 1); back(); return; }
+    const b = e.target.closest('[data-ing]'); if (!b) return;
+    keep(); const i = +b.dataset.ing, it = d.items[i];
+    pick = { label: 'Update ingredient', onDone: (f, q, u) => { draft = d; d.items[i] = { food: f, qty: q, unit: u }; back(); } };
+    openAmount(it.food, { qty: it.qty, unit: it.unit });
   };
   if ($('fromDay')) $('fromDay').onclick = () => {
-    $('mK').value = Math.round(es.reduce((a, e) => a + e.kcal, 0));
-    $('mP').value = Math.round(es.reduce((a, e) => a + e.pro, 0));
-    $('mName').focus();
+    keep();
+    es.forEach(e => d.items.push({ food: entryFood(e), qty: e.food ? e.qty : 1, unit: e.food ? e.unit : 'serving' }));
+    back();
   };
   $('mSave').onclick = () => {
-    const n = $('mName').value.trim(), k = parseFloat($('mK').value), p = parseFloat($('mP').value) || 0;
-    if (!n || !(k >= 0)) { toast('Add a name and calories.'); return; }
-    S.meals.push({ id: uid(), name: n, kcal: Math.round(k), pro: Math.round(p) }); touchMeta(); openMeals(); toast('Meal saved');
+    keep();
+    const name = d.name.trim(); if (!name) { toast('Give the meal a name.'); return; }
+    let kcal, pro;
+    if (d.items.length) { const t2 = mealTotals(d); kcal = Math.round(t2.kcal); pro = Math.round(t2.pro); }
+    else { kcal = Math.round(parseFloat(d.kcal)); pro = Math.round(parseFloat(d.pro) || 0); if (!(kcal >= 0)) { toast('Add ingredients or type the calories.'); return; } }
+    const m = { id: d.id || uid(), name, servings: d.servings || 1, items: d.items, kcal, pro };
+    const i = S.meals.findIndex(x => x.id === m.id);
+    if (i >= 0) S.meals[i] = m; else S.meals.push(m);
+    touchMeta(); openMeals(); toast('Meal saved');
   };
-  if ($('mDel')) $('mDel').onclick = e => { const b = e.target.closest('[data-md]'); if (!b) return; S.meals.splice(+b.dataset.md, 1); touchMeta(); openMeals(); };
+  if ($('mDelete')) $('mDelete').onclick = () => {
+    const i = S.meals.findIndex(x => x.id === d.id); if (i < 0) return;
+    const [gone] = S.meals.splice(i, 1); touchMeta(); openMeals();
+    toast(`Deleted ${gone.name}`, { label: 'Undo', fn: () => { S.meals.splice(i, 0, gone); touchMeta(); if (!$('sheet').hidden && $('sheetTitle').textContent === 'My meals') openMeals(); } });
+  };
 }
 
 /* =================== CLOUD SYNC (Firebase) =================== */
@@ -879,10 +967,11 @@ $('syncBtn').onclick = openAccount;
 $('prev').onclick = () => { day = shift(day, -1); renderDay(); renderTotals(); renderRows(); };
 $('next').onclick = () => { if (day < todayIso()) { day = shift(day, 1); renderDay(); renderTotals(); renderRows(); } };
 $('rows').onclick = e => {
-  const b = e.target.closest('[data-del]'); if (!b) return;
-  S.log[day] = entriesFor(day).filter(x => x.id !== b.dataset.del);
-  if (!S.log[day].length) delete S.log[day];
-  touchDay(day); renderTotals(); renderRows();
+  const x = e.target.closest('[data-del]');
+  if (x) { removeEntry(x.dataset.del); return; }
+  const r = e.target.closest('.row[data-id]'); if (!r) return;
+  const en = entriesFor(day).find(z => z.id === r.dataset.id); if (!en) return;
+  openAmount(entryFood(en), en.food ? { qty: en.qty, unit: en.unit } : { qty: 1, unit: 'serving' }, { editId: en.id });
 };
 $('wSave').onclick = () => {
   const v = parseFloat($('wIn').value);

@@ -224,3 +224,14 @@ body{padding-bottom:calc(86px + env(safe-area-inset-bottom,0px))}
 .swatch{display:flex;flex-direction:column;align-items:center;gap:6px;padding:10px 4px;border-radius:14px;border:2px solid var(--line);background:var(--raised);font-size:12px;font-weight:700}
 .swatch i{width:30px;height:30px;border-radius:50%;background:conic-gradient(var(--a) 0 62%,var(--h) 62% 100%);box-shadow:inset 0 0 0 3px rgba(255,255,255,.15)}
 .swatch[aria-pressed="true"]{border-color:var(--accent)}
+
+/* editing, meals, undo */
+.row{cursor:pointer}
+.row:active{background:var(--raised)}
+.meal-row{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;border-top:1px solid var(--line)}
+.meal-row:first-child{border-top:0}
+.meal-row .item{border-top:0}
+.edit{padding:8px 12px;border-radius:10px;background:var(--raised);border:1px solid var(--line);font-size:13px;font-weight:700;color:var(--accent)}
+.toast{display:flex;align-items:center;gap:14px}
+.toast[hidden]{display:none!important}
+.toast-act{font-weight:800;color:var(--accent);text-transform:uppercase;letter-spacing:.06em;font-size:13px;padding:2px 0}

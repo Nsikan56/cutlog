@@ -235,3 +235,23 @@ body{padding-bottom:calc(86px + env(safe-area-inset-bottom,0px))}
 .toast{display:flex;align-items:center;gap:14px}
 .toast[hidden]{display:none!important}
 .toast-act{font-weight:800;color:var(--accent);text-transform:uppercase;letter-spacing:.06em;font-size:13px;padding:2px 0}
+
+/* adaptive burn */
+.conf{font-size:12px;font-weight:700;padding:3px 10px;border-radius:999px;background:var(--accent-soft);color:var(--accent)}
+.conf.ok{background:var(--protein-soft);color:var(--protein)}
+.burn-n{display:flex;align-items:baseline;gap:8px}
+.burn-n .num{font-family:var(--display);font-size:52px;font-weight:800;line-height:1;font-variant-numeric:tabular-nums}
+.burn-n .u{color:var(--muted);font-weight:600}
+.suggest{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.suggest div{display:flex;flex-direction:column;gap:2px;padding:12px 14px;border-radius:14px;background:var(--raised);min-width:0}
+.suggest .k{font-size:12px;color:var(--muted);font-weight:600}
+.suggest .v{font-family:var(--display);font-size:21px;font-weight:700;font-variant-numeric:tabular-nums}
+.learn{display:flex;flex-direction:column;gap:12px}
+.learn div{display:grid;grid-template-columns:1fr auto;gap:4px 10px;font-size:14px}
+.learn b{font-family:var(--display);font-size:17px;font-variant-numeric:tabular-nums}
+.prog{grid-column:1/-1;height:6px;border-radius:3px;background:var(--line);overflow:hidden}
+.prog i{display:block;height:100%;background:var(--accent);border-radius:3px}
+.learn .prog{display:block}
+#burnBody{display:flex;flex-direction:column;gap:12px}
+.suggest .v small{font-family:var(--body);font-size:12px;color:var(--muted);font-weight:600;margin-left:3px}
+.suggest .v{font-size:clamp(15px,4.6vw,21px);white-space:nowrap}

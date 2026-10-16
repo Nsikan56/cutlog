@@ -889,6 +889,57 @@ function weightChart(from, to) {
   svg += `<text x="${L}" y="${H - 6}" ${TXT}>${parseIso(from).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</text><text x="${W - R}" y="${H - 6}" text-anchor="end" ${TXT}>Today</text></svg>`;
   return svg;
 }
+/* Adaptive burn: what you ate vs how your weight moved over the last 4 weeks.
+   burn = average intake − (weight change per day × 3,500 kcal per lb) */
+const BURN_WINDOW = 28, KCAL_PER_LB = 3500;
+function estimateBurn() {
+  const to = shift(todayIso(), -1), from = shift(to, -(BURN_WINDOW - 1));   // today isn't finished, so it's left out of intake
+  const logged = [];
+  for (let i = 0; i < BURN_WINDOW; i++) { const d = shift(from, i), t = dayTotals(d); if (t) logged.push(t.kcal); }
+  const wts = weightsArr().filter(w => w.date >= from && w.date <= todayIso());
+  const span = wts.length ? (parseIso(wts[wts.length - 1].date) - parseIso(wts[0].date)) / 864e5 : 0;
+  const need = { days: 10, weighs: 7, span: 14 };
+  const have = { days: logged.length, weighs: wts.length, span: Math.round(span) };
+  if (have.days < need.days || have.weighs < need.weighs || have.span < need.span) return { ready: false, need, have };
+  const intake = logged.reduce((a, b) => a + b, 0) / logged.length;
+  const perWeek = slopePerWeek(wts);
+  const burn = intake - (perWeek / 7) * KCAL_PER_LB;
+  const conf = have.days >= 21 && have.weighs >= 14 ? 'High' : 'Medium';
+  return { ready: true, intake, perWeek, burn, conf, have };
+}
+const r50 = n => Math.round(n / 50) * 50;
+function renderBurn() {
+  const e = estimateBurn(), box = $('burnBody'), conf = $('bConf');
+  if (!e.ready) {
+    conf.textContent = 'Learning'; conf.className = 'conf';
+    const bar = (h, n) => `<div class="prog"><i style="width:${Math.min(100, h / n * 100)}%"></i></div>`;
+    box.innerHTML = `<p class="hint">After about two weeks of logging food and weighing in, this shows how many calories you actually burn a day, worked out from what you eat and how your weight moves. No watch needed.</p>
+      <div class="learn">
+        <div><span>Days of food logged</span><b>${e.have.days}/${e.need.days}</b>${bar(e.have.days, e.need.days)}</div>
+        <div><span>Morning weigh-ins</span><b>${e.have.weighs}/${e.need.weighs}</b>${bar(e.have.weighs, e.need.weighs)}</div>
+        <div><span>Days of weight history</span><b>${e.have.span}/${e.need.span}</b>${bar(e.have.span, e.need.span)}</div>
+      </div>`;
+    return;
+  }
+  conf.textContent = e.conf + ' confidence'; conf.className = 'conf ' + (e.conf === 'High' ? 'ok' : '');
+  const lo = Math.max(1500, r50(e.burn - 750)), hi = Math.max(lo + 100, r50(e.burn - 500));
+  const T = S.targets, same = T.calLo === lo && T.calHi === hi;
+  const lossTxt = e.perWeek < -0.05 ? `lost ${Math.abs(e.perWeek).toFixed(1)} lb a week` : e.perWeek > 0.05 ? `gained ${e.perWeek.toFixed(1)} lb a week` : 'held your weight steady';
+  box.innerHTML = `
+    <div class="burn-n"><span class="num">${r50(e.burn).toLocaleString()}</span><span class="u">kcal a day</span></div>
+    <p class="hint">Over the last 4 weeks you ate about ${Math.round(e.intake).toLocaleString()} kcal a day and ${lossTxt}. That works out to this daily burn, including your training.</p>
+    <div class="suggest">
+      <div><span class="k">For 1–1.5 lb a week</span><span class="v">${lo.toLocaleString()}–${hi.toLocaleString()}<small>kcal</small></span></div>
+      <div><span class="k">Your target now</span><span class="v">${T.calLo.toLocaleString()}–${T.calHi.toLocaleString()}<small>kcal</small></span></div>
+    </div>
+    ${same ? '<p class="hint">Your target already matches. Nothing to change.</p>' : `<button class="btn" id="useBurn">Use ${lo.toLocaleString()}–${hi.toLocaleString()} as my target</button>`}
+    <p class="hint">Only as accurate as your logging: days with forgotten snacks make your burn look lower than it is.</p>`;
+  if ($('useBurn')) $('useBurn').onclick = () => {
+    const old = { ...S.targets };
+    S.targets = { ...S.targets, calLo: lo, calHi: hi }; touchMeta(); renderAll();
+    toast('Target updated', { label: 'Undo', fn: () => { S.targets = old; touchMeta(); renderAll(); } });
+  };
+}
 function renderTrends() {
   const T = S.targets, to = todayIso(), from = shift(to, -(range - 1));
   const days = Array.from({ length: range }, (_, i) => shift(from, i));
@@ -914,6 +965,7 @@ function renderTrends() {
       else { read.className = 'status hi'; read.textContent = `Losing ${r.toFixed(1)} lb a week, faster than 1.5. Watch your bench; adding 200–300 kcal a day would ease the pace.`; }
     } else { $('tEta').textContent = '–'; read.className = 'status hi'; read.textContent = `Your weight is flat or rising over this range. Check that you're logging everything, and aim for the low end of your calorie range.`; }
   }
+  renderBurn();
   $('tWeightChart').innerHTML = weightChart(from, to);
   // calories + protein
   const tots = days.map(dayTotals), logged = tots.filter(Boolean);

@@ -94,7 +94,8 @@ svg{display:block}
 .pill{font-family:var(--display);font-weight:700;font-size:15px;font-variant-numeric:tabular-nums;color:var(--protein);background:var(--protein-soft);padding:2px 8px;border-radius:999px;min-width:46px;text-align:center}
 .x{color:var(--muted);width:30px;height:30px;border-radius:10px;display:grid;place-items:center}
 .x svg{width:15px;height:15px}
-.x:hover,.x:active{background:var(--warn-soft);color:var(--warn)}
+.x:active{background:var(--warn-soft);color:var(--warn)}
+@media (hover:hover){.x:hover{background:var(--warn-soft);color:var(--warn)}}
 .empty{color:var(--muted);font-size:14px;padding:2px 0;margin:0}
 input,select{font:inherit;font-size:16px;width:100%;min-width:0;padding:12px;border-radius:12px;border:1px solid var(--line);background:var(--raised);color:var(--ink)}
 label{display:flex;flex-direction:column;gap:5px;font-size:13px;color:var(--muted);font-weight:500}
@@ -229,7 +230,6 @@ details[open] summary::after{content:"–"}
 
 /* editing, meals, undo */
 .row{cursor:pointer}
-.row:active{background:var(--raised)}
 .meal-row{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;border-top:1px solid var(--line)}
 .meal-row:first-child{border-top:0}
 .meal-row .item{border-top:0}
@@ -350,3 +350,6 @@ html{background:#000}
 :root{--danger:#D93636;--danger-soft:#FCE4E4}
 @media (prefers-color-scheme: dark){:root{--danger:#FF6B6B;--danger-soft:#3A1A1C}}
 .btn.danger{background:var(--danger-soft);color:var(--danger)}
+
+/* list rows: no background highlight on tap (iOS can leave it stuck); press feedback is the scale only */
+.row,.item,.food-row{background:transparent!important;-webkit-tap-highlight-color:transparent}

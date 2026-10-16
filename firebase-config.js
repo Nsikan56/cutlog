@@ -1,15 +1,10 @@
-/* Paste your Firebase web app settings here to turn on cloud sync.
-   Firebase console → Project settings (gear icon) → Your apps → Web app → "SDK setup and configuration" → Config.
-   Leave it as null and the app works on your phone only. */
-window.FIREBASE_CONFIG = null;
-
-/* Example of what it looks like once filled in (yours will have different values):
+/* Firebase web app settings for cloud sync (project: cutlog-5ab4e).
+   These values only identify the project; the Firestore rules keep each person's data private. */
 window.FIREBASE_CONFIG = {
-  apiKey: "AIza...",
-  authDomain: "cutlog-12345.firebaseapp.com",
-  projectId: "cutlog-12345",
-  storageBucket: "cutlog-12345.appspot.com",
-  messagingSenderId: "1234567890",
-  appId: "1:1234567890:web:abc123"
+  apiKey: "AIzaSyBJ5j_f9a_c8Uy2aB0Yj4LzCSuzASOmr1E",
+  authDomain: "cutlog-5ab4e.firebaseapp.com",
+  projectId: "cutlog-5ab4e",
+  storageBucket: "cutlog-5ab4e.firebasestorage.app",
+  messagingSenderId: "969198048588",
+  appId: "1:969198048588:web:af78b7e4685b904de3abe9"
 };
-*/

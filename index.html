@@ -26,6 +26,8 @@
   <symbol id="i-bowl" viewBox="0 0 24 24"><path d="M3 11h18a9 9 0 0 1-18 0z" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linejoin="round"/><path d="M9 7c0-1.5 1.5-1.5 1.5-3M13.5 7c0-1.5 1.5-1.5 1.5-3" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></symbol>
   <symbol id="i-chev-l" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></symbol>
   <symbol id="i-chev-r" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-today" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" stroke="currentColor" stroke-width="2.2" fill="none" stroke-dasharray="38 50" stroke-linecap="round" transform="rotate(-90 12 12)"/></symbol>
+  <symbol id="i-trend" viewBox="0 0 24 24"><path d="M4 19V5M4 19h16M7 15l4-4 3 3 5-6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></symbol>
   <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
 </svg>
 
@@ -34,6 +36,8 @@
     <div class="brand"><span class="mark" aria-hidden="true"></span><h1>Cut Log</h1></div>
     <button class="sync" id="syncBtn" aria-label="Account and sync"><i id="syncDot"></i><span id="syncText">This phone</span></button>
   </header>
+
+  <div class="view" id="viewToday">
 
   <section class="hero" aria-label="Day summary">
     <div class="daynav">
@@ -112,7 +116,54 @@
       </div>
     </details>
   </section>
+  </div>
+
+  <div class="view" id="viewTrends" hidden>
+    <div class="seg" id="range" role="group" aria-label="Time range">
+      <button data-r="7" aria-pressed="false">7 days</button>
+      <button data-r="30" aria-pressed="true">30 days</button>
+      <button data-r="90" aria-pressed="false">90 days</button>
+    </div>
+    <section class="hero trend-hero">
+      <span class="eyebrow">Weight trend</span>
+      <div class="pace"><span class="pace-n" id="tRate">–</span><span class="pace-u">lb / week</span></div>
+      <p class="status" id="tRead">Log a few morning weigh-ins to see your trend.</p>
+      <div class="tstats">
+        <div><span class="k">Change</span><span class="v" id="tChange">–</span></div>
+        <div><span class="k">7-day avg</span><span class="v" id="tNow">–</span></div>
+        <div><span class="k" id="tGoalK">Reach goal</span><span class="v" id="tEta">–</span></div>
+      </div>
+    </section>
+    <section class="card">
+      <div class="card-h"><h2>Weight</h2><span class="count">7-day average line</span></div>
+      <div id="tWeightChart"></div>
+    </section>
+    <section class="card">
+      <div class="card-h"><h2>Calories</h2><span class="count" id="tCalAvg"></span></div>
+      <div id="tCalChart"></div>
+      <p class="hint" id="tCalNote"></p>
+    </section>
+    <section class="card">
+      <div class="card-h"><h2>Protein</h2><span class="count" id="tProAvg"></span></div>
+      <div id="tProChart"></div>
+      <p class="hint" id="tProNote"></p>
+    </section>
+    <section class="card">
+      <div class="card-h"><h2>Consistency</h2><span class="count" id="tDays"></span></div>
+      <div class="consist">
+        <div><span class="v" id="tInRange">–</span><span class="k">days in calorie range</span></div>
+        <div><span class="v" id="tProHit">–</span><span class="k">days at protein target</span></div>
+        <div><span class="v" id="tLogged">–</span><span class="k">days logged</span></div>
+        <div><span class="v" id="tWeighed">–</span><span class="k">weigh-ins</span></div>
+      </div>
+    </section>
+  </div>
 </main>
+
+<nav class="tabbar" aria-label="Sections">
+  <button data-tab="today" aria-current="page"><svg><use href="#i-today"/></svg><span>Today</span></button>
+  <button data-tab="trends"><svg><use href="#i-trend"/></svg><span>Trends</span></button>
+</nav>
 
 <div class="scrim" id="scrim" hidden></div>
 <div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle" hidden>

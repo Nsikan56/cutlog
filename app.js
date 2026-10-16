@@ -155,7 +155,7 @@ function renderWeights() {
   const a = avgBetween(arr, shift(t, -6), t), b = avgBetween(arr, shift(t, -13), shift(t, -7));
   $('avg7').textContent = a ? a.toFixed(1) : '–';
   const d = $('delta'); d.className = 'v';
-  if (a && b) { const x = a - b; d.textContent = (x > 0 ? '+' : '') + x.toFixed(1); d.classList.add(x <= 0 ? 'down' : 'up'); } else d.textContent = '–';
+  if (a && b) { const x = a - b; d.textContent = (x > 0 ? '+' : x < 0 ? '−' : '') + Math.abs(x).toFixed(1); d.classList.add(x <= 0 ? 'down' : 'up'); } else d.textContent = '–';
   $('goalK').textContent = `To ${S.targets.goal}`;
   $('toGoal').textContent = a ? Math.max(0, a - S.targets.goal).toFixed(1) : '–';
   const pts = arr.filter(w => w.date >= shift(t, -27));
@@ -196,7 +196,7 @@ function renderSettings() {
       <button class="x" data-del-food="${esc(f.id)}" aria-label="Delete ${esc(f.name)}">${icon('i-x')}</button></div>`).join('')
     : '<p class="empty">Foods you scan or read from a label are saved here for next time.</p>';
 }
-function renderAll() { renderDay(); renderTotals(); renderRows(); renderWeights(); renderSettings(); renderSync(); }
+function renderAll() { renderDay(); renderTotals(); renderRows(); renderWeights(); renderSettings(); renderSync(); if (typeof tab !== 'undefined' && tab === 'trends') renderTrends(); }
 
 /* ---------- log actions ---------- */
 function addEntry(name, kcal, pro, detail) {
@@ -739,6 +739,125 @@ function openAccount() {
     try { await Sync.auth.sendPasswordResetEmail(em); err(''); toast('Reset email sent'); } catch (e) { err(authError(e)); }
   };
 }
+
+/* =================== TRENDS =================== */
+let range = 30, tab = 'today';
+function dayTotals(d) {
+  const es = S.log[d]; if (!es || !es.length) return null;
+  return { kcal: es.reduce((a, e) => a + e.kcal, 0), pro: es.reduce((a, e) => a + e.pro, 0) };
+}
+function slopePerWeek(pts) {          // least-squares fit of weight vs day
+  if (pts.length < 3) return null;
+  const xs = pts.map(p => (parseIso(p.date) - parseIso(pts[0].date)) / 864e5), ys = pts.map(p => p.lb);
+  const n = xs.length, mx = xs.reduce((a, b) => a + b) / n, my = ys.reduce((a, b) => a + b) / n;
+  let num = 0, den = 0; xs.forEach((x, i) => { num += (x - mx) * (ys[i] - my); den += (x - mx) ** 2; });
+  if (den === 0 || xs[n - 1] < 4) return null;   // need at least ~5 days of spread
+  return num / den * 7;
+}
+const TXT = 'font-size="11" fill="var(--muted)" font-family="Barlow, system-ui, sans-serif"';
+function niceTicks(lo, hi) { const step = Math.max(1, Math.ceil((hi - lo) / 3)); const t = []; for (let v = Math.ceil(lo / step) * step; v <= hi; v += step) t.push(v); return t; }
+function barChart(days, vals, opts) {
+  const W = 520, H = 170, L = 40, R = 10, T = 10, B = 24, n = days.length;
+  const max = Math.max(opts.hi || opts.line || 0, ...vals.map(v => v || 0)) * 1.08 || 1;
+  const Y = v => T + (1 - v / max) * (H - T - B), bw = (W - L - R) / n;
+  const ticks = opts.ticks.filter(v => v <= max);
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(opts.label)}">`;
+  ticks.forEach(v => { svg += `<line x1="${L}" x2="${W - R}" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--line)"/><text x="${L - 6}" y="${Y(v) + 4}" text-anchor="end" ${TXT}>${v >= 1000 ? (v / 1000).toFixed(1) + 'k' : v}</text>`; });
+  if (opts.lo != null) svg += `<rect x="${L}" width="${W - L - R}" y="${Y(opts.hi)}" height="${Y(opts.lo) - Y(opts.hi)}" fill="var(--protein)" opacity=".12"/>`;
+  vals.forEach((v, i) => {
+    if (v == null) return;
+    const x = L + i * bw + bw * 0.15, w = Math.max(1.5, bw * 0.7);
+    const col = opts.colorFor(v);
+    svg += `<rect data-day="${days[i]}" x="${x.toFixed(1)}" y="${Y(v).toFixed(1)}" width="${w.toFixed(1)}" height="${(H - B - Y(v)).toFixed(1)}" rx="${Math.min(3, w / 2)}" fill="${col}" style="cursor:pointer"/>`;
+  });
+  if (opts.line != null) svg += `<line x1="${L}" x2="${W - R}" y1="${Y(opts.line)}" y2="${Y(opts.line)}" stroke="var(--protein)" stroke-width="2" stroke-dasharray="5 4"/>`;
+  svg += `<text x="${L}" y="${H - 6}" ${TXT}>${parseIso(days[0]).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</text><text x="${W - R}" y="${H - 6}" text-anchor="end" ${TXT}>Today</text></svg>`;
+  return svg;
+}
+function weightChart(from, to) {
+  const arr = weightsArr(), pts = arr.filter(w => w.date >= from && w.date <= to);
+  if (pts.length < 2) return '<p class="empty">Two or more weigh-ins in this range will draw your trend here.</p>';
+  const W = 520, H = 180, L = 40, R = 12, T = 12, B = 24;
+  const t0 = parseIso(from).getTime(), t1 = parseIso(to).getTime();
+  const lbs = pts.map(p => p.lb).concat(S.targets.goal >= Math.min(...pts.map(p => p.lb)) - 3 ? [S.targets.goal] : []);
+  const lo = Math.floor(Math.min(...lbs) - 1), hi = Math.ceil(Math.max(...lbs) + 1);
+  const X = s => L + (parseIso(s).getTime() - t0) / (t1 - t0) * (W - L - R), Y = v => T + (hi - v) / (hi - lo) * (H - T - B);
+  const av = pts.map(p => [X(p.date), Y(avgBetween(arr, shift(p.date, -6), p.date))]);
+  const line = av.map(p => p.map(n => n.toFixed(1)).join(',')).join(' ');
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Weight trend"><defs><linearGradient id="twg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--accent)" stop-opacity=".22"/><stop offset="1" stop-color="var(--accent)" stop-opacity="0"/></linearGradient></defs>`;
+  niceTicks(lo, hi).forEach(v => { svg += `<line x1="${L}" x2="${W - R}" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--line)"/><text x="${L - 6}" y="${Y(v) + 4}" text-anchor="end" ${TXT}>${v}</text>`; });
+  if (S.targets.goal >= lo && S.targets.goal <= hi) svg += `<line x1="${L}" x2="${W - R}" y1="${Y(S.targets.goal)}" y2="${Y(S.targets.goal)}" stroke="var(--protein)" stroke-width="1.5" stroke-dasharray="5 4"/><text x="${W - R}" y="${Y(S.targets.goal) - 5}" text-anchor="end" font-size="11" fill="var(--protein)" font-family="Barlow, system-ui, sans-serif">Goal ${S.targets.goal}</text>`;
+  svg += `<polygon points="${av[0][0].toFixed(1)},${H - B} ${line} ${av[av.length - 1][0].toFixed(1)},${H - B}" fill="url(#twg)"/>`;
+  pts.forEach(p => { svg += `<circle cx="${X(p.date)}" cy="${Y(p.lb)}" r="3" fill="var(--muted)" opacity=".5"/>`; });
+  const last = av[av.length - 1];
+  svg += `<polyline points="${line}" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/><circle cx="${last[0]}" cy="${last[1]}" r="5" fill="var(--accent)" stroke="var(--surface)" stroke-width="2"/>`;
+  svg += `<text x="${L}" y="${H - 6}" ${TXT}>${parseIso(from).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</text><text x="${W - R}" y="${H - 6}" text-anchor="end" ${TXT}>Today</text></svg>`;
+  return svg;
+}
+function renderTrends() {
+  const T = S.targets, to = todayIso(), from = shift(to, -(range - 1));
+  const days = Array.from({ length: range }, (_, i) => shift(from, i));
+  const arr = weightsArr(), inR = arr.filter(w => w.date >= from && w.date <= to);
+  // weight
+  const rate = slopePerWeek(inR);
+  const now = avgBetween(arr, shift(to, -6), to);
+  $('tRate').textContent = rate == null ? '–' : (rate > 0 ? '+' : rate < 0 ? '−' : '') + Math.abs(rate).toFixed(1);
+  $('tNow').textContent = now ? now.toFixed(1) : '–';
+  $('tChange').textContent = inR.length >= 2 ? ((d => (d > 0 ? '+' : d < 0 ? '−' : '') + Math.abs(d).toFixed(1))(avgBetween(arr, shift(to, -6), to) - avgBetween(arr, inR[0].date, shift(inR[0].date, 6)))) : '–';
+  $('tGoalK').textContent = `Reach ${T.goal}`;
+  const read = $('tRead'); read.className = 'status';
+  if (rate == null) { $('tEta').textContent = '–'; read.textContent = `Weigh in most mornings. After about a week, your weekly rate and goal date show up here.`; }
+  else {
+    const left = now - T.goal;
+    if (left <= 0) { $('tEta').textContent = 'Done'; read.className = 'status ok'; read.textContent = `You're at or under ${T.goal}. Time to switch to maintenance and hold your muscle.`; }
+    else if (rate < -0.05) {
+      const weeks = left / -rate, eta = new Date(); eta.setDate(eta.getDate() + Math.round(weeks * 7));
+      $('tEta').textContent = eta.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+      const r = -rate;
+      if (r < 0.5) read.textContent = `Losing ${r.toFixed(1)} lb a week, which is slow. Trimming about 200 kcal a day would move you toward 1 lb a week.`;
+      else if (r <= 1.6) { read.className = 'status ok'; read.textContent = `Losing ${r.toFixed(1)} lb a week, right in the 1–1.5 lb pace that protects your strength.`; }
+      else { read.className = 'status hi'; read.textContent = `Losing ${r.toFixed(1)} lb a week, faster than 1.5. Watch your bench; adding 200–300 kcal a day would ease the pace.`; }
+    } else { $('tEta').textContent = '–'; read.className = 'status hi'; read.textContent = `Your weight is flat or rising over this range. Check that you're logging everything, and aim for the low end of your calorie range.`; }
+  }
+  $('tWeightChart').innerHTML = weightChart(from, to);
+  // calories + protein
+  const tots = days.map(dayTotals), logged = tots.filter(Boolean);
+  const avg = k => logged.length ? logged.reduce((a, t) => a + t[k], 0) / logged.length : null;
+  const aK = avg('kcal'), aP = avg('pro');
+  $('tCalAvg').textContent = aK ? `avg ${Math.round(aK).toLocaleString()} kcal` : '';
+  $('tProAvg').textContent = aP ? `avg ${Math.round(aP)}g` : '';
+  const empty = '<p class="empty">Days you log food will show up here.</p>';
+  $('tCalChart').innerHTML = logged.length ? barChart(days, tots.map(t => t && t.kcal), {
+    lo: T.calLo, hi: T.calHi, ticks: [1000, 2000, 3000, 4000], label: 'Daily calories',
+    colorFor: v => v > T.calHi ? 'var(--warn)' : v >= T.calLo ? 'var(--protein)' : 'var(--accent)' }) : empty;
+  $('tProChart').innerHTML = logged.length ? barChart(days, tots.map(t => t && t.pro), {
+    line: T.protein, ticks: [50, 100, 150, 200, 250], label: 'Daily protein',
+    colorFor: v => v >= T.protein ? 'var(--protein)' : 'var(--accent)' }) : empty;
+  $('tCalNote').textContent = logged.length ? 'Green band is your cut range. Tap a bar to open that day.' : '';
+  $('tProNote').textContent = logged.length ? `Dashed line is your ${T.protein}g target.` : '';
+  const inRange = logged.filter(t => t.kcal >= T.calLo && t.kcal <= T.calHi).length, hit = logged.filter(t => t.pro >= T.protein).length;
+  $('tDays').textContent = `last ${range} days`;
+  $('tInRange').textContent = logged.length ? `${inRange}/${logged.length}` : '–';
+  $('tProHit').textContent = logged.length ? `${hit}/${logged.length}` : '–';
+  $('tLogged').textContent = `${logged.length}/${range}`;
+  $('tWeighed').textContent = inR.length;
+}
+function showTab(t) {
+  tab = t;
+  $('viewToday').hidden = t !== 'today'; $('viewTrends').hidden = t !== 'trends';
+  document.querySelectorAll('.tabbar button').forEach(b => b.dataset.tab === t ? b.setAttribute('aria-current', 'page') : b.removeAttribute('aria-current'));
+  if (t === 'trends') renderTrends();
+  window.scrollTo(0, 0);
+}
+document.querySelector('.tabbar').onclick = e => { const b = e.target.closest('[data-tab]'); if (b) showTab(b.dataset.tab); };
+$('range').onclick = e => {
+  const b = e.target.closest('[data-r]'); if (!b) return;
+  range = +b.dataset.r; [...$('range').children].forEach(c => c.setAttribute('aria-pressed', c === b)); renderTrends();
+};
+$('viewTrends').addEventListener('click', e => {
+  const r = e.target.closest('rect[data-day]'); if (!r) return;
+  day = r.dataset.day; showTab('today'); renderDay(); renderTotals(); renderRows();
+});
 
 /* ---------- events ---------- */
 document.querySelector('.actions').onclick = e => {

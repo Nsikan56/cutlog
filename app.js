@@ -18,6 +18,7 @@ const shift = (s, n) => { const d = parseIso(s); d.setDate(d.getDate() + n); ret
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 const r1 = n => Math.round(n * 10) / 10;
+const fmtG = g => { if (!(g > 0)) return '0'; if (g >= 9.95) return String(Math.round(g)); const v = Math.round(g * 10) / 10; return v === 0 ? '<0.1' : String(v); };
 const fmtQty = q => (Math.round(q * 100) / 100).toString();
 const icon = id => `<svg><use href="#${id}"/></svg>`;
 /* ---------- motion helpers ---------- */
@@ -173,7 +174,7 @@ function renderRows() {
     const time = e.at ? new Date(e.at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : '';
     const sub = [e.detail, time].filter(Boolean).join(' · ');
     return `<div class="row${fresh.includes(e.id) ? ' row-in' : ''}" data-id="${esc(e.id)}"><span class="n">${esc(e.name)}${sub ? `<small>${esc(sub)}</small>` : ''}</span>
-      <span class="c">${Math.round(e.kcal)}<small>kcal</small></span><span class="pill">${Math.round(e.pro)}g</span></div>`;
+      <span class="c">${Math.round(e.kcal)}<small>kcal</small></span><span class="pill">${fmtG(e.pro)}g</span></div>`;
   }).join('');
 }
 function weightsArr() { return Object.entries(S.weights).map(([date, lb]) => ({ date, lb: +lb })).sort((a, b) => a.date < b.date ? -1 : 1); }
@@ -408,7 +409,7 @@ function openAmount(f, preset, opts = {}) {
     ${editing ? '<button class="btn danger" id="aDel">Remove from log</button>' : ''}`);
   const upd = () => {
     const v = calc(f, parseFloat($('aQty').value), unit);
-    animateNum($('aK'), v.kcal, undefined, 220); animateNum($('aP'), v.pro, n => Math.round(n) + 'g', 220);
+    animateNum($('aK'), v.kcal, undefined, 220); animateNum($('aP'), v.pro, n => fmtG(n) + 'g', 220);
     $('aNote').hidden = !['tbsp', 'tsp'].includes(unit);
   };
   const bump = dir => { const q = parseFloat($('aQty').value) || 0; $('aQty').value = fmtQty(Math.max(0, q + dir * stepFor(unit))); upd(); };
@@ -443,7 +444,7 @@ function openAmount(f, preset, opts = {}) {
       touchDay(day); renderTotals(); renderRows(); closeSheet(); toast('Entry updated'); return;
     }
     addEntry(f.name, v.kcal, v.pro, detail, { food: f, qty: q, unit });
-    closeSheet(); toast(`Added ${Math.round(v.kcal)} kcal · ${Math.round(v.pro)}g protein`);
+    closeSheet(); toast(`Added ${Math.round(v.kcal)} kcal · ${fmtG(v.pro)}g protein`);
   };
 }
 

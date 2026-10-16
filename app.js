@@ -1,6 +1,19 @@
 /* Cut Log — free calorie & protein tracker.
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
+/* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
+const APP_V = '31';
+(() => {
+  const htmlV = document.querySelector('meta[name="app-v"]')?.content;
+  if (htmlV && htmlV !== APP_V) {
+    let tried = false; try { tried = sessionStorage.getItem('cl-v') === htmlV + APP_V; sessionStorage.setItem('cl-v', htmlV + APP_V); } catch (e) {}
+    if (!tried) {
+      const go = () => location.reload();
+      (window.caches ? caches.keys().then(ks => Promise.all(ks.map(k => caches.delete(k)))) : Promise.resolve()).then(go, go);
+      throw new Error('Cut Log: updating');
+    }
+  }
+})();
 
 const KEY = 'cutlog.v1';
 const TESSERACT_URL = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
@@ -235,7 +248,7 @@ function avgBetween(arr, from, to) {
 }
 function renderWeights() {
   const t = todayIso(), arr = weightsArr(), sc = scale(), f = $('wForm');
-  renderWaist();
+  safe(renderWaist);
   $('wTitle').textContent = sc === 'weekly' ? 'Weekly weigh-in' : sc === 'none' ? 'Weight' : 'Morning weigh-in';
   const noneMode = sc === 'none' && f.dataset.editing !== '1';
   $('noScale').hidden = !noneMode;
@@ -343,7 +356,11 @@ function renderSettings() {
   $('foodList').innerHTML = S.foods.length ? S.foods.map(f => `<button class="food-row" data-food="${esc(f.id)}"><span>${esc(f.name)}<small>${esc([f.brand, perLine(f)].filter(Boolean).join(' · '))}</small></span>${icon('i-chev-r')}</button>`).join('')
     : '<p class="empty">Foods you scan or read from a label are saved here for next time.</p>';
 }
-function renderAll() { renderDay(); renderTotals(); renderRows(); renderWeights(); renderSettings(); renderSync(); if (typeof tab !== 'undefined' && tab === 'trends') renderTrends(); }
+function safe(fn) { try { fn(); } catch (e) { console.error('Cut Log render:', fn.name, e); } }
+function renderAll() {
+  [renderDay, renderTotals, renderRows, renderWeights, renderSettings, renderSync].forEach(safe);
+  if (typeof tab !== 'undefined' && tab === 'trends') safe(renderTrends);
+}
 
 /* ---------- weigh-in frequency ---------- */
 const scale = () => S.scale || 'daily';

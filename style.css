@@ -23,6 +23,7 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--body);font
   padding-top:max(12px,env(safe-area-inset-top,0px));padding-bottom:max(28px,env(safe-area-inset-bottom,0px));
   padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
   -webkit-tap-highlight-color:transparent}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);background:var(--bg);z-index:15}
 main{max-width:560px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
 h1,h2,h3{font-family:var(--display);margin:0}
 h2{font-size:15px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)}

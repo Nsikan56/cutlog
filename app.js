@@ -167,13 +167,13 @@ function renderRows() {
   const fresh = shownRows.day === day ? es.filter(e => !shownRows.ids.has(e.id)).map(e => e.id) : [];
   shownRows = { day, ids: new Set(es.map(e => e.id)) };
   $('count').textContent = es.length ? `${es.length} item${es.length > 1 ? 's' : ''}` : '';
+  $('rowsHint').hidden = !es.length;
   if (!es.length) { r.innerHTML = '<p class="empty">Nothing logged for this day yet.</p>'; return; }
   r.innerHTML = es.map(e => {
     const time = e.at ? new Date(e.at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : '';
     const sub = [e.detail, time].filter(Boolean).join(' · ');
     return `<div class="row${fresh.includes(e.id) ? ' row-in' : ''}" data-id="${esc(e.id)}"><span class="n">${esc(e.name)}${sub ? `<small>${esc(sub)}</small>` : ''}</span>
-      <span class="c">${Math.round(e.kcal)}<small>kcal</small></span><span class="pill">${Math.round(e.pro)}g</span>
-      <button class="x" data-del="${esc(e.id)}" aria-label="Remove ${esc(e.name)}">${icon('i-x')}</button></div>`;
+      <span class="c">${Math.round(e.kcal)}<small>kcal</small></span><span class="pill">${Math.round(e.pro)}g</span></div>`;
   }).join('');
 }
 function weightsArr() { return Object.entries(S.weights).map(([date, lb]) => ({ date, lb: +lb })).sort((a, b) => a.date < b.date ? -1 : 1); }
@@ -224,8 +224,7 @@ function renderWeights() {
 function renderSettings() {
   const T = S.targets;
   $('tLo').value = T.calLo; $('tHi').value = T.calHi; $('tPro').value = T.protein; $('tGoal').value = T.goal;
-  $('foodList').innerHTML = S.foods.length ? S.foods.map(f => `<div class="mrow"><span>${esc(f.name)}${f.brand ? ' · ' + esc(f.brand) : ''}</span>
-      <button class="x" data-del-food="${esc(f.id)}" aria-label="Delete ${esc(f.name)}">${icon('i-x')}</button></div>`).join('')
+  $('foodList').innerHTML = S.foods.length ? S.foods.map(f => `<button class="food-row" data-food="${esc(f.id)}"><span>${esc(f.name)}<small>${esc([f.brand, perLine(f)].filter(Boolean).join(' · '))}</small></span>${icon('i-chev-r')}</button>`).join('')
     : '<p class="empty">Foods you scan or read from a label are saved here for next time.</p>';
 }
 function renderAll() { renderDay(); renderTotals(); renderRows(); renderWeights(); renderSettings(); renderSync(); if (typeof tab !== 'undefined' && tab === 'trends') renderTrends(); }
@@ -296,7 +295,7 @@ function setY(y, animate) {
   scrimEl.style.transition = animate ? 'opacity .36s' : 'none'; scrimEl.style.opacity = p;
   const app = $('app');
   app.style.transition = animate ? tr : 'none';
-  app.style.transformOrigin = `50% ${scrollY + innerHeight / 2}px`;
+  app.style.transformOrigin = `50% ${$('scroller').scrollTop + innerHeight / 2}px`;
   app.style.transform = p > 0.001 ? `scale(${1 - 0.04 * p})` : '';
 }
 function openSheet(title, html, cleanup) {
@@ -312,7 +311,7 @@ function openSheet(title, html, cleanup) {
   if (!SH.open) {
     SH.open = true;
     sheetEl.hidden = false; scrimEl.hidden = false;
-    document.body.style.overflow = 'hidden';
+    $('scroller').style.overflowY = 'hidden';
     setY(sheetH(), false);
     sheetEl.getBoundingClientRect();          // commit the start position before animating in
     requestAnimationFrame(() => setY(0, true));
@@ -329,7 +328,7 @@ function closeSheet() {
   SH.hideTimer = setTimeout(() => {
     sheetEl.hidden = true; scrimEl.hidden = true;
     sheetEl.style.pointerEvents = ''; scrimEl.style.pointerEvents = '';
-    document.body.style.overflow = ''; $('app').style.transform = '';
+    $('scroller').style.overflowY = ''; $('app').style.transform = '';
   }, 360);
 }
 $('sheetClose').onclick = closeSheet;
@@ -1118,7 +1117,7 @@ function showTab(t) {
   if (changed) { replay(t === 'today' ? $('viewToday') : $('viewTrends'), 'view-in'); if (t === 'trends') chartAnim = true; haptic(); }
   document.querySelectorAll('.tabbar button').forEach(b => b.dataset.tab === t ? b.setAttribute('aria-current', 'page') : b.removeAttribute('aria-current'));
   if (t === 'trends') renderTrends();
-  window.scrollTo(0, 0);
+  $('scroller').scrollTo(0, 0);
 }
 document.querySelector('.tabbar').onclick = e => { const b = e.target.closest('[data-tab]'); if (b) showTab(b.dataset.tab); };
 $('range').onclick = e => {
@@ -1148,8 +1147,6 @@ function slideDay(dir) {
 $('prev').onclick = () => { day = shift(day, -1); renderDay(); renderTotals(); renderRows(); slideDay(-1); };
 $('next').onclick = () => { if (day < todayIso()) { day = shift(day, 1); renderDay(); renderTotals(); renderRows(); slideDay(1); } };
 $('rows').onclick = e => {
-  const x = e.target.closest('[data-del]');
-  if (x) { removeEntry(x.dataset.del); return; }
   const r = e.target.closest('.row[data-id]'); if (!r) return;
   const en = entriesFor(day).find(z => z.id === r.dataset.id); if (!en) return;
   openAmount(entryFood(en), en.food ? { qty: en.qty, unit: en.unit } : { qty: 1, unit: 'serving' }, { editId: en.id });
@@ -1166,10 +1163,34 @@ $('tForm').onsubmit = e => {
   S.targets = { calLo: lo, calHi: hi, protein: pr, goal: g }; touchMeta(); renderAll(); toast('Targets saved');
 };
 $('foodList').onclick = e => {
-  const b = e.target.closest('[data-del-food]'); if (!b) return;
-  S.foods = S.foods.filter(f => f.id !== b.dataset.delFood);
-  S.recent = S.recent.filter(r => r.food.id !== b.dataset.delFood); touchMeta(); renderSettings();
+  const b = e.target.closest('[data-food]'); if (!b) return;
+  const f = S.foods.find(x => x.id === b.dataset.food); if (f) openFoodDetail(f);
 };
+function openFoodDetail(f) {
+  const per = f.kcalServ != null ? { k: f.kcalServ, p: f.proServ } : f.servingG ? { k: f.kcal100 * f.servingG / 100, p: (f.pro100 || 0) * f.servingG / 100 } : null;
+  openSheet('Saved food', `
+    <div class="food-head"><strong>${esc(f.name)}</strong><span>${esc([f.brand, f.barcode ? 'barcode ' + f.barcode : ''].filter(Boolean).join(' · '))}</span></div>
+    <div class="result">
+      <div><span class="num">${Math.round(per ? per.k : f.kcal100)}</span><small>kcal per ${per ? 'serving' : '100 g'}</small></div>
+      <div class="pro"><span class="num">${r1(per ? per.p : f.pro100)}g</span><small>protein</small></div>
+    </div>
+    ${f.servingG ? `<p class="hint">One serving is ${esc(f.servingLabel || f.servingG + ' g')}.</p>` : ''}
+    <button class="btn" id="fdLog">Log this food</button>
+    <button class="btn ghost" id="fdEdit">Edit numbers</button>
+    <button class="btn danger" id="fdDel">Delete food</button>`);
+  $('fdLog').onclick = () => openAmount(f, S.recent.find(r => r.food.id === f.id));
+  $('fdEdit').onclick = () => {
+    openSheet('Edit numbers', '<p class="hint">Enter what the label says for one serving.</p><div id="labelOut"></div>');
+    labelForm($('labelOut'), { kcal: per ? Math.round(per.k) : Math.round(f.kcal100), pro: per ? r1(per.p) : r1(f.pro100 || 0), servingG: f.servingG || (per ? null : 100) }, '', f.barcode || null, f.name, f.id);
+    $('lSave').textContent = 'Save and log it';
+  };
+  $('fdDel').onclick = () => {
+    const i = S.foods.findIndex(x => x.id === f.id); if (i < 0) return;
+    const [gone] = S.foods.splice(i, 1), rec = S.recent.slice();
+    S.recent = S.recent.filter(r => r.food.id !== f.id); touchMeta(); renderSettings(); closeSheet(); haptic();
+    toast(`Deleted ${gone.name}`, { label: 'Undo', fn: () => { S.foods.splice(i, 0, gone); S.recent = rec; touchMeta(); renderSettings(); } });
+  };
+}
 $('exportBtn').onclick = () => {
   const { dirty, ...data } = S;
   const blob = new Blob([JSON.stringify(data, null, 1)], { type: 'application/json' });

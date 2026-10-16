@@ -20,10 +20,12 @@
 [hidden]{display:none!important}
 html{-webkit-text-size-adjust:100%;touch-action:manipulation;overscroll-behavior:none}
 button,.act,.chip,.item,.nav,.sync,summary{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;touch-action:manipulation}
-body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--body);font-size:16px;line-height:1.45;
-  padding-top:max(12px,env(safe-area-inset-top,0px));padding-bottom:max(28px,env(safe-area-inset-bottom,0px));
-  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
-  -webkit-tap-highlight-color:transparent}
+html,body{height:100%;overflow:hidden}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--body);font-size:16px;line-height:1.45;-webkit-tap-highlight-color:transparent}
+/* the page scrolls inside this box, which starts below the clock, so nothing can slide up behind it */
+#scroller{position:fixed;inset:0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;
+  padding-top:max(12px,env(safe-area-inset-top,0px));padding-bottom:calc(86px + env(safe-area-inset-bottom,0px));
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
 body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);background:var(--bg);z-index:15}
 main{max-width:560px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
 h1,h2,h3{font-family:var(--display);margin:0}
@@ -83,7 +85,7 @@ svg{display:block}
 .card-h{display:flex;justify-content:space-between;align-items:baseline}
 .count{font-size:13px;color:var(--muted)}
 .rows{display:flex;flex-direction:column}
-.row{display:grid;grid-template-columns:1fr auto auto 30px;gap:10px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
+.row{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
 .row:first-child{border-top:0;padding-top:2px}
 .row .n{min-width:0;overflow-wrap:anywhere;font-weight:500}
 .row .n small{display:block;color:var(--muted);font-size:12px;font-weight:400}
@@ -183,7 +185,6 @@ details[open] summary::after{content:"–"}
 
 /* views + tab bar */
 .view{display:flex;flex-direction:column;gap:14px}
-body{padding-bottom:calc(86px + env(safe-area-inset-bottom,0px))}
 .tabbar{position:fixed;left:0;right:0;bottom:0;z-index:12;display:grid;grid-template-columns:1fr 1fr;
   padding:6px max(16px,env(safe-area-inset-right,0px)) calc(6px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px));
   background:color-mix(in srgb,var(--surface) 88%,transparent);-webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px);border-top:1px solid var(--line)}
@@ -335,3 +336,17 @@ html{background:#000}
 .launch .tabbar{animation:rise .5s var(--out) .1s both}
 /* sync dot changes smoothly */
 .sync i{transition:background-color .3s}
+
+/* saved food rows open a detail panel */
+.food-row{display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;padding:11px 2px;border-top:1px solid var(--line);text-align:left;font-size:15px}
+.food-row:first-child{border-top:0}
+.food-row span{min-width:0;overflow-wrap:anywhere}
+.food-row small{display:block;color:var(--muted);font-size:12px}
+.food-row svg{width:16px;height:16px;color:var(--muted);flex:none}
+.food-row:active{transform:scale(.985)}
+
+.rows-hint{font-size:12px;color:var(--muted);margin:2px 0 0}
+/* destructive actions stay red in every theme */
+:root{--danger:#D93636;--danger-soft:#FCE4E4}
+@media (prefers-color-scheme: dark){:root{--danger:#FF6B6B;--danger-soft:#3A1A1C}}
+.btn.danger{background:var(--danger-soft);color:var(--danger)}

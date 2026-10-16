@@ -31,6 +31,7 @@
   <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
 </svg>
 
+<div id="scroller">
 <main id="app">
   <header class="top">
     <div class="brand"><span class="mark" aria-hidden="true"></span><h1>Cut Log</h1></div>
@@ -77,6 +78,7 @@
   <section class="card">
     <div class="card-h"><h2>Eaten</h2><span class="count" id="count"></span></div>
     <div class="rows" id="rows"></div>
+    <p class="rows-hint" id="rowsHint" hidden>Tap an entry to change the amount or remove it.</p>
   </section>
 
   <section class="card">
@@ -170,6 +172,7 @@
     </section>
   </div>
 </main>
+</div>
 
 <nav class="tabbar" aria-label="Sections">
   <button data-tab="today" aria-current="page"><svg><use href="#i-today"/></svg><span>Today</span></button>

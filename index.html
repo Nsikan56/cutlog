@@ -28,13 +28,15 @@
   <symbol id="i-chev-r" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></symbol>
   <symbol id="i-today" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" stroke="currentColor" stroke-width="2.2" fill="none" stroke-dasharray="38 50" stroke-linecap="round" transform="rotate(-90 12 12)"/></symbol>
   <symbol id="i-trend" viewBox="0 0 24 24"><path d="M4 19V5M4 19h16M7 15l4-4 3 3 5-6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-you" viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="4" stroke="currentColor" stroke-width="2" fill="none"/><path d="M4.5 20c1.2-3.6 4.1-5.4 7.5-5.4s6.3 1.8 7.5 5.4" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></symbol>
+  <symbol id="i-medal" viewBox="0 0 24 24"><path d="M8 3h8l-2.2 5.2M8 3l2.2 5.2" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linejoin="round"/><circle cx="12" cy="14.5" r="6" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M12 11.6l.95 1.95 2.15.3-1.55 1.5.37 2.13L12 16.5l-1.92 1.0.37-2.13-1.55-1.5 2.15-.3z" fill="currentColor"/></symbol>
   <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
 </svg>
 
 <div id="scroller">
 <main id="app">
   <header class="top">
-    <div class="brand"><span class="mark" aria-hidden="true"></span><h1>Cut Log</h1></div>
+    <div class="brand-col"><span class="greet" id="greet"></span><div class="brand"><span class="mark" aria-hidden="true"></span><h1>Cut Log</h1></div></div>
     <button class="sync" id="syncBtn" aria-label="Account and sync"><i id="syncDot"></i><span id="syncText">This phone</span></button>
   </header>
 
@@ -78,53 +80,58 @@
   <section class="card">
     <div class="card-h"><h2>Eaten</h2><span class="count" id="count"></span></div>
     <div class="rows" id="rows"></div>
-    <p class="rows-hint" id="rowsHint" hidden>Tap an entry to change the amount or remove it.</p>
+    <p class="rows-hint" id="rowsHint" hidden>Tap an entry to change the amount, move it to another meal, or remove it.</p>
+    <button class="btn ghost" id="copyBtn" hidden>Copy from yesterday</button>
   </section>
 
   <section class="card">
-    <div class="card-h"><h2>Morning weigh-in</h2><span class="count">lb</span></div>
-    <div class="wrow">
+    <div class="card-h"><h2 id="wTitle">Morning weigh-in</h2><span class="count">lb</span></div>
+    <div class="noscale" id="noScale" hidden>
+      <p class="hint">No scale, no problem. Track your waist below instead. If you can weigh in now and then (a gym or pharmacy scale works), it sharpens your trend.</p>
+      <button class="btn ghost" id="haveScale">Log a weigh-in anyway</button>
+    </div>
+    <div class="wrow" id="wForm">
       <input id="wIn" type="number" inputmode="decimal" step="0.1" min="80" max="500" placeholder="Weight after waking" aria-label="Weight in pounds">
       <button class="btn" id="wSave">Save</button>
     </div>
+    <div class="wdate" id="wDateRow">
+      <button class="linkbtn" id="wDateBtn" type="button">Weighed on another day?</button>
+      <label class="wdate-in" id="wDateWrap" hidden>Weighed on<input type="date" id="wDate"></label>
+    </div>
+    <div class="wdone" id="wDone" hidden>
+      <div class="wdone-main">
+        <span class="wdone-n"><span id="wNum">–</span><small>lb</small></span>
+        <span class="wdone-tag"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span id="wTag">Logged today</span></span>
+        <span class="wdone-delta" id="wDelta"></span>
+        <span class="wdone-next" id="wNext" hidden></span>
+      </div>
+      <button class="edit" id="wEdit">Edit</button>
+    </div>
+    <div id="wBody">
     <div class="wstats">
-      <div><span class="k">7-day avg</span><span class="v" id="avg7">–</span></div>
+      <div><span class="k" id="avgK">7-day avg</span><span class="v" id="avg7">–</span></div>
       <div><span class="k">vs prior week</span><span class="v" id="delta">–</span></div>
       <div><span class="k" id="goalK">To goal</span><span class="v" id="toGoal">–</span></div>
     </div>
     <div id="chart"></div>
     <p class="hint" id="wHint"></p>
+    </div>
   </section>
 
-  <section class="card">
-    <details>
-      <summary>Targets, saved foods and backup</summary>
-      <div class="settings">
-        <form id="tForm" class="grid2">
-          <label>Calories low<input id="tLo" type="number" inputmode="numeric"></label>
-          <label>Calories high<input id="tHi" type="number" inputmode="numeric"></label>
-          <label>Protein (g)<input id="tPro" type="number" inputmode="numeric"></label>
-          <label>Goal weight (lb)<input id="tGoal" type="number" inputmode="decimal" step="0.1"></label>
-          <button class="btn full" type="submit">Save targets</button>
-        </form>
-        <h3>App color</h3>
-        <div class="swatches" id="swatches" role="group" aria-label="App color">
-          <button class="swatch" data-c="cobalt" style="--a:#2F56E0;--h:#0F1630"><i></i>Cobalt</button>
-          <button class="swatch" data-c="ember" style="--a:#E8692E;--h:#22110D"><i></i>Ember</button>
-          <button class="swatch" data-c="teal" style="--a:#14A3B2;--h:#0B2229"><i></i>Teal</button>
-          <button class="swatch" data-c="violet" style="--a:#7B5CF0;--h:#17112E"><i></i>Violet</button>
-        </div>
-        <h3>Saved foods</h3>
-        <div id="foodList" class="mlist"></div>
-        <h3>Backup file</h3>
-        <p class="hint">Cloud sync keeps your data safe once you're signed in. A backup file is an extra copy you can keep in iCloud Drive.</p>
-        <div class="wrow">
-          <button class="btn ghost" id="exportBtn">Export backup</button>
-          <label class="btn ghost filebtn">Import backup<input id="importIn" type="file" accept="application/json,.json" hidden></label>
-        </div>
-      </div>
-    </details>
+  <section class="card" id="waistCard">
+    <div class="card-h"><h2>Waist</h2><span class="count">inches</span></div>
+    <div class="wrow">
+      <input id="zIn" type="number" inputmode="decimal" step="0.25" min="15" max="80" placeholder="Around your belly button" aria-label="Waist in inches">
+      <button class="btn" id="zSave">Save</button>
+    </div>
+    <div class="wstats">
+      <div><span class="k">Latest</span><span class="v" id="zNow">–</span></div>
+      <div><span class="k">Change</span><span class="v" id="zChg">–</span></div>
+      <div><span class="k">Measured</span><span class="v vsm" id="zWhen">–</span></div>
+    </div>
+    <p class="hint" id="zHint"></p>
   </section>
+
   </div>
 
   <div class="view" id="viewTrends" hidden>
@@ -146,6 +153,10 @@
     <section class="card burn" id="burnCard">
       <div class="card-h"><h2>Your real burn</h2><span class="conf" id="bConf"></span></div>
       <div id="burnBody"></div>
+    </section>
+    <section class="card" id="msCard">
+      <div class="card-h"><h2>Milestones</h2><span class="count" id="msCount"></span></div>
+      <div id="msBody"></div>
     </section>
     <section class="card">
       <div class="card-h"><h2>Weight</h2><span class="count">7-day average line</span></div>
@@ -171,13 +182,85 @@
       </div>
     </section>
   </div>
+  <div class="view" id="viewYou" hidden>
+    <section class="you-hero">
+      <span class="avatar" id="avatar">?</span>
+      <div class="you-id"><span class="you-name" id="youName">Add your name</span><span class="mode-badge" id="modeBadge">Cutting</span></div>
+    </section>
+    <section class="card">
+      <div class="card-h"><h2>App color</h2></div>
+      <div class="swatches big" id="swatches" role="group" aria-label="App color">
+        <button class="swatch" data-c="cobalt" style="--a:#2F56E0;--h:#0F1630"><i></i>Cobalt</button>
+        <button class="swatch" data-c="ember" style="--a:#E8692E;--h:#22110D"><i></i>Ember</button>
+        <button class="swatch" data-c="teal" style="--a:#14A3B2;--h:#0B2229"><i></i>Teal</button>
+        <button class="swatch" data-c="violet" style="--a:#7B5CF0;--h:#17112E"><i></i>Violet</button>
+      </div>
+    </section>
+    <section class="card">
+      <div class="card-h"><h2>Profile</h2></div>
+      <label>Your name<input id="pName" maxlength="30" placeholder="What should the app call you?" autocomplete="given-name"></label>
+    </section>
+    <section class="card">
+      <div class="card-h"><h2>Goal</h2></div>
+      <div class="seg2" id="pMode" role="group" aria-label="Goal">
+        <button type="button" data-v="lose">Cutting</button><button type="button" data-v="maintain">Maintaining</button><button type="button" data-v="gain">Building</button>
+      </div>
+      <p class="hint" id="pModeHint"></p>
+      <form id="tForm" class="grid2">
+        <label>Calories low<input id="tLo" type="number" inputmode="numeric"></label>
+        <label>Calories high<input id="tHi" type="number" inputmode="numeric"></label>
+        <label>Protein (g)<input id="tPro" type="number" inputmode="numeric"></label>
+        <label>Goal weight (lb)<input id="tGoal" type="number" inputmode="decimal" step="0.1"></label>
+        <label class="full">Starting weight (lb, for milestones)<input id="tStart" type="number" inputmode="decimal" step="0.1" placeholder="Your first weigh-in"></label>
+        <button class="btn full" type="submit">Save goal and targets</button>
+      </form>
+    </section>
+    <section class="card">
+      <div class="card-h"><h2>Weigh-ins</h2></div>
+      <div class="seg2" id="pScale" role="group" aria-label="How often you weigh in">
+        <button type="button" data-v="daily">Every morning</button><button type="button" data-v="weekly">Once a week</button><button type="button" data-v="none">No scale</button>
+      </div>
+      <p class="hint" id="pScaleHint"></p>
+    </section>
+    <section class="card">
+      <div class="card-h"><h2>Account and sync</h2><span class="count" id="acctState"></span></div>
+      <p class="hint" id="acctText"></p>
+      <button class="btn ghost" id="acctBtn">Manage account</button>
+    </section>
+    <section class="card">
+      <div class="card-h"><h2>Saved foods</h2><span class="count" id="foodCount"></span></div>
+      <div id="foodList" class="mlist"></div>
+    </section>
+    <section class="card">
+      <div class="card-h"><h2>Backup file</h2></div>
+      <p class="hint">Cloud sync keeps your data safe once you're signed in. A backup file is an extra copy you can keep in iCloud Drive.</p>
+      <div class="wrow">
+        <button class="btn ghost" id="exportBtn">Export backup</button>
+        <label class="btn ghost filebtn">Import backup<input id="importIn" type="file" accept="application/json,.json" hidden></label>
+      </div>
+    </section>
+  </div>
 </main>
 </div>
 
 <nav class="tabbar" aria-label="Sections">
   <button data-tab="today" aria-current="page"><svg><use href="#i-today"/></svg><span>Today</span></button>
   <button data-tab="trends"><svg><use href="#i-trend"/></svg><span>Trends</span></button>
+  <button data-tab="you"><svg><use href="#i-you"/></svg><span>You</span></button>
 </nav>
+
+<div class="onboard" id="onboard" hidden><div class="ob-in" id="obBody"></div></div>
+
+<div class="celebrate" id="celebrate" hidden role="dialog" aria-modal="true" aria-labelledby="celTitle">
+  <canvas id="confetti" aria-hidden="true"></canvas>
+  <div class="cel-card">
+    <span class="cel-badge"><svg><use href="#i-medal"/></svg></span>
+    <span class="cel-eyebrow">Milestone</span>
+    <h2 id="celTitle"></h2>
+    <p id="celSub"></p>
+    <button class="btn" id="celOk">Nice</button>
+  </div>
+</div>
 
 <div class="scrim" id="scrim" hidden></div>
 <div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle" hidden>

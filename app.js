@@ -49,9 +49,9 @@ function loadScript(src) {
 function seed() {
   return {
     v: 1,
-    targets: { calLo: 2100, calHi: 2400, protein: 180, goal: 198 },
-    meals: STARTER_MEALS.map(m => ({ id: uid(), ...m })),
-    foods: [], recent: [], log: {}, weights: {},
+    targets: { calLo: 2000, calHi: 2300, protein: 150, goal: null, mode: 'lose' },
+    meals: [], foods: [], recent: [], log: {}, weights: {}, slotPref: {},
+    onboarded: false, name: '', startWeight: null, milestones: {}, msInit: false, scale: 'daily', waist: {},
     stamps: { meta: 0, days: {} },   // last-change time per synced document
     dirty: [],                       // documents waiting to upload: 'meta' or 'd:YYYY-MM-DD'
   };
@@ -63,6 +63,9 @@ function load() {
       const st = Object.assign(seed(), s);
       st.stamps = Object.assign({ meta: 0, days: {} }, s.stamps || {});
       st.dirty = Array.isArray(s.dirty) ? s.dirty : [];
+      if (s.onboarded === undefined) st.onboarded = true;   // saved before setup existed = already set up
+      st.slotPref ||= {}; st.milestones ||= {}; st.waist ||= {};
+      st.targets = Object.assign({ mode: 'lose' }, st.targets);   // the app began as a cutting app
       return st;
     }
   } catch (e) { /* fall through */ }
@@ -80,12 +83,12 @@ function persist() {
   catch (e) { toast('Could not save. Phone storage may be full.'); }
 }
 function markDirty(key) { if (!S.dirty.includes(key)) S.dirty.push(key); }
-function touchDay(d) { S.stamps.days[d] = Date.now(); markDirty('d:' + d); persist(); scheduleFlush(); }
-function touchMeta() { S.stamps.meta = Date.now(); markDirty('meta'); persist(); scheduleFlush(); }
+function touchDay(d) { S.stamps.days[d] = Date.now(); markDirty('d:' + d); persist(); scheduleFlush(); queueMicrotask(() => checkMilestones()); }
+function touchMeta() { S.stamps.meta = Date.now(); markDirty('meta'); persist(); scheduleFlush(); if (!msBusy) queueMicrotask(() => checkMilestones()); }
 function touchAll() {
   const now = Date.now();
   S.stamps.meta = now; markDirty('meta');
-  new Set([...Object.keys(S.log), ...Object.keys(S.weights)]).forEach(d => { S.stamps.days[d] = now; markDirty('d:' + d); });
+  new Set([...Object.keys(S.log), ...Object.keys(S.weights), ...Object.keys(S.waist || {})]).forEach(d => { S.stamps.days[d] = now; markDirty('d:' + d); });
   persist(); scheduleFlush();
 }
 let day = todayIso();
@@ -158,9 +161,9 @@ function renderTotals() {
   const st = $('status'), before = st.textContent; st.className = 'status';
   queueMicrotask(() => { if (st.textContent !== before) replay(st, 'fade-in'); });
   if (!es.length) st.textContent = 'Scan, snap or search what you eat and the rings fill up.';
-  else if (cal < T.calLo) st.textContent = `${(T.calLo - cal).toLocaleString()} kcal under your cut range. Room for a high-protein snack before your cutoff.`;
-  else if (cal <= T.calHi) { st.className = 'status ok'; st.textContent = 'In your cut range for today.'; }
-  else { st.className = 'status hi'; st.textContent = `${(cal - T.calHi).toLocaleString()} kcal over your cut range. One day like this is fine; the weekly trend decides.`; }
+  else if (cal < T.calLo) st.textContent = mode() === 'gain' ? `${(T.calLo - cal).toLocaleString()} kcal to go to reach your range. Room for another meal.` : `${(T.calLo - cal).toLocaleString()} kcal under your range. Room for a high-protein snack.`;
+  else if (cal <= T.calHi) { st.className = 'status ok'; st.textContent = 'In your range for today.'; }
+  else { st.className = 'status hi'; st.textContent = `${(cal - T.calHi).toLocaleString()} kcal over your range. One day like this is fine; the weekly trend decides.`; }
 }
 let shownRows = { day: null, ids: new Set() };
 function renderRows() {
@@ -168,14 +171,62 @@ function renderRows() {
   const fresh = shownRows.day === day ? es.filter(e => !shownRows.ids.has(e.id)).map(e => e.id) : [];
   shownRows = { day, ids: new Set(es.map(e => e.id)) };
   $('count').textContent = es.length ? `${es.length} item${es.length > 1 ? 's' : ''}` : '';
-  $('rowsHint').hidden = !es.length;
+  $('rowsHint').hidden = !es.length; renderCopy();
   if (!es.length) { r.innerHTML = '<p class="empty">Nothing logged for this day yet.</p>'; return; }
-  r.innerHTML = es.map(e => {
+  const rowHtml = e => {
     const time = e.at ? new Date(e.at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : '';
     const sub = [e.detail, time].filter(Boolean).join(' · ');
     return `<div class="row${fresh.includes(e.id) ? ' row-in' : ''}" data-id="${esc(e.id)}"><span class="n">${esc(e.name)}${sub ? `<small>${esc(sub)}</small>` : ''}</span>
       <span class="c">${Math.round(e.kcal)}<small>kcal</small></span><span class="pill">${fmtG(e.pro)}g</span></div>`;
+  };
+  r.innerHTML = SLOTS.map(([k, label]) => {
+    const g = es.filter(e => slotOf(e) === k); if (!g.length) return '';
+    const tk = g.reduce((a, e) => a + e.kcal, 0), tp = g.reduce((a, e) => a + e.pro, 0);
+    return `<div class="mgroup"><div class="mg-h"><span>${label}</span><span class="mg-t">${Math.round(tk).toLocaleString()} kcal · ${fmtG(tp)}g</span></div>${g.map(rowHtml).join('')}</div>`;
   }).join('');
+}
+function copySource() {
+  for (let i = 1; i <= 14; i++) { const d = shift(day, -i); if (entriesFor(d).length) return d; }
+  return null;
+}
+function dayName(d) {
+  if (d === shift(todayIso(), -1)) return 'yesterday';
+  if (d === shift(day, -1)) return 'the day before';
+  return parseIso(d).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+}
+function renderCopy() {
+  const src = copySource(), b = $('copyBtn');
+  b.hidden = !src;
+  if (src) b.textContent = `Copy from ${dayName(src)}`;
+}
+function copyEntries(list, src) {
+  const now = Date.now(), ids = [];
+  list.forEach((e, i) => { const c = { ...e, id: uid(), at: now + i, slot: slotOf(e) }; ids.push(c.id); (S.log[day] ||= []).push(c); });
+  touchDay(day); renderTotals(); renderRows(); haptic();
+  const kc = list.reduce((a, e) => a + e.kcal, 0);
+  toast(`Copied ${list.length} item${list.length > 1 ? 's' : ''} · ${Math.round(kc).toLocaleString()} kcal`, { label: 'Undo', fn: () => {
+    S.log[day] = entriesFor(day).filter(e => !ids.includes(e.id)); if (!S.log[day].length) delete S.log[day];
+    touchDay(day); renderTotals(); renderRows(); } });
+}
+function openCopy() {
+  const src = copySource(); if (!src) return;
+  const es = entriesFor(src), name = dayName(src);
+  const total = es.reduce((a, e) => a + e.kcal, 0);
+  openSheet(`Copy from ${name}`, `
+    <p class="hint">Tap a meal or a single item to add it to ${day === todayIso() ? 'today' : 'this day'}.</p>
+    ${SLOTS.map(([k, label]) => {
+      const g = es.filter(e => slotOf(e) === k); if (!g.length) return '';
+      const tk = g.reduce((a, e) => a + e.kcal, 0);
+      return `<div class="copy-g"><div class="mg-h"><span>${label}</span><button class="edit" data-cs="${k}">Copy ${label.toLowerCase()} · ${Math.round(tk)} kcal</button></div>
+        <div class="list">${g.map(e => `<button class="item" data-ce="${esc(e.id)}"><span class="nm">${esc(e.name)}<small>${esc(e.detail || '')}</small></span><span class="meta">${Math.round(e.kcal)} kcal</span></button>`).join('')}</div></div>`;
+    }).join('')}
+    <button class="btn" id="copyAll">Copy everything · ${Math.round(total).toLocaleString()} kcal</button>`);
+  $('sheetBody').onclick = e => {
+    const s = e.target.closest('[data-cs]'), one = e.target.closest('[data-ce]');
+    if (s) { copyEntries(es.filter(x => slotOf(x) === s.dataset.cs), src); closeSheet(); }
+    else if (one) { copyEntries(es.filter(x => x.id === one.dataset.ce), src); closeSheet(); }
+    else if (e.target.closest('#copyAll')) { copyEntries(es, src); closeSheet(); }
+  };
 }
 function weightsArr() { return Object.entries(S.weights).map(([date, lb]) => ({ date, lb: +lb })).sort((a, b) => a.date < b.date ? -1 : 1); }
 function avgBetween(arr, from, to) {
@@ -183,23 +234,58 @@ function avgBetween(arr, from, to) {
   return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null;
 }
 function renderWeights() {
-  const t = todayIso(), arr = weightsArr();
-  if (document.activeElement !== $('wIn')) $('wIn').value = S.weights[t] ?? '';
+  const t = todayIso(), arr = weightsArr(), sc = scale(), f = $('wForm');
+  renderWaist();
+  $('wTitle').textContent = sc === 'weekly' ? 'Weekly weigh-in' : sc === 'none' ? 'Weight' : 'Morning weigh-in';
+  const noneMode = sc === 'none' && f.dataset.editing !== '1';
+  $('noScale').hidden = !noneMode;
+  if (noneMode) { f.hidden = true; $('wDateRow').hidden = true; $('wDone').hidden = true; $('wBody').hidden = !arr.length; if (!arr.length) return; }
+  else $('wBody').hidden = false;
+  const editing = f.dataset.editing === '1', last = arr[arr.length - 1];
+  const loggedDate = sc === 'daily' ? (S.weights[t] != null ? t : null) : (last && daysBetween(last.date, t) <= 6 ? last.date : null);
+  const logged = !!loggedDate && !editing && !noneMode;
+  if (!noneMode) { f.hidden = logged; $('wDateRow').hidden = logged; $('wDone').hidden = !logged; }
+  if (logged) {
+    const lw = S.weights[loggedDate];
+    $('wNum').textContent = (+lw).toFixed(1);
+    $('wTag').textContent = loggedDate === t ? 'Logged today' : `Logged ${parseIso(loggedDate).toLocaleDateString(undefined, { weekday: 'long' })}`;
+    const prev = [...arr].reverse().find(w => w.date < loggedDate);
+    const dl = $('wDelta'); dl.className = 'wdone-delta';
+    if (prev) {
+      const x = lw - prev.lb, days = daysBetween(prev.date, loggedDate);
+      const when = loggedDate === t ? (days === 1 ? 'yesterday' : `${days} days ago`) : (days === 1 ? 'the day before' : `${days} days earlier`);
+      dl.textContent = Math.abs(x) < 0.05 ? `Same as ${when}` : `${x > 0 ? '+' : '−'}${Math.abs(x).toFixed(1)} lb vs ${when}`;
+      dl.classList.add(goodness(x));
+    } else dl.textContent = 'Your first weigh-in. The trend starts here.';
+    const nx = $('wNext'); nx.hidden = sc !== 'weekly';
+    if (sc === 'weekly') { const nd = shift(loggedDate, 7); nx.textContent = nd <= t ? 'Next weigh-in: today' : `Next weigh-in: ${shortDate(nd)}`; }
+    f.dataset.date = loggedDate;
+  } else if (!noneMode && document.activeElement !== $('wIn')) {
+    const ed = f.dataset.date;
+    $('wIn').value = editing && ed && S.weights[ed] != null ? S.weights[ed] : '';
+    $('wIn').placeholder = sc === 'daily' ? 'Weight after waking' : 'Your weight in lb';
+    $('wDateBtn').textContent = sc === 'daily' ? 'Weighed on another day?' : 'Weighed on a different day?';
+  }
   const a = avgBetween(arr, shift(t, -6), t), b = avgBetween(arr, shift(t, -13), shift(t, -7));
-  $('avg7').textContent = a ? a.toFixed(1) : '–';
+  const n7 = arr.filter(w => w.date >= shift(t, -6)).length, useLatest = sc !== 'daily' && n7 < 2 && last;
+  $('avgK').textContent = useLatest ? 'Latest' : '7-day avg';
+  $('avg7').textContent = useLatest ? (+last.lb).toFixed(1) : a ? a.toFixed(1) : '–';
   const d = $('delta'); d.className = 'v';
-  if (a && b) { const x = a - b; d.textContent = (x > 0 ? '+' : x < 0 ? '−' : '') + Math.abs(x).toFixed(1); d.classList.add(x <= 0 ? 'down' : 'up'); } else d.textContent = '–';
-  $('goalK').textContent = `To ${S.targets.goal}`;
-  $('toGoal').textContent = a ? Math.max(0, a - S.targets.goal).toFixed(1) : '–';
+  if (a && b) { const x = a - b; d.textContent = (x > 0 ? '+' : x < 0 ? '−' : '') + Math.abs(x).toFixed(1); d.classList.add(goodness(x)); } else d.textContent = '–';
+  const G = S.targets.goal;
+  $('goalK').textContent = mode() === 'maintain' ? (G ? `From ${G}` : 'From goal') : G ? `To ${G}` : 'To goal';
+  const cur = a || (useLatest ? last.lb : null);
+  $('toGoal').textContent = cur && G ? Math.abs(cur - G).toFixed(1) : '–';
   const pts = arr.filter(w => w.date >= shift(t, -27));
   const ch = $('chart');
   if (pts.length < 2) {
     ch.innerHTML = '';
     $('wHint').textContent = pts.length ? 'One weigh-in so far. The trend line appears after your second.'
-      : 'Weigh after the bathroom, before food or water. The weekly average is the number that matters.';
+      : sc === 'daily' ? 'Weigh after the bathroom, before food or water. The weekly average is the number that matters.'
+      : 'Weigh once a week, same day and time if you can. A gym or pharmacy scale works.';
     return;
   }
-  $('wHint').textContent = 'Last 4 weeks. Dots are daily weigh-ins; the line is your 7-day average.';
+  $('wHint').textContent = sc === 'daily' ? 'Last 4 weeks. Dots are daily weigh-ins; the line is your 7-day average.' : 'Last 4 weeks. Dots are your weigh-ins; the line is the trend.';
   const W = 520, H = 160, L = 34, R = 12, T = 12, B = 24;
   const t0 = parseIso(shift(t, -27)).getTime(), t1 = parseIso(t).getTime();
   const lbs = pts.map(p => p.lb);
@@ -210,7 +296,7 @@ function renderWeights() {
   const av = pts.map(p => [X(p.date), Y(avgBetween(arr, shift(p.date, -6), p.date))]);
   const line = av.map(p => p.map(n => n.toFixed(1)).join(',')).join(' ');
   const area = `${av[0][0].toFixed(1)},${H - B} ${line} ${av[av.length - 1][0].toFixed(1)},${H - B}`;
-  const last = av[av.length - 1];
+  const lastPt = av[av.length - 1];
   const txt = 'font-size="11" fill="var(--muted)" font-family="Barlow, system-ui, sans-serif"';
   ch.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Weight over the last four weeks">
     <defs><linearGradient id="wg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--accent)" stop-opacity=".22"/><stop offset="1" stop-color="var(--accent)" stop-opacity="0"/></linearGradient></defs>
@@ -220,19 +306,82 @@ function renderWeights() {
     <polygon points="${area}" fill="url(#wg)"/>
     ${pts.map(p => `<circle cx="${X(p.date)}" cy="${Y(p.lb)}" r="3" fill="var(--muted)" opacity=".5"/>`).join('')}
     <polyline points="${line}" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
-    <circle cx="${last[0]}" cy="${last[1]}" r="5" fill="var(--accent)" stroke="var(--surface)" stroke-width="2"/></svg>`;
+    <circle cx="${lastPt[0]}" cy="${lastPt[1]}" r="5" fill="var(--accent)" stroke="var(--surface)" stroke-width="2"/></svg>`;
 }
+const MODE_HINT = {
+  lose: 'Losing fat while keeping muscle. Weight going down counts as progress.',
+  maintain: 'Holding your weight steady. Staying close to your goal weight counts as progress.',
+  gain: 'Building muscle with a slow, lean gain. Weight going up counts as progress.',
+};
 function renderSettings() {
   const T = S.targets;
-  $('tLo').value = T.calLo; $('tHi').value = T.calHi; $('tPro').value = T.protein; $('tGoal').value = T.goal;
+  if (document.activeElement?.closest?.('#tForm') == null) {
+    $('tLo').value = T.calLo; $('tHi').value = T.calHi; $('tPro').value = T.protein; $('tGoal').value = T.goal ?? '';
+    $('tStart').value = S.startWeight ?? '';
+    $('tStart').placeholder = weightsArr()[0] ? `First weigh-in: ${weightsArr()[0].lb}` : 'Your first weigh-in';
+  }
+  if (document.activeElement !== $('pName')) $('pName').value = S.name || '';
+  $('youName').textContent = S.name || 'Add your name';
+  $('youName').classList.toggle('muted', !S.name);
+  $('avatar').textContent = (S.name || '?').trim().charAt(0).toUpperCase() || '?';
+  $('modeBadge').textContent = MODES[mode()];
+  [...$('pMode').children].forEach(c => c.setAttribute('aria-pressed', c.dataset.v === mode()));
+  $('pModeHint').textContent = MODE_HINT[mode()];
+  [...$('pScale').children].forEach(c => c.setAttribute('aria-pressed', c.dataset.v === scale()));
+  $('pScaleHint').textContent = SCALE_HINT[scale()];
+  $('foodCount').textContent = S.foods.length ? `${S.foods.length}` : '';
+  renderHeader();
   $('foodList').innerHTML = S.foods.length ? S.foods.map(f => `<button class="food-row" data-food="${esc(f.id)}"><span>${esc(f.name)}<small>${esc([f.brand, perLine(f)].filter(Boolean).join(' · '))}</small></span>${icon('i-chev-r')}</button>`).join('')
     : '<p class="empty">Foods you scan or read from a label are saved here for next time.</p>';
 }
 function renderAll() { renderDay(); renderTotals(); renderRows(); renderWeights(); renderSettings(); renderSync(); if (typeof tab !== 'undefined' && tab === 'trends') renderTrends(); }
 
+/* ---------- weigh-in frequency ---------- */
+const scale = () => S.scale || 'daily';
+const daysBetween = (a, b) => Math.round((parseIso(b) - parseIso(a)) / 864e5);
+const shortDate = d => parseIso(d).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+const SCALE_HINT = {
+  daily: 'Weigh every morning after the bathroom, before food or water. This gives the most accurate trend.',
+  weekly: 'Weigh once a week, same day and time if you can. A gym or pharmacy scale works. Trends take a few weeks longer to settle.',
+  none: 'Track your waist with a tape measure instead. A weigh-in now and then, at a gym or pharmacy, still helps your trend.',
+};
+
+/* ---------- goal mode ---------- */
+const MODES = { lose: 'Cutting', maintain: 'Maintaining', gain: 'Building' };
+const mode = () => S.targets.mode || 'lose';
+function goodness(change) {          // is this weight change good news for the current goal?
+  const m = mode();
+  if (m === 'maintain') return Math.abs(change) < 0.3 ? 'good' : 'flat';
+  if (Math.abs(change) < 0.05) return 'flat';
+  return (m === 'lose' ? change < 0 : change > 0) ? 'good' : 'bad';
+}
+function greeting() {
+  const h = new Date().getHours();
+  return h < 5 ? 'Up late' : h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : h < 22 ? 'Good evening' : 'Good night';
+}
+function renderHeader() {
+  const g = $('greet'); if (!g) return;
+  g.textContent = S.name ? `${greeting()}, ${S.name}` : greeting();
+}
+
+/* ---------- meal slots ---------- */
+const SLOTS = [['breakfast', 'Breakfast'], ['lunch', 'Lunch'], ['dinner', 'Dinner'], ['snacks', 'Snacks']];
+function timeSlot(at) {
+  const d = new Date(at || Date.now()), h = d.getHours() + d.getMinutes() / 60;
+  return h < 11.5 ? 'breakfast' : h < 16 ? 'lunch' : h < 21.5 ? 'dinner' : 'snacks';
+}
+function slotOf(e) { return e.slot || timeSlot(e.at); }
+function defaultSlot(foodId) {
+  if (foodId && S.slotPref?.[foodId]) return S.slotPref[foodId];       // where you usually log this food
+  const h = new Date().getHours() + new Date().getMinutes() / 60;
+  if (day === todayIso() && h < 14 && !entriesFor(day).some(e => slotOf(e) === 'breakfast')) return 'breakfast';  // first meal of a late morning
+  return timeSlot(Date.now());
+}
+function slotChips(sel) { return `<div class="chips slots" id="aSlot" role="group" aria-label="Meal">${SLOTS.map(([k, l]) => `<button class="chip" data-s="${k}" aria-pressed="${k === sel}">${l}</button>`).join('')}</div>`; }
+
 /* ---------- log actions ---------- */
-function addEntry(name, kcal, pro, detail, src) {
-  const e = { id: uid(), name, kcal: r1(kcal), pro: r1(pro), detail: detail || '', at: Date.now() };
+function addEntry(name, kcal, pro, detail, src, slot) {
+  const e = { id: uid(), name, kcal: r1(kcal), pro: r1(pro), detail: detail || '', at: Date.now(), slot: slot || defaultSlot(src?.food?.id) };
   if (src) { e.food = src.food; e.qty = src.qty; e.unit = src.unit; }
   (S.log[day] ||= []).push(e);
   touchDay(day); renderTotals(); renderRows(); haptic();
@@ -303,6 +452,7 @@ function openSheet(title, html, cleanup) {
   if (onSheetClose) { try { onSheetClose(); } catch (e) {} }
   clearTimeout(SH.hideTimer);
   const swapping = SH.open;
+  sheetBody.onclick = null;
   $('sheetTitle').textContent = title;
   sheetBody.innerHTML = html;
   if (swapping) { replay(sheetBody, 'swap-in'); replay($('sheetTitle'), 'swap-in'); }
@@ -393,6 +543,8 @@ function openAmount(f, preset, opts = {}) {
   const startQty = preset?.qty ?? (unit === 'g' ? 100 : 1);
   const dayName = $('dayLabel').textContent;
   const editing = opts.editId, picking = pick;
+  const editEntry = editing ? entriesFor(day).find(x => x.id === editing) : null;
+  let slot = editEntry ? slotOf(editEntry) : defaultSlot(f.id);
   const cta = picking ? picking.label : editing ? 'Save changes' : `Add to ${dayName === 'Today' ? 'today' : dayName}`;
   openSheet(editing ? 'Edit entry' : 'How much?', `
     <div class="food-head"><strong>${esc(f.name)}</strong><span>${esc([f.brand, perLine(f)].filter(Boolean).join(' · '))}</span></div>
@@ -403,6 +555,7 @@ function openAmount(f, preset, opts = {}) {
     </div>
     <div class="chips" id="aUnits" role="group" aria-label="Unit">${units.map(u => `<button class="chip" data-u="${u.key}" aria-pressed="${u.key === unit}" title="${esc(u.long || u.label)}">${esc(u.key === 'serving' && f.servingLabel ? 'serving · ' + f.servingLabel : u.label)}</button>`).join('')}</div>
     <div class="result"><div><span class="num" id="aK">0</span><small>kcal</small></div><div class="pro"><span class="num" id="aP">0g</span><small>protein</small></div></div>
+    ${picking ? '' : slotChips(slot)}
     <p class="hint" id="aNote" hidden>Spoon sizes are approximate: about 15 g per tablespoon and 5 g per teaspoon. A heaping spoon is closer to 25 g.</p>
     <button class="btn" id="aAdd">${esc(cta)}</button>
     ${NOT_SAVED.includes(f.source) ? '' : '<button class="btn ghost" id="aFix">Numbers look wrong? Fix them</button>'}
@@ -424,6 +577,11 @@ function openAmount(f, preset, opts = {}) {
     upd();
   };
   upd();
+  if ($('aSlot')) $('aSlot').onclick = e => {
+    const b = e.target.closest('[data-s]'); if (!b) return;
+    slot = b.dataset.s; haptic();
+    [...$('aSlot').children].forEach(c => c.setAttribute('aria-pressed', c.dataset.s === slot));
+  };
   if ($('aDel')) $('aDel').onclick = () => { closeSheet(); removeEntry(editing); };
   if ($('aFix')) $('aFix').onclick = () => {
     const g = f.servingG || null;
@@ -439,11 +597,22 @@ function openAmount(f, preset, opts = {}) {
     rememberFood(f); pushRecent(f, q, unit); touchMeta(); renderSettings();
     if (picking) { pick = null; picking.onDone(f, q, unit, v); return; }
     if (editing) {
-      const e = entriesFor(day).find(x => x.id === editing);
-      if (e) Object.assign(e, { kcal: r1(v.kcal), pro: r1(v.pro), detail, food: f, qty: q, unit });
+      if (editEntry) Object.assign(editEntry, { kcal: r1(v.kcal), pro: r1(v.pro), detail, food: f, qty: q, unit, slot });
       touchDay(day); renderTotals(); renderRows(); closeSheet(); toast('Entry updated'); return;
     }
-    addEntry(f.name, v.kcal, v.pro, detail, { food: f, qty: q, unit });
+    S.slotPref[f.id] = slot;
+    // logging the same thing again in the same meal adds to the existing line
+    const same = entriesFor(day).find(x => x.food && x.food.id === f.id && x.unit === unit && slotOf(x) === slot);
+    if (same) {
+      const prev = { kcal: same.kcal, pro: same.pro, qty: same.qty, detail: same.detail };
+      same.qty = r1(same.qty + q); same.kcal = r1(same.kcal + v.kcal); same.pro = r1(same.pro + v.pro);
+      same.detail = `${fmtQty(same.qty)} ${unitWord(f, unit, same.qty)}`;
+      touchDay(day); renderTotals(); renderRows(); haptic(); closeSheet();
+      replay(document.querySelector(`.row[data-id="${CSS.escape(same.id)}"]`), 'row-bump');
+      toast(`Now ${same.detail} · ${Math.round(same.kcal)} kcal`, { label: 'Undo', fn: () => { Object.assign(same, prev); touchDay(day); renderTotals(); renderRows(); } });
+      return;
+    }
+    addEntry(f.name, v.kcal, v.pro, detail, { food: f, qty: q, unit }, slot);
     closeSheet(); toast(`Added ${Math.round(v.kcal)} kcal · ${fmtG(v.pro)}g protein`);
   };
 }
@@ -716,15 +885,14 @@ function openMeals() {
         <button class="item" data-m="${i}"><span class="nm">${esc(m.name)}<small>${m.items?.length ? `${m.items.length} ingredient${m.items.length > 1 ? 's' : ''}${m.servings > 1 ? ` · makes ${m.servings}` : ''}` : 'quick meal'}</small></span>
         <span class="meta">${m.kcal} kcal · ${m.pro}g</span></button>
         <button class="edit" data-edit="${i}" aria-label="Edit ${esc(m.name)}">Edit</button></div>`).join('') : '<p class="empty">No saved meals yet. Build one from the foods you cook with.</p>'}</div>
-    <p class="hint">Tap a meal to log one serving. You can change the amount afterwards by tapping it in your log.</p>
+    <p class="hint">Tap a meal, choose how many, and add it.</p>
     <button class="btn" id="newMeal">Build a new meal</button>`);
   $('mealList').onclick = e => {
     const ed = e.target.closest('[data-edit]');
     if (ed) { const m = S.meals[+ed.dataset.edit]; openMealEditor(JSON.parse(JSON.stringify({ ...m, items: m.items || [] }))); return; }
     const b = e.target.closest('[data-m]'); if (!b) return;
     const m = S.meals[+b.dataset.m];
-    addEntry(m.name, m.kcal, m.pro, '1 serving', { food: mealFood(m), qty: 1, unit: 'serving' });
-    closeSheet(); toast(`Added ${m.kcal} kcal · ${m.pro}g protein`);
+    openAmount(mealFood(m), { qty: 1, unit: 'serving' });
   };
   $('newMeal').onclick = () => openMealEditor({ id: null, name: '', servings: 1, items: [], kcal: '', pro: '' });
 }
@@ -794,6 +962,15 @@ function openMealEditor(d) {
 /* =================== CLOUD SYNC (Firebase) =================== */
 const Sync = { ready: false, auth: null, db: null, user: null, unsub: [], state: 'local', flushing: false, timer: null };
 function setSync(state) { Sync.state = state; renderSync(); }
+function renderAcct() {
+  if (!$('acctText')) return;
+  const cfg = window.FIREBASE_CONFIG;
+  $('acctState').textContent = $('syncText').textContent;
+  $('acctText').textContent = !cfg?.apiKey ? 'Everything is saved on this phone.'
+    : Sync.user ? `Signed in as ${Sync.user.email}. Your log syncs to the cloud and your other devices.`
+    : 'Sign in to back up your log and use it on your laptop too.';
+  $('acctBtn').textContent = Sync.user ? 'Manage account' : 'Sign in';
+}
 function renderSync() {
   const b = $('syncBtn'); if (!b) return;
   const map = {
@@ -801,24 +978,28 @@ function renderSync() {
     syncing: ['busy', 'Saving…'], synced: ['ok', 'Synced'], offline: ['bad', 'Offline'], error: ['bad', 'Sync paused'],
   };
   const [cls, txt] = map[Sync.state] || map.local;
-  b.className = 'sync ' + cls; $('syncText').textContent = txt;
+  b.className = 'sync ' + cls; $('syncText').textContent = txt; renderAcct();
 }
-function dayDoc(d) { return { entries: S.log[d] || [], weight: S.weights[d] ?? null, updatedAt: S.stamps.days[d] || Date.now() }; }
-function metaDoc() { return { targets: S.targets, meals: S.meals, foods: S.foods, recent: S.recent, theme: S.theme || 'cobalt', updatedAt: S.stamps.meta || Date.now() }; }
+function dayDoc(d) { return { entries: S.log[d] || [], weight: S.weights[d] ?? null, waist: S.waist?.[d] ?? null, updatedAt: S.stamps.days[d] || Date.now() }; }
+function metaDoc() { return { targets: S.targets, meals: S.meals, foods: S.foods, recent: S.recent, theme: S.theme || 'cobalt', slotPref: S.slotPref || {}, name: S.name || '', scale: S.scale || 'daily', startWeight: S.startWeight ?? null, milestones: S.milestones || {}, msInit: !!S.msInit, updatedAt: S.stamps.meta || Date.now() }; }
 function applyDay(id, data) {
   if (data.entries && data.entries.length) S.log[id] = data.entries; else delete S.log[id];
   if (data.weight != null) S.weights[id] = data.weight; else delete S.weights[id];
+  S.waist ||= {}; if (data.waist != null) S.waist[id] = data.waist; else delete S.waist[id];
   S.stamps.days[id] = data.updatedAt || 0;
   S.dirty = S.dirty.filter(k => k !== 'd:' + id);
 }
 function applyMeta(data) {
-  ['targets', 'meals', 'foods', 'recent', 'theme'].forEach(k => { if (data[k] !== undefined) S[k] = data[k]; });
-  applyTheme();
+  ['targets', 'meals', 'foods', 'recent', 'theme', 'slotPref', 'name', 'scale', 'startWeight', 'milestones', 'msInit'].forEach(k => { if (data[k] !== undefined) S[k] = data[k]; });
+  S.onboarded = true; delete S.metaUnsynced;   // this account was already set up somewhere
+  S.targets = Object.assign({ mode: 'lose' }, S.targets); S.milestones ||= {};
+  applyTheme(); if (typeof hideOnboarding === 'function') hideOnboarding();
   S.stamps.meta = data.updatedAt || 0;
   S.dirty = S.dirty.filter(k => k !== 'meta');
 }
 /* Merge one remote document: newer side wins. Returns true when local data changed. */
 function mergeRemote(kind, id, data) {
+  if (kind === 'meta' && S.metaUnsynced && data) { applyMeta(data); return true; }
   const local = kind === 'meta' ? S.stamps.meta : (S.stamps.days[id] || 0);
   const remote = data?.updatedAt || 0;
   if (remote > local) { kind === 'meta' ? applyMeta(data) : applyDay(id, data); return true; }
@@ -861,8 +1042,9 @@ function startUser(user) {
     if (!(gotMeta && gotDays)) return;
     // anything only on this phone gets uploaded
     Object.keys(S.stamps.days).forEach(d => { if (!seenDays.has(d)) markDirty('d:' + d); });
-    new Set([...Object.keys(S.log), ...Object.keys(S.weights)]).forEach(d => { if (!seenDays.has(d)) { S.stamps.days[d] ||= Date.now(); markDirty('d:' + d); } });
+    new Set([...Object.keys(S.log), ...Object.keys(S.weights), ...Object.keys(S.waist || {})]).forEach(d => { if (!seenDays.has(d)) { S.stamps.days[d] ||= Date.now(); markDirty('d:' + d); } });
     if (!seenMeta) { S.stamps.meta ||= Date.now(); markDirty('meta'); }
+    delete S.metaUnsynced;
     persist(); renderAll(); flush();
   };
   const seenDays = new Set(); let seenMeta = false;
@@ -1019,7 +1201,7 @@ function estimateBurn() {
   for (let i = 0; i < BURN_WINDOW; i++) { const d = shift(from, i), t = dayTotals(d); if (t) logged.push(t.kcal); }
   const wts = weightsArr().filter(w => w.date >= from && w.date <= todayIso());
   const span = wts.length ? (parseIso(wts[wts.length - 1].date) - parseIso(wts[0].date)) / 864e5 : 0;
-  const need = { days: 10, weighs: 7, span: 14 };
+  const need = { days: 10, weighs: scale() === 'daily' ? 7 : 3, span: 14 };
   const have = { days: logged.length, weighs: wts.length, span: Math.round(span) };
   if (have.days < need.days || have.weighs < need.weighs || have.span < need.span) return { ready: false, need, have };
   const intake = logged.reduce((a, b) => a + b, 0) / logged.length;
@@ -1031,26 +1213,33 @@ function estimateBurn() {
 const r50 = n => Math.round(n / 50) * 50;
 function renderBurn() {
   const e = estimateBurn(), box = $('burnBody'), conf = $('bConf');
+  if (!e.ready && scale() === 'none' && e.have.weighs < e.need.weighs) {
+    conf.textContent = 'Needs weigh-ins'; conf.className = 'conf';
+    box.innerHTML = `<p class="hint">Your real burn is worked out from what you eat and how your weight moves, so it needs a weigh-in about once a week. A gym or pharmacy scale is enough. Switch to "Once a week" in the You tab if you can.</p>`;
+    return;
+  }
   if (!e.ready) {
     conf.textContent = 'Learning'; conf.className = 'conf';
     const bar = (h, n) => `<div class="prog"><i style="width:${Math.min(100, h / n * 100)}%"></i></div>`;
     box.innerHTML = `<p class="hint">After about two weeks of logging food and weighing in, this shows how many calories you actually burn a day, worked out from what you eat and how your weight moves. No watch needed.</p>
       <div class="learn">
         <div><span>Days of food logged</span><b>${e.have.days}/${e.need.days}</b>${bar(e.have.days, e.need.days)}</div>
-        <div><span>Morning weigh-ins</span><b>${e.have.weighs}/${e.need.weighs}</b>${bar(e.have.weighs, e.need.weighs)}</div>
+        <div><span>${scale() === 'daily' ? 'Morning weigh-ins' : 'Weigh-ins'}</span><b>${e.have.weighs}/${e.need.weighs}</b>${bar(e.have.weighs, e.need.weighs)}</div>
         <div><span>Days of weight history</span><b>${e.have.span}/${e.need.span}</b>${bar(e.have.span, e.need.span)}</div>
       </div>`;
     return;
   }
   conf.textContent = e.conf + ' confidence'; conf.className = 'conf ' + (e.conf === 'High' ? 'ok' : '');
-  const lo = Math.max(1500, r50(e.burn - 750)), hi = Math.max(lo + 100, r50(e.burn - 500));
+  const m = mode();
+  const [dLo, dHi, label] = m === 'lose' ? [-750, -500, 'For 1–1.5 lb a week'] : m === 'gain' ? [200, 400, 'For a lean gain'] : [-150, 150, 'To hold steady'];
+  const lo = Math.max(1200, r50(e.burn + dLo)), hi = Math.max(lo + 100, r50(e.burn + dHi));
   const T = S.targets, same = T.calLo === lo && T.calHi === hi;
   const lossTxt = e.perWeek < -0.05 ? `lost ${Math.abs(e.perWeek).toFixed(1)} lb a week` : e.perWeek > 0.05 ? `gained ${e.perWeek.toFixed(1)} lb a week` : 'held your weight steady';
   box.innerHTML = `
     <div class="burn-n"><span class="num" id="burnNum">${r50(e.burn).toLocaleString()}</span><span class="u">kcal a day</span></div>
     <p class="hint">Over the last 4 weeks you ate about ${Math.round(e.intake).toLocaleString()} kcal a day and ${lossTxt}. That works out to this daily burn, including your training.</p>
     <div class="suggest">
-      <div><span class="k">For 1–1.5 lb a week</span><span class="v">${lo.toLocaleString()}–${hi.toLocaleString()}<small>kcal</small></span></div>
+      <div><span class="k">${label}</span><span class="v">${lo.toLocaleString()}–${hi.toLocaleString()}<small>kcal</small></span></div>
       <div><span class="k">Your target now</span><span class="v">${T.calLo.toLocaleString()}–${T.calHi.toLocaleString()}<small>kcal</small></span></div>
     </div>
     ${same ? '<p class="hint">Your target already matches. Nothing to change.</p>' : `<button class="btn" id="useBurn">Use ${lo.toLocaleString()}–${hi.toLocaleString()} as my target</button>`}
@@ -1072,22 +1261,34 @@ function renderTrends() {
   $('tRate').textContent = rate == null ? '–' : (rate > 0 ? '+' : rate < 0 ? '−' : '') + Math.abs(rate).toFixed(1);
   $('tNow').textContent = now ? now.toFixed(1) : '–';
   $('tChange').textContent = inR.length >= 2 ? ((d => (d > 0 ? '+' : d < 0 ? '−' : '') + Math.abs(d).toFixed(1))(avgBetween(arr, shift(to, -6), to) - avgBetween(arr, inR[0].date, shift(inR[0].date, 6)))) : '–';
-  $('tGoalK').textContent = `Reach ${T.goal}`;
+  $('tGoalK').textContent = T.goal ? `Reach ${T.goal}` : 'Reach goal';
   const read = $('tRead'); read.className = 'status';
-  if (rate == null) { $('tEta').textContent = '–'; read.textContent = `Weigh in most mornings. After about a week, your weekly rate and goal date show up here.`; }
-  else {
-    const left = now - T.goal;
-    if (left <= 0) { $('tEta').textContent = 'Done'; read.className = 'status ok'; read.textContent = `You're at or under ${T.goal}. Time to switch to maintenance and hold your muscle.`; }
-    else if (rate < -0.05) {
-      const weeks = left / -rate, eta = new Date(); eta.setDate(eta.getDate() + Math.round(weeks * 7));
-      $('tEta').textContent = eta.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-      const r = -rate;
-      if (r < 0.5) read.textContent = `Losing ${r.toFixed(1)} lb a week, which is slow. Trimming about 200 kcal a day would move you toward 1 lb a week.`;
-      else if (r <= 1.6) { read.className = 'status ok'; read.textContent = `Losing ${r.toFixed(1)} lb a week, right in the 1–1.5 lb pace that protects your strength.`; }
-      else { read.className = 'status hi'; read.textContent = `Losing ${r.toFixed(1)} lb a week, faster than 1.5. Watch your bench; adding 200–300 kcal a day would ease the pace.`; }
-    } else { $('tEta').textContent = '–'; read.className = 'status hi'; read.textContent = `Your weight is flat or rising over this range. Check that you're logging everything, and aim for the low end of your calorie range.`; }
+  const dir = mode() === 'lose' ? -1 : mode() === 'gain' ? 1 : 0;
+  const reached = T.goal && now && ((dir < 0 && now <= T.goal) || (dir > 0 && now >= T.goal));
+  if (rate == null) { $('tEta').textContent = '–'; read.textContent = scale() === 'daily' ? `Weigh in most mornings. After about a week, your weekly rate${T.goal ? ' and goal date' : ''} show up here.`
+      : scale() === 'weekly' ? `Weigh in once a week. After three weigh-ins, your weekly rate${T.goal ? ' and goal date' : ''} show up here.`
+      : 'No weigh-ins yet. Your waist on the Today tab tracks progress without a scale.'; }
+  else if (reached) {
+    $('tEta').textContent = 'Reached'; read.className = 'status ok';
+    read.textContent = `You've reached ${T.goal} lb on your 7-day average. Switch to Maintaining in the You tab to hold it.`;
   }
-  renderBurn();
+  else if (dir === 0) {
+    $('tEta').textContent = T.goal ? 'At goal' : '–';
+    if (Math.abs(rate) <= 0.3) { read.className = 'status ok'; read.textContent = `Holding steady at ${rate > 0 ? '+' : rate < 0 ? '−' : ''}${Math.abs(rate).toFixed(1)} lb a week. Nicely maintained.`; }
+    else { read.className = 'status hi'; read.textContent = `${rate < 0 ? 'Losing' : 'Gaining'} ${Math.abs(rate).toFixed(1)} lb a week. ${rate < 0 ? 'Add' : 'Trim'} about 200 kcal a day to hold steady.`; }
+  } else {
+    const towards = dir * rate;      // positive = moving toward goal
+    if (towards > 0.05) {
+      const weeks = Math.abs(now - T.goal) / Math.abs(rate), eta = new Date(); eta.setDate(eta.getDate() + Math.round(weeks * 7));
+      $('tEta').textContent = eta.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+      const r = Math.abs(rate), verb = dir < 0 ? 'Losing' : 'Gaining';
+      const [slow, fast] = dir < 0 ? [0.5, 1.6] : [0.2, 0.8];
+      if (r < slow) read.textContent = `${verb} ${r.toFixed(1)} lb a week, which is slow. ${dir < 0 ? 'Trimming' : 'Adding'} about 200 kcal a day would speed it up.`;
+      else if (r <= fast) { read.className = 'status ok'; read.textContent = `${verb} ${r.toFixed(1)} lb a week, a steady pace${dir < 0 ? ' that protects your strength' : ' for lean gains'}.`; }
+      else { read.className = 'status hi'; read.textContent = `${verb} ${r.toFixed(1)} lb a week, on the fast side. ${dir < 0 ? 'Adding' : 'Trimming'} 200–300 kcal a day would ease the pace.`; }
+    } else { $('tEta').textContent = '–'; read.className = 'status hi'; read.textContent = `Your weight isn't moving toward your goal over this range. Check that you're logging everything, and aim for the ${dir < 0 ? 'low' : 'high'} end of your calorie range.`; }
+  }
+  renderBurn(); renderMilestones();
   $('tWeightChart').innerHTML = weightChart(from, to);
   $('viewTrends').classList.toggle('anim', chartAnim); chartAnim = false;
   // calories + protein
@@ -1114,8 +1315,8 @@ function renderTrends() {
 }
 function showTab(t) {
   const changed = tab !== t; tab = t;
-  $('viewToday').hidden = t !== 'today'; $('viewTrends').hidden = t !== 'trends';
-  if (changed) { replay(t === 'today' ? $('viewToday') : $('viewTrends'), 'view-in'); if (t === 'trends') chartAnim = true; haptic(); }
+  $('viewToday').hidden = t !== 'today'; $('viewTrends').hidden = t !== 'trends'; $('viewYou').hidden = t !== 'you';
+  if (changed) { replay({ today: $('viewToday'), trends: $('viewTrends'), you: $('viewYou') }[t], 'view-in'); if (t === 'trends') chartAnim = true; haptic(); }
   document.querySelectorAll('.tabbar button').forEach(b => b.dataset.tab === t ? b.setAttribute('aria-current', 'page') : b.removeAttribute('aria-current'));
   if (t === 'trends') renderTrends();
   $('scroller').scrollTo(0, 0);
@@ -1131,6 +1332,240 @@ $('viewTrends').addEventListener('click', e => {
   day = r.dataset.day; showTab('today'); renderDay(); renderTotals(); renderRows();
 });
 
+/* =================== MILESTONES =================== */
+const MS_STREAKS = [3, 7, 14, 30, 60, 100], PRO_STREAKS = [7, 30];
+function runLength(test) {             // consecutive days ending today (or yesterday, if today isn't done yet)
+  let d = todayIso(); if (!test(d)) d = shift(d, -1);
+  let n = 0; while (n < 1000 && test(d)) { n++; d = shift(d, -1); }
+  return n;
+}
+const logStreak = () => runLength(d => entriesFor(d).length > 0);
+const proStreak = () => runLength(d => { const t = dayTotals(d); return !!t && t.pro >= S.targets.protein; });
+function trendNow() {
+  const t = todayIso(), w = weightsArr().filter(x => x.date >= shift(t, -6));
+  if (w.length >= 3) return w.reduce((a, x) => a + x.lb, 0) / w.length;
+  if (scale() !== 'daily') { const r = weightsArr().filter(x => x.date >= shift(t, -13)); if (r.length) return r[r.length - 1].lb; }   // weekly: latest weigh-in
+  return null;
+}
+function waistProgress() { const z = waistArr(); return z.length >= 2 ? { first: z[0].v, now: z[z.length - 1].v, prog: z[0].v - z[z.length - 1].v } : null; }
+const startW = () => S.startWeight ?? weightsArr()[0]?.lb ?? null;
+const stepLb = () => mode() === 'gain' ? 2.5 : 5;
+function weightProgress() {
+  const now = trendNow(), s = startW(), m = mode();
+  if (now == null || s == null || m === 'maintain') return null;
+  const dir = m === 'lose' ? -1 : 1;
+  return { now, s, dir, prog: (now - s) * dir, total: S.targets.goal ? (S.targets.goal - s) * dir : null };
+}
+function earnedNow() {
+  const out = [], m = mode(), T = S.targets;
+  if (Object.keys(S.log).some(d => entriesFor(d).length)) out.push({ id: 'first-log', title: 'First food logged', sub: 'The hardest part is starting. Keep it going tomorrow.' });
+  if (weightsArr().length) out.push({ id: 'first-weigh', title: 'First weigh-in', sub: 'Your trend line starts here. Weigh in each morning.' });
+  const ls = logStreak();
+  MS_STREAKS.forEach(n => { if (ls >= n) out.push({ id: 'streak-' + n, title: `${n}-day logging streak`, sub: `You've logged food ${n} days in a row.` }); });
+  const ps = proStreak();
+  PRO_STREAKS.forEach(n => { if (ps >= n) out.push({ id: 'protein-' + n, title: `Protein goal ${n} days running`, sub: `${T.protein}g or more every day for ${n} days.` }); });
+  const wp = weightProgress();
+  if (wp) {
+    const step = stepLb(), toGo = T.goal ? ` · ${Math.abs(wp.now - T.goal).toFixed(1)} lb to go` : '';
+    for (let k = step; k <= wp.prog + 1e-9; k += step)
+      out.push({ id: `w-${m}-${k}`, title: `${m === 'lose' ? 'Down' : 'Up'} ${k} lb`, sub: `Your 7-day average is ${wp.now.toFixed(1)} lb${toGo}.` });
+    if (wp.total != null && wp.total >= 4) {
+      if (wp.prog >= wp.total / 2) out.push({ id: `half-${m}-${T.goal}`, title: `Halfway to ${T.goal} lb`, sub: `${Math.max(0, wp.total - wp.prog).toFixed(1)} lb to go. Keep going.` });
+      if (wp.prog >= wp.total) out.push({ id: `goal-${m}-${T.goal}`, title: `Goal reached: ${T.goal} lb`, sub: 'Switch to Maintaining in the You tab to hold it, or set a new goal.' });
+    }
+  }
+  if (waistArr().length) out.push({ id: 'first-waist', title: 'First waist measurement', sub: 'Measure again in a week or two to see it move.' });
+  const zp = waistProgress();
+  if (zp && m === 'lose') for (let k = 1; k <= zp.prog + 1e-9; k++)
+    out.push({ id: `waist-down-${k}`, title: `Waist down ${k} inch${k > 1 ? 'es' : ''}`, sub: `From ${zp.first}″ to ${zp.now}″. That's fat coming off.` });
+  if (m === 'maintain' && T.goal) {
+    const t = todayIso(), w = weightsArr().filter(x => x.date >= shift(t, -13));
+    if (w.length >= 7 && (parseIso(t) - parseIso(w[0].date)) / 864e5 >= 10 && w.every(x => Math.abs(x.lb - T.goal) <= 2.5))
+      out.push({ id: `hold-14-${T.goal}`, title: 'Held steady for 2 weeks', sub: `Every weigh-in within 2.5 lb of ${T.goal}.` });
+  }
+  return out;
+}
+let msBusy = false, msSilent = false;
+const celQueue = [];
+function checkMilestones(silent) {
+  if (msBusy) return; msBusy = true;
+  try {
+    const got = earnedNow().filter(x => !S.milestones[x.id]);
+    if (!got.length) return;
+    const d = todayIso();
+    got.forEach(x => { S.milestones[x.id] = { d, t: x.title }; });
+    touchMeta();
+    if (!silent && !msSilent) { celQueue.push(...got.slice(-2)); setTimeout(showNextCel, 450); }
+    if (tab === 'trends') renderMilestones();
+  } finally { msBusy = false; }
+}
+function showNextCel() {
+  const c = $('celebrate'); if (!c.hidden || !celQueue.length) return;
+  const x = celQueue.shift();
+  $('celTitle').textContent = x.title; $('celSub').textContent = x.sub;
+  c.hidden = false; requestAnimationFrame(() => requestAnimationFrame(() => c.classList.add('in')));
+  haptic(); confetti();
+}
+$('celOk').onclick = () => {
+  const c = $('celebrate'); c.classList.remove('in');
+  setTimeout(() => { c.hidden = true; showNextCel(); }, 320);
+};
+function confetti() {
+  if (REDUCED) return;
+  const cv = $('confetti'), ctx = cv.getContext('2d'), dpr = Math.min(2, devicePixelRatio || 1);
+  cv.width = innerWidth * dpr; cv.height = innerHeight * dpr; ctx.scale(dpr, dpr);
+  const cs = getComputedStyle(document.documentElement);
+  const cols = ['--accent', '--protein', '--ring-cal', '--ring-pro', '--warn'].map(v => cs.getPropertyValue(v).trim()).filter(Boolean);
+  const P = Array.from({ length: 130 }, () => ({
+    x: innerWidth / 2 + (Math.random() - .5) * 60, y: innerHeight * .42,
+    vx: (Math.random() - .5) * 11, vy: -Math.random() * 13 - 4, r: Math.random() * 6 + 4,
+    a: Math.random() * 6.3, va: (Math.random() - .5) * .35, c: cols[Math.floor(Math.random() * cols.length)],
+  }));
+  const t0 = performance.now();
+  const frame = now => {
+    const t = now - t0; ctx.clearRect(0, 0, innerWidth, innerHeight);
+    P.forEach(p => { p.vy += .32; p.vx *= .99; p.x += p.vx; p.y += p.vy; p.a += p.va;
+      ctx.save(); ctx.globalAlpha = Math.max(0, 1 - t / 2200); ctx.translate(p.x, p.y); ctx.rotate(p.a);
+      ctx.fillStyle = p.c; ctx.fillRect(-p.r / 2, -p.r / 4, p.r, p.r / 2); ctx.restore(); });
+    if (t < 2200) requestAnimationFrame(frame); else ctx.clearRect(0, 0, innerWidth, innerHeight);
+  };
+  requestAnimationFrame(frame);
+}
+let msAll = false;
+function renderMilestones() {
+  const box = $('msBody'); if (!box) return;
+  const list = Object.entries(S.milestones || {}).map(([id, v]) => ({ id, ...v })).sort((x, y) => (x.d < y.d ? 1 : x.d > y.d ? -1 : 0));
+  $('msCount').textContent = list.length ? `${list.length} earned` : '';
+  const nexts = [];
+  const wp = weightProgress(), step = stepLb();
+  if (wp) {
+    const k = Math.floor(Math.max(0, wp.prog) / step + 1e-9) * step + step;
+    const capped = wp.total != null && wp.total > 0 && k > wp.total;
+    const label = capped ? `Goal: ${S.targets.goal} lb` : `${mode() === 'lose' ? 'Down' : 'Up'} ${k} lb`;
+    const left = capped ? wp.total - wp.prog : k - wp.prog;
+    nexts.push({ label, meta: `${Math.max(0, left).toFixed(1)} lb to go`, frac: 1 - Math.max(0, left) / step });
+  } else if (mode() !== 'maintain' && scale() !== 'none') nexts.push({ label: 'Weight milestones', meta: scale() === 'daily' ? 'Weigh in 3 mornings this week to start' : 'Log a weigh-in to start', frac: scale() === 'daily' ? Math.min(1, weightsArr().filter(x => x.date >= shift(todayIso(), -6)).length / 3) : 0 });
+  if (mode() === 'lose' && (scale() === 'none' || waistArr().length)) {
+    const zp = waistProgress();
+    if (!zp) nexts.push({ label: 'Waist milestones', meta: waistArr().length ? 'Measure again in a week or two' : 'Log your waist to start', frac: waistArr().length ? 0.5 : 0 });
+    else { const k = Math.floor(Math.max(0, zp.prog) + 1e-9) + 1; nexts.push({ label: `Waist down ${k} inch${k > 1 ? 'es' : ''}`, meta: `${(k - zp.prog).toFixed(2).replace(/0$/, '')}″ to go`, frac: 1 - (k - zp.prog) }); }
+  }
+  const ls = logStreak(), ns = MS_STREAKS.find(n => n > ls);
+  if (ns) nexts.push({ label: `${ns}-day logging streak`, meta: `${ns - ls} day${ns - ls > 1 ? 's' : ''} to go`, frac: ls / ns });
+  const shown = msAll ? list : list.slice(0, 4);
+  box.innerHTML = `
+    ${nexts.length ? `<div class="ms-next">${nexts.map(n => `<div><div class="ms-nh"><span>Next: ${esc(n.label)}</span><b>${esc(n.meta)}</b></div><div class="prog"><i style="width:${Math.round(Math.max(0.03, Math.min(1, n.frac)) * 100)}%"></i></div></div>`).join('')}</div>` : ''}
+    ${list.length ? `<div class="ms-list">${shown.map(m => `<div class="ms-item"><span class="ms-ic"><svg><use href="#i-medal"/></svg></span><span class="ms-t">${esc(m.t)}</span><span class="ms-d">${parseIso(m.d).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span></div>`).join('')}</div>
+      ${list.length > 4 ? `<button class="btn ghost" id="msMore">${msAll ? 'Show fewer' : `Show all ${list.length}`}</button>` : ''}`
+      : '<p class="empty">Log food and weigh in to earn your first milestone.</p>'}`;
+  if ($('msMore')) $('msMore').onclick = () => { msAll = !msAll; renderMilestones(); };
+}
+
+/* =================== FIRST-RUN SETUP =================== */
+const OB = { scale: 'daily', sex: 'male', age: '', hu: 'ft', cm: '', ft: '', inch: '', lb: '', act: 'active', goal: 'lose', goalLb: '' };
+const ACTS = [
+  ['low', 'Mostly sitting', 'Desk job, little exercise', 1.2],
+  ['light', 'Lightly active', 'On your feet some, or 1–2 workouts a week', 1.375],
+  ['active', 'Active', 'Train 3–5 times a week', 1.55],
+  ['very', 'Very active', 'Hard training 6+ days, or a physical job', 1.725],
+];
+function obSeg(id, opts, val) { return `<div class="seg2" id="${id}">${opts.map(([v, l]) => `<button type="button" data-v="${v}" aria-pressed="${v === val}">${l}</button>`).join('')}</div>`; }
+function showOnboarding(step = 1) {
+  const o = $('onboard'), b = $('obBody');
+  if (o.hidden) { o.hidden = false; requestAnimationFrame(() => o.classList.add('in')); }
+  if (step === 1) {
+    b.innerHTML = `<div class="ob-hero"><span class="ob-mark" aria-hidden="true"></span><h1>Cut Log</h1>
+        <p>Track calories and protein in seconds. Scan a barcode, snap a label, or tap a saved meal, and see your real weight trend.</p></div>
+      <div class="ob-actions"><button class="btn" id="obStart">Get started</button>
+      ${window.FIREBASE_CONFIG?.apiKey ? '<button class="btn ghost" id="obSignIn">I already have an account</button>' : ''}</div>`;
+    $('obStart').onclick = () => showOnboarding(2);
+    if ($('obSignIn')) $('obSignIn').onclick = () => openAccount();
+  }
+  if (step === 2) {
+    b.innerHTML = `<div class="ob-step"><span class="ob-n">Step 1 of 2</span><h2>About you</h2><p class="hint">Your age, height and sex are used once to suggest your starting targets and aren't saved.</p></div>
+      <div class="ob-form">
+        <label>Your first name<input id="obName" maxlength="30" value="${esc(OB.name || '')}" placeholder="What should the app call you?" autocomplete="given-name"></label>
+        <label>Sex (for the calorie formula)${obSeg('obSex', [['male', 'Male'], ['female', 'Female']], OB.sex)}</label>
+        <label>Age<input id="obAge" type="number" inputmode="numeric" min="14" max="100" value="${OB.age}" placeholder="e.g. 27"></label>
+        <label>Height ${obSeg('obHu', [['ft', 'ft / in'], ['cm', 'cm']], OB.hu)}
+          <div class="grid2" id="obFt" ${OB.hu === 'cm' ? 'hidden' : ''}><input id="obFeet" type="number" inputmode="numeric" placeholder="ft" value="${OB.ft}" aria-label="Feet"><input id="obIn" type="number" inputmode="decimal" placeholder="in" value="${OB.inch}" aria-label="Inches"></div>
+          <input id="obCm" type="number" inputmode="decimal" placeholder="cm" value="${OB.cm}" aria-label="Centimetres" ${OB.hu === 'ft' ? 'hidden' : ''}></label>
+        <label>Current weight (lb)<input id="obLb" type="number" inputmode="decimal" step="0.1" value="${OB.lb}" placeholder="e.g. 185"></label>
+        <div class="ob-label">How active are you?</div>
+        <div class="ob-cards" id="obAct">${ACTS.map(([v, t, s]) => `<button type="button" class="ob-card" data-v="${v}" aria-pressed="${v === OB.act}"><strong>${t}</strong><span>${s}</span></button>`).join('')}</div>
+        <label>Your goal ${obSeg('obGoal', [['lose', 'Lose fat'], ['maintain', 'Maintain'], ['gain', 'Build']], OB.goal)}</label>
+        <label>How often can you weigh yourself? ${obSeg('obScale', [['daily', 'Every morning'], ['weekly', 'Once a week'], ['none', 'No scale']], OB.scale)}</label>
+        <label id="obGoalW" ${OB.goal === 'maintain' ? 'hidden' : ''}>Goal weight (lb)<input id="obGoalLb" type="number" inputmode="decimal" step="0.1" value="${OB.goalLb}" placeholder="e.g. 175"></label>
+        <p class="err" id="obErr" hidden></p>
+      </div>
+      <div class="ob-actions"><button class="btn" id="obNext">See my targets</button><button class="btn ghost" id="obBack">Back</button></div>`;
+    const seg = (id, key, after) => $(id).onclick = e => { const t = e.target.closest('[data-v]'); if (!t) return; OB[key] = t.dataset.v; haptic();
+      [...$(id).children].forEach(c => c.setAttribute('aria-pressed', c === t)); after && after(); };
+    const keep = () => { OB.name = $('obName').value.trim(); OB.age = $('obAge').value; OB.ft = $('obFeet').value; OB.inch = $('obIn').value; OB.cm = $('obCm').value; OB.lb = $('obLb').value; OB.goalLb = $('obGoalLb').value; };
+    seg('obSex', 'sex'); seg('obHu', 'hu', () => { $('obFt').hidden = OB.hu === 'cm'; $('obCm').hidden = OB.hu === 'ft'; });
+    seg('obGoal', 'goal', () => { $('obGoalW').hidden = OB.goal === 'maintain'; });
+    seg('obAct', 'act'); seg('obScale', 'scale');
+    $('obBack').onclick = () => { keep(); showOnboarding(1); };
+    $('obNext').onclick = () => {
+      keep();
+      const cm = OB.hu === 'cm' ? +OB.cm : (+OB.ft * 12 + (+OB.inch || 0)) * 2.54, lb = +OB.lb, age = +OB.age, g = +OB.goalLb;
+      const err = m => { $('obErr').textContent = m; $('obErr').hidden = false; };
+      if (!(age >= 14 && age <= 100)) return err('Enter your age.');
+      if (!(cm >= 120 && cm <= 230)) return err('Enter your height.');
+      if (!(lb >= 80 && lb <= 600)) return err('Enter your current weight in pounds.');
+      if (OB.goal !== 'maintain' && !(g >= 80 && g <= 600)) return err('Enter your goal weight in pounds.');
+      if (OB.goal === 'lose' && g >= lb) return err('For fat loss, your goal weight should be below your current weight.');
+      if (OB.goal === 'gain' && g <= lb) return err('To build, your goal weight should be above your current weight.');
+      OB.calc = suggestTargets(cm, lb, age);
+      showOnboarding(3);
+    };
+  }
+  if (step === 3) {
+    const c = OB.calc;
+    b.innerHTML = `<div class="ob-step"><span class="ob-n">Step 2 of 2</span><h2>Your starting targets</h2>
+        <p class="hint">Based on an estimated burn of about ${c.tdee.toLocaleString()} kcal a day. Adjust anything you like.</p></div>
+      <div class="ob-sum"><div><span class="num">${c.lo.toLocaleString()}–${c.hi.toLocaleString()}</span><small>kcal a day</small></div><div class="pro"><span class="num">${c.pro}g</span><small>protein</small></div></div>
+      <div class="ob-form grid2">
+        <label>Calories low<input id="obLo" type="number" inputmode="numeric" value="${c.lo}"></label>
+        <label>Calories high<input id="obHi" type="number" inputmode="numeric" value="${c.hi}"></label>
+        <label>Protein (g)<input id="obPro" type="number" inputmode="numeric" value="${c.pro}"></label>
+        <label>Goal weight (lb)<input id="obG" type="number" inputmode="decimal" step="0.1" value="${c.goal}"></label>
+      </div>
+      <p class="hint">${OB.goal === 'lose' ? 'This aims for about 1–1.5 lb a week. ' : OB.goal === 'gain' ? 'This aims for a slow, lean gain of about 0.5 lb a week. ' : ''}After two weeks of logging, the "Your real burn" card on Trends works out your actual burn from your own data and can fine-tune these.</p>
+      <p class="err" id="obErr" hidden></p>
+      <div class="ob-actions"><button class="btn" id="obDone">Start logging</button><button class="btn ghost" id="obBack">Back</button></div>`;
+    $('obBack').onclick = () => showOnboarding(2);
+    $('obDone').onclick = () => {
+      const lo = +$('obLo').value, hi = +$('obHi').value, pr = +$('obPro').value, g = +$('obG').value;
+      if (!(lo > 0 && hi >= lo && pr > 0 && g > 0)) { $('obErr').textContent = 'Check the numbers: the low calories must be below the high.'; $('obErr').hidden = false; return; }
+      S.targets = { calLo: lo, calHi: hi, protein: pr, goal: g, mode: OB.goal };
+      S.name = (OB.name || '').slice(0, 30); S.startWeight = r1(+OB.lb); S.scale = OB.scale || 'daily';
+      S.onboarded = true; S.msInit = true; if (!Sync.user) S.metaUnsynced = true;
+      touchMeta(); hideOnboarding(); renderAll(); haptic();
+      const hi5 = S.name ? `, ${S.name}` : '';
+      setTimeout(() => toast(Sync.user || !window.FIREBASE_CONFIG?.apiKey ? `You're set${hi5}. Log your first food.` : `You're set${hi5}. Tap the pill to sync.`), 400);
+    };
+  }
+  replay(b, 'swap-in'); $('onboard').scrollTop = 0;
+}
+function suggestTargets(cm, lb, age) {
+  const kg = lb * 0.4536, f = ACTS.find(a => a[0] === OB.act)[3];
+  const bmr = 10 * kg + 6.25 * cm - 5 * age + (OB.sex === 'male' ? 5 : -161);
+  const tdee = Math.round(bmr * f / 50) * 50, floor = OB.sex === 'male' ? 1500 : 1200;
+  let lo, hi;
+  if (OB.goal === 'lose') { lo = tdee - 750; hi = tdee - 500; }
+  else if (OB.goal === 'gain') { lo = tdee + 200; hi = tdee + 400; }
+  else { lo = tdee - 150; hi = tdee + 150; }
+  lo = Math.max(floor, Math.round(lo / 50) * 50); hi = Math.max(lo + 100, Math.round(hi / 50) * 50);
+  const goal = OB.goal === 'maintain' ? r1(lb) : r1(+OB.goalLb);
+  const pro = Math.min(250, Math.max(90, Math.round((OB.goal === 'lose' ? goal : lb) * 0.8 / 5) * 5));
+  return { tdee, lo, hi, pro, goal };
+}
+function hideOnboarding() {
+  const o = $('onboard'); if (o.hidden) return;
+  o.classList.remove('in'); setTimeout(() => { o.hidden = true; }, 380);
+}
+
 /* ---------- events ---------- */
 $('swatches').onclick = e => {
   const b = e.target.closest('[data-c]'); if (!b) return;
@@ -1141,6 +1576,23 @@ document.querySelector('.actions').onclick = e => {
   ({ scan: openScan, label: () => openLabel(null), search: openSearch, meals: openMeals })[b.dataset.open]();
 };
 $('syncBtn').onclick = openAccount;
+$('acctBtn').onclick = openAccount;
+$('pName').addEventListener('change', () => {
+  S.name = $('pName').value.trim().slice(0, 30); touchMeta(); renderSettings(); haptic();
+  toast(S.name ? `Nice to meet you, ${S.name}` : 'Name cleared');
+});
+$('pName').addEventListener('keydown', e => { if (e.key === 'Enter') $('pName').blur(); });
+$('pScale').onclick = e => {
+  const b = e.target.closest('[data-v]'); if (!b || b.dataset.v === scale()) return;
+  S.scale = b.dataset.v; delete $('wForm').dataset.editing; touchMeta(); renderAll(); haptic();
+  toast({ daily: 'Set to daily weigh-ins', weekly: 'Set to weekly weigh-ins', none: 'No scale: track your waist on Today' }[S.scale]);
+};
+$('pMode').onclick = e => {
+  const b = e.target.closest('[data-v]'); if (!b || b.dataset.v === mode()) return;
+  S.targets = { ...S.targets, mode: b.dataset.v }; touchMeta(); renderAll(); haptic();
+  toast(`Goal set to ${MODES[b.dataset.v]}. Check your targets below.`);
+};
+$('copyBtn').onclick = openCopy;
 function slideDay(dir) {
   ['.rings', '#status', '#rows', '#dayLabel'].forEach(s => { const el = document.querySelector(s); el.classList.remove('from-left', 'from-right'); replay(el, dir < 0 ? 'from-left' : 'from-right'); });
   haptic();
@@ -1153,15 +1605,59 @@ $('rows').onclick = e => {
   openAmount(entryFood(en), en.food ? { qty: en.qty, unit: en.unit } : { qty: 1, unit: 'serving' }, { editId: en.id });
 };
 $('wSave').onclick = () => {
-  const v = parseFloat($('wIn').value);
+  const v = parseFloat($('wIn').value), t = todayIso(), f = $('wForm');
   if (!(v >= 80 && v <= 500)) { toast('Enter your weight in pounds.'); return; }
-  S.weights[todayIso()] = r1(v); touchDay(todayIso()); renderWeights(); $('wIn').blur(); replay($('avg7'), 'pop'); haptic(); toast('Weigh-in saved');
+  let d = !$('wDateWrap').hidden && $('wDate').value ? $('wDate').value : (f.dataset.editing === '1' && f.dataset.date) || t;
+  if (d > t) { toast("That date hasn't happened yet."); return; }
+  if (daysBetween(d, t) > 90) { toast('Pick a date within the last 3 months.'); return; }
+  S.weights[d] = r1(v); touchDay(d);
+  delete f.dataset.editing; $('wDateWrap').hidden = true; $('wDateBtn').hidden = false; $('wIn').blur(); $('wIn').value = '';
+  renderWeights();
+  replay($('wDone'), 'done-in'); replay($('avg7'), 'pop'); haptic(); toast(d === t ? 'Weigh-in saved' : `Saved for ${shortDate(d)}`);
 };
+$('wIn').addEventListener('keydown', e => { if (e.key === 'Enter') $('wSave').click(); });
+$('wEdit').onclick = () => {
+  const f = $('wForm'), d = f.dataset.date || todayIso();
+  f.dataset.editing = '1'; renderWeights();
+  if (d !== todayIso()) { $('wDateWrap').hidden = false; $('wDateBtn').hidden = true; $('wDate').value = d; }
+  replay(f, 'fade-in'); $('wIn').focus(); $('wIn').select();
+};
+$('wDateBtn').onclick = () => {
+  const t = todayIso();
+  $('wDate').max = t; $('wDate').min = shift(t, -90); $('wDate').value = shift(t, -1);
+  $('wDateWrap').hidden = false; $('wDateBtn').hidden = true; replay($('wDateWrap'), 'fade-in');
+};
+$('haveScale').onclick = () => { $('wForm').dataset.editing = '1'; $('wForm').dataset.date = todayIso(); renderWeights(); $('wIn').focus(); };
+/* ---------- waist ---------- */
+function waistArr() { return Object.entries(S.waist || {}).map(([date, v]) => ({ date, v: +v })).sort((a, b) => (a.date < b.date ? -1 : 1)); }
+function renderWaist() {
+  const z = waistArr(), t = todayIso();
+  const last = z[z.length - 1], first = z[0];
+  $('zNow').textContent = last ? `${last.v}″` : '–';
+  const c = $('zChg'); c.className = 'v';
+  if (z.length >= 2) { const x = last.v - first.v; c.textContent = Math.abs(x) < 0.01 ? '0″' : `${x > 0 ? '+' : '−'}${Math.abs(x).toFixed(2).replace(/0$/, '')}″`;
+    if (mode() === 'lose' && Math.abs(x) >= 0.01) c.classList.add(x < 0 ? 'good' : 'bad'); }
+  else c.textContent = '–';
+  $('zWhen').textContent = !last ? '–' : last.date === t ? 'Today' : `${daysBetween(last.date, t)}d ago`;
+  $('zHint').textContent = scale() === 'none'
+    ? 'Measure at your belly button, relaxed, every week or two. A shrinking waist is one of the clearest signs of fat loss.'
+    : 'Measure at your belly button, relaxed, every 1–2 weeks. Waist going down while your weight holds steady means fat loss, not muscle loss.';
+}
+$('zSave').onclick = () => {
+  const v = parseFloat($('zIn').value), t = todayIso();
+  if (!(v >= 15 && v <= 80)) { toast('Enter your waist in inches.'); return; }
+  S.waist[t] = Math.round(v * 4) / 4; touchDay(t); $('zIn').value = ''; $('zIn').blur();
+  renderWaist(); replay($('zNow'), 'pop'); haptic(); toast('Waist saved');
+};
+$('zIn').addEventListener('keydown', e => { if (e.key === 'Enter') $('zSave').click(); });
 $('tForm').onsubmit = e => {
   e.preventDefault();
-  const lo = +$('tLo').value, hi = +$('tHi').value, pr = +$('tPro').value, g = +$('tGoal').value;
+  const lo = +$('tLo').value, hi = +$('tHi').value, pr = +$('tPro').value, g = +$('tGoal').value, sw = $('tStart').value.trim();
   if (!(lo > 0 && hi >= lo && pr > 0 && g > 0)) { toast('Check the targets: the low number must be below the high one.'); return; }
-  S.targets = { calLo: lo, calHi: hi, protein: pr, goal: g }; touchMeta(); renderAll(); toast('Targets saved');
+  if (sw && !(+sw >= 80 && +sw <= 600)) { toast('Starting weight should be in pounds.'); return; }
+  S.targets = { ...S.targets, calLo: lo, calHi: hi, protein: pr, goal: g };
+  S.startWeight = sw ? r1(+sw) : null;
+  document.activeElement?.blur?.(); touchMeta(); renderAll(); haptic(); toast('Goal and targets saved');
 };
 $('foodList').onclick = e => {
   const b = e.target.closest('[data-food]'); if (!b) return;
@@ -1204,7 +1700,9 @@ $('importIn').onchange = async () => {
     const data = JSON.parse(await file.text());
     if (data?.v !== 1 || typeof data.log !== 'object') throw new Error('bad');
     if (!confirm('Replace everything in the app with this backup?')) return;
-    S = Object.assign(seed(), data); S.dirty = []; touchAll(); renderAll(); toast('Backup restored');
+    msSilent = true;
+    S = Object.assign(seed(), data); S.onboarded = true; S.slotPref ||= {}; S.milestones ||= {}; S.targets = Object.assign({ mode: 'lose' }, S.targets); S.dirty = []; touchAll();
+    setTimeout(() => { msSilent = false; }, 0); hideOnboarding(); renderAll(); toast('Backup restored');
   } catch (e) { toast("That file isn't a Cut Log backup."); }
 };
 /* If the app was left open past midnight, jump from yesterday to the new day */
@@ -1220,6 +1718,8 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) { ch
 ['gesturestart', 'gesturechange'].forEach(t => document.addEventListener(t, e => e.preventDefault(), { passive: false }));
 
 renderAll();
-if (!REDUCED) document.body.classList.add('launch');
+if (!S.msInit && S.onboarded) { S.msInit = true; checkMilestones(true); }
+if (!S.onboarded) showOnboarding(1);
+else if (!REDUCED) document.body.classList.add('launch');
 initSync();
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});

@@ -20,6 +20,23 @@ const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 
 const r1 = n => Math.round(n * 10) / 10;
 const fmtQty = q => (Math.round(q * 100) / 100).toString();
 const icon = id => `<svg><use href="#${id}"/></svg>`;
+/* ---------- motion helpers ---------- */
+const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const easeOut = t => 1 - Math.pow(1 - t, 3);
+function animateNum(el, to, fmt = n => Math.round(n).toLocaleString(), ms = 550) {
+  const from = el._v ?? 0; el._v = to;
+  cancelAnimationFrame(el._raf);
+  if (REDUCED || from === to) { el.textContent = fmt(to); return; }
+  const t0 = performance.now();
+  const step = now => { const p = Math.min(1, (now - t0) / ms); el.textContent = fmt(from + (to - from) * easeOut(p)); if (p < 1) el._raf = requestAnimationFrame(step); };
+  el._raf = requestAnimationFrame(step);
+}
+function replay(el, cls) { if (!el || REDUCED) return; el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls); }
+/* light haptic tap: iOS 18 gives a tick when a switch-style checkbox toggles */
+const hapticEl = (() => { const l = document.createElement('label'); l.ariaHidden = 'true'; l.style.cssText = 'position:fixed;left:-9999px;opacity:0;pointer-events:none';
+  const i = document.createElement('input'); i.type = 'checkbox'; i.setAttribute('switch', ''); l.appendChild(i); document.body.appendChild(l); return l; })();
+function haptic() { try { if (navigator.vibrate) navigator.vibrate(12); else hapticEl.click(); } catch (e) {} }
+
 function loadScript(src) {
   return new Promise((ok, fail) => {
     if ([...document.scripts].some(s => s.src === src)) return ok();
@@ -114,7 +131,10 @@ function stepFor(unit) { return unit === 'g' ? 10 : unit === 'piece' ? 1 : 0.5; 
 
 /* ---------- rendering ---------- */
 function entriesFor(d) { return S.log[d] || []; }
-function setArc(el, frac) { el.style.strokeDasharray = RING_C; el.style.strokeDashoffset = RING_C * (1 - Math.max(0, Math.min(1, frac))); }
+function setArc(el, frac) {
+  if (!el.style.strokeDasharray) { el.style.strokeDasharray = RING_C; el.style.strokeDashoffset = RING_C; el.getBoundingClientRect(); }
+  el.style.strokeDashoffset = RING_C * (1 - Math.max(0, Math.min(1, frac)));
+}
 function renderDay() {
   const t = todayIso();
   $('dayLabel').textContent = day === t ? 'Today' : day === shift(t, -1) ? 'Yesterday'
@@ -125,29 +145,33 @@ function renderTotals() {
   const T = S.targets, es = entriesFor(day);
   const cal = Math.round(es.reduce((a, e) => a + e.kcal, 0));
   const pro = Math.round(es.reduce((a, e) => a + e.pro, 0));
-  $('calNum').textContent = cal.toLocaleString();
+  animateNum($('calNum'), cal);
   setArc($('calArc'), cal / T.calHi);
   $('calRing').classList.toggle('over', cal > T.calHi);
   const tick = $('calTick'), tl = 1.2;   // short mark where the range starts
   tick.style.strokeDasharray = `${tl} ${RING_C}`; tick.style.strokeDashoffset = -(RING_C * T.calLo / T.calHi) + tl / 2;
   $('calSub').textContent = `of ${T.calLo.toLocaleString()}–${T.calHi.toLocaleString()}`;
-  $('proNum').textContent = pro;
+  animateNum($('proNum'), pro);
   setArc($('proArc'), pro / T.protein);
   $('proSub').textContent = pro >= T.protein ? `${T.protein}g target hit` : `${T.protein - pro}g to go`;
-  const st = $('status'); st.className = 'status';
+  const st = $('status'), before = st.textContent; st.className = 'status';
+  queueMicrotask(() => { if (st.textContent !== before) replay(st, 'fade-in'); });
   if (!es.length) st.textContent = 'Scan, snap or search what you eat and the rings fill up.';
   else if (cal < T.calLo) st.textContent = `${(T.calLo - cal).toLocaleString()} kcal under your cut range. Room for a high-protein snack before your cutoff.`;
   else if (cal <= T.calHi) { st.className = 'status ok'; st.textContent = 'In your cut range for today.'; }
   else { st.className = 'status hi'; st.textContent = `${(cal - T.calHi).toLocaleString()} kcal over your cut range. One day like this is fine; the weekly trend decides.`; }
 }
+let shownRows = { day: null, ids: new Set() };
 function renderRows() {
   const es = entriesFor(day), r = $('rows');
+  const fresh = shownRows.day === day ? es.filter(e => !shownRows.ids.has(e.id)).map(e => e.id) : [];
+  shownRows = { day, ids: new Set(es.map(e => e.id)) };
   $('count').textContent = es.length ? `${es.length} item${es.length > 1 ? 's' : ''}` : '';
   if (!es.length) { r.innerHTML = '<p class="empty">Nothing logged for this day yet.</p>'; return; }
   r.innerHTML = es.map(e => {
     const time = e.at ? new Date(e.at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : '';
     const sub = [e.detail, time].filter(Boolean).join(' · ');
-    return `<div class="row" data-id="${esc(e.id)}"><span class="n">${esc(e.name)}${sub ? `<small>${esc(sub)}</small>` : ''}</span>
+    return `<div class="row${fresh.includes(e.id) ? ' row-in' : ''}" data-id="${esc(e.id)}"><span class="n">${esc(e.name)}${sub ? `<small>${esc(sub)}</small>` : ''}</span>
       <span class="c">${Math.round(e.kcal)}<small>kcal</small></span><span class="pill">${Math.round(e.pro)}g</span>
       <button class="x" data-del="${esc(e.id)}" aria-label="Remove ${esc(e.name)}">${icon('i-x')}</button></div>`;
   }).join('');
@@ -211,9 +235,17 @@ function addEntry(name, kcal, pro, detail, src) {
   const e = { id: uid(), name, kcal: r1(kcal), pro: r1(pro), detail: detail || '', at: Date.now() };
   if (src) { e.food = src.food; e.qty = src.qty; e.unit = src.unit; }
   (S.log[day] ||= []).push(e);
-  touchDay(day); renderTotals(); renderRows();
+  touchDay(day); renderTotals(); renderRows(); haptic();
 }
 function removeEntry(id) {
+  const el = document.querySelector(`.row[data-id="${CSS.escape(id)}"]`);
+  if (el && !REDUCED && !el.classList.contains('row-out')) {
+    el.style.height = el.offsetHeight + 'px'; el.getBoundingClientRect(); el.classList.add('row-out');
+    haptic(); setTimeout(() => doRemoveEntry(id), 230); return;
+  }
+  doRemoveEntry(id);
+}
+function doRemoveEntry(id) {
   const list = entriesFor(day), i = list.findIndex(x => x.id === id); if (i < 0) return;
   const [gone] = list.splice(i, 1), d = day;
   if (!list.length) delete S.log[d];
@@ -234,15 +266,17 @@ function pushRecent(f, qty, unit) {
 
 /* ---------- toast ---------- */
 let toastTimer;
+function hideToast() { const t = $('toast'); t.classList.remove('in'); clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, 260); }
 function toast(msg, action) {
-  const t = $('toast'); t.textContent = ''; t.hidden = false;
+  const t = $('toast'); clearTimeout(toastTimer); t.textContent = ''; t.hidden = false;
+  requestAnimationFrame(() => requestAnimationFrame(() => t.classList.add('in')));
   const m = document.createElement('span'); m.className = 'toast-msg'; m.textContent = msg; t.appendChild(m);
   if (action) {
     const b = document.createElement('button'); b.className = 'toast-act'; b.textContent = action.label;
-    b.onclick = () => { t.hidden = true; clearTimeout(toastTimer); action.fn(); };
+    b.onclick = () => { hideToast(); haptic(); action.fn(); };
     t.appendChild(b);
   }
-  clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, action ? 5000 : 2600);
+  toastTimer = setTimeout(hideToast, action ? 5000 : 2600);
 }
 /* When building a meal, food flows hand their result back here instead of logging it */
 let pick = null, draft = null;
@@ -268,8 +302,10 @@ function setY(y, animate) {
 function openSheet(title, html, cleanup) {
   if (onSheetClose) { try { onSheetClose(); } catch (e) {} }
   clearTimeout(SH.hideTimer);
+  const swapping = SH.open;
   $('sheetTitle').textContent = title;
   sheetBody.innerHTML = html;
+  if (swapping) { replay(sheetBody, 'swap-in'); replay($('sheetTitle'), 'swap-in'); }
   sheetBody.scrollTop = 0;
   onSheetClose = cleanup || null;
   sheetEl.style.pointerEvents = ''; scrimEl.style.pointerEvents = '';
@@ -373,7 +409,7 @@ function openAmount(f, preset, opts = {}) {
     ${editing ? '<button class="btn danger" id="aDel">Remove from log</button>' : ''}`);
   const upd = () => {
     const v = calc(f, parseFloat($('aQty').value), unit);
-    $('aK').textContent = Math.round(v.kcal); $('aP').textContent = Math.round(v.pro) + 'g';
+    animateNum($('aK'), v.kcal, undefined, 220); animateNum($('aP'), v.pro, n => Math.round(n) + 'g', 220);
     $('aNote').hidden = !['tbsp', 'tsp'].includes(unit);
   };
   const bump = dir => { const q = parseFloat($('aQty').value) || 0; $('aQty').value = fmtQty(Math.max(0, q + dir * stepFor(unit))); upd(); };
@@ -381,7 +417,7 @@ function openAmount(f, preset, opts = {}) {
   $('aQty').oninput = upd;
   $('aUnits').onclick = e => {
     const b = e.target.closest('[data-u]'); if (!b) return;
-    unit = b.dataset.u;
+    unit = b.dataset.u; haptic();
     [...$('aUnits').children].forEach(c => c.setAttribute('aria-pressed', c.dataset.u === unit));
     if (unit === 'g' && parseFloat($('aQty').value) < 10) $('aQty').value = 100;
     if (unit !== 'g' && parseFloat($('aQty').value) >= 10) $('aQty').value = 1;
@@ -456,6 +492,9 @@ async function decodeBarcode(input) {
   return ok ? ok.text : null;
 }
 async function handleCode(code) {
+  const vw = document.querySelector('.video-wrap');
+  scan.stop = true;                               // no more reads while the flash plays
+  if (vw) { vw.classList.add('hit'); haptic(); await new Promise(r => setTimeout(r, 220)); }
   stopScan();
   if (navigator.vibrate) navigator.vibrate(50);
   $('sheetBody').innerHTML = `<div class="loading"><div class="spinner"></div>Looking up ${esc(code)}…</div>`;
@@ -497,6 +536,7 @@ async function startLiveScan() {
   if (scan.stop || !$('scanVideo')) { stopScan(); return; }
   v.srcObject = scan.stream;
   try { await v.play(); } catch (e) {}
+  if (scan.stop || !scan.stream) return;          // closed while the camera was starting
   scan.track = scan.stream.getVideoTracks()[0];
   try {
     const caps = scan.track.getCapabilities ? scan.track.getCapabilities() : {};
@@ -917,7 +957,7 @@ function openAccount() {
 }
 
 /* =================== TRENDS =================== */
-let range = 30, tab = 'today';
+let range = 30, tab = 'today', chartAnim = false;
 function dayTotals(d) {
   const es = S.log[d]; if (!es || !es.length) return null;
   return { kcal: es.reduce((a, e) => a + e.kcal, 0), pro: es.reduce((a, e) => a + e.pro, 0) };
@@ -944,7 +984,7 @@ function barChart(days, vals, opts) {
     if (v == null) return;
     const x = L + i * bw + bw * 0.15, w = Math.max(1.5, bw * 0.7);
     const col = opts.colorFor(v);
-    svg += `<rect data-day="${days[i]}" x="${x.toFixed(1)}" y="${Y(v).toFixed(1)}" width="${w.toFixed(1)}" height="${(H - B - Y(v)).toFixed(1)}" rx="${Math.min(3, w / 2)}" fill="${col}" style="cursor:pointer"/>`;
+    svg += `<rect class="bar" style="animation-delay:${Math.min(i * 14, 420)}ms;cursor:pointer" data-day="${days[i]}" x="${x.toFixed(1)}" y="${Y(v).toFixed(1)}" width="${w.toFixed(1)}" height="${(H - B - Y(v)).toFixed(1)}" rx="${Math.min(3, w / 2)}" fill="${col}"/>`;
   });
   if (opts.line != null) svg += `<line x1="${L}" x2="${W - R}" y1="${Y(opts.line)}" y2="${Y(opts.line)}" stroke="var(--protein)" stroke-width="2" stroke-dasharray="5 4"/>`;
   svg += `<text x="${L}" y="${H - 6}" ${TXT}>${parseIso(days[0]).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</text><text x="${W - R}" y="${H - 6}" text-anchor="end" ${TXT}>Today</text></svg>`;
@@ -966,7 +1006,7 @@ function weightChart(from, to) {
   svg += `<polygon points="${av[0][0].toFixed(1)},${H - B} ${line} ${av[av.length - 1][0].toFixed(1)},${H - B}" fill="url(#twg)"/>`;
   pts.forEach(p => { svg += `<circle cx="${X(p.date)}" cy="${Y(p.lb)}" r="3" fill="var(--muted)" opacity=".5"/>`; });
   const last = av[av.length - 1];
-  svg += `<polyline points="${line}" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/><circle cx="${last[0]}" cy="${last[1]}" r="5" fill="var(--accent)" stroke="var(--surface)" stroke-width="2"/>`;
+  svg += `<polyline class="draw" pathLength="1" points="${line}" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/><circle class="dot-end" cx="${last[0]}" cy="${last[1]}" r="5" fill="var(--accent)" stroke="var(--surface)" stroke-width="2"/>`;
   svg += `<text x="${L}" y="${H - 6}" ${TXT}>${parseIso(from).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</text><text x="${W - R}" y="${H - 6}" text-anchor="end" ${TXT}>Today</text></svg>`;
   return svg;
 }
@@ -1007,7 +1047,7 @@ function renderBurn() {
   const T = S.targets, same = T.calLo === lo && T.calHi === hi;
   const lossTxt = e.perWeek < -0.05 ? `lost ${Math.abs(e.perWeek).toFixed(1)} lb a week` : e.perWeek > 0.05 ? `gained ${e.perWeek.toFixed(1)} lb a week` : 'held your weight steady';
   box.innerHTML = `
-    <div class="burn-n"><span class="num">${r50(e.burn).toLocaleString()}</span><span class="u">kcal a day</span></div>
+    <div class="burn-n"><span class="num" id="burnNum">${r50(e.burn).toLocaleString()}</span><span class="u">kcal a day</span></div>
     <p class="hint">Over the last 4 weeks you ate about ${Math.round(e.intake).toLocaleString()} kcal a day and ${lossTxt}. That works out to this daily burn, including your training.</p>
     <div class="suggest">
       <div><span class="k">For 1–1.5 lb a week</span><span class="v">${lo.toLocaleString()}–${hi.toLocaleString()}<small>kcal</small></span></div>
@@ -1015,6 +1055,7 @@ function renderBurn() {
     </div>
     ${same ? '<p class="hint">Your target already matches. Nothing to change.</p>' : `<button class="btn" id="useBurn">Use ${lo.toLocaleString()}–${hi.toLocaleString()} as my target</button>`}
     <p class="hint">Only as accurate as your logging: days with forgotten snacks make your burn look lower than it is.</p>`;
+  if ($('viewTrends').classList.contains('anim') || chartAnim) { const n = $('burnNum'); n._v = 0; animateNum(n, r50(e.burn), undefined, 800); }
   if ($('useBurn')) $('useBurn').onclick = () => {
     const old = { ...S.targets };
     S.targets = { ...S.targets, calLo: lo, calHi: hi }; touchMeta(); renderAll();
@@ -1048,6 +1089,7 @@ function renderTrends() {
   }
   renderBurn();
   $('tWeightChart').innerHTML = weightChart(from, to);
+  $('viewTrends').classList.toggle('anim', chartAnim); chartAnim = false;
   // calories + protein
   const tots = days.map(dayTotals), logged = tots.filter(Boolean);
   const avg = k => logged.length ? logged.reduce((a, t) => a + t[k], 0) / logged.length : null;
@@ -1071,8 +1113,9 @@ function renderTrends() {
   $('tWeighed').textContent = inR.length;
 }
 function showTab(t) {
-  tab = t;
+  const changed = tab !== t; tab = t;
   $('viewToday').hidden = t !== 'today'; $('viewTrends').hidden = t !== 'trends';
+  if (changed) { replay(t === 'today' ? $('viewToday') : $('viewTrends'), 'view-in'); if (t === 'trends') chartAnim = true; haptic(); }
   document.querySelectorAll('.tabbar button').forEach(b => b.dataset.tab === t ? b.setAttribute('aria-current', 'page') : b.removeAttribute('aria-current'));
   if (t === 'trends') renderTrends();
   window.scrollTo(0, 0);
@@ -1080,7 +1123,8 @@ function showTab(t) {
 document.querySelector('.tabbar').onclick = e => { const b = e.target.closest('[data-tab]'); if (b) showTab(b.dataset.tab); };
 $('range').onclick = e => {
   const b = e.target.closest('[data-r]'); if (!b) return;
-  range = +b.dataset.r; [...$('range').children].forEach(c => c.setAttribute('aria-pressed', c === b)); renderTrends();
+  range = +b.dataset.r; [...$('range').children].forEach((c, i) => { c.setAttribute('aria-pressed', c === b); if (c === b) $('range').style.setProperty('--i', i); });
+  chartAnim = true; haptic(); renderTrends();
 };
 $('viewTrends').addEventListener('click', e => {
   const r = e.target.closest('rect[data-day]'); if (!r) return;
@@ -1097,8 +1141,12 @@ document.querySelector('.actions').onclick = e => {
   ({ scan: openScan, label: () => openLabel(null), search: openSearch, meals: openMeals })[b.dataset.open]();
 };
 $('syncBtn').onclick = openAccount;
-$('prev').onclick = () => { day = shift(day, -1); renderDay(); renderTotals(); renderRows(); };
-$('next').onclick = () => { if (day < todayIso()) { day = shift(day, 1); renderDay(); renderTotals(); renderRows(); } };
+function slideDay(dir) {
+  ['.rings', '#status', '#rows', '#dayLabel'].forEach(s => { const el = document.querySelector(s); el.classList.remove('from-left', 'from-right'); replay(el, dir < 0 ? 'from-left' : 'from-right'); });
+  haptic();
+}
+$('prev').onclick = () => { day = shift(day, -1); renderDay(); renderTotals(); renderRows(); slideDay(-1); };
+$('next').onclick = () => { if (day < todayIso()) { day = shift(day, 1); renderDay(); renderTotals(); renderRows(); slideDay(1); } };
 $('rows').onclick = e => {
   const x = e.target.closest('[data-del]');
   if (x) { removeEntry(x.dataset.del); return; }
@@ -1109,7 +1157,7 @@ $('rows').onclick = e => {
 $('wSave').onclick = () => {
   const v = parseFloat($('wIn').value);
   if (!(v >= 80 && v <= 500)) { toast('Enter your weight in pounds.'); return; }
-  S.weights[todayIso()] = r1(v); touchDay(todayIso()); renderWeights(); $('wIn').blur(); toast('Weigh-in saved');
+  S.weights[todayIso()] = r1(v); touchDay(todayIso()); renderWeights(); $('wIn').blur(); replay($('avg7'), 'pop'); haptic(); toast('Weigh-in saved');
 };
 $('tForm').onsubmit = e => {
   e.preventDefault();
@@ -1150,5 +1198,6 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) { ch
 ['gesturestart', 'gesturechange'].forEach(t => document.addEventListener(t, e => e.preventDefault(), { passive: false }));
 
 renderAll();
+if (!REDUCED) document.body.classList.add('launch');
 initSync();
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});

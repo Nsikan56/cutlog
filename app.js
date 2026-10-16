@@ -51,6 +51,12 @@ function load() {
   return seed();
 }
 let S = load();
+function applyTheme() {
+  const c = S.theme || 'cobalt';
+  if (c === 'cobalt') document.documentElement.removeAttribute('data-accent'); else document.documentElement.setAttribute('data-accent', c);
+  document.querySelectorAll('#swatches .swatch').forEach(b => b.setAttribute('aria-pressed', b.dataset.c === c));
+}
+applyTheme();
 function persist() {
   try { localStorage.setItem(KEY, JSON.stringify(S)); }
   catch (e) { toast('Could not save. Phone storage may be full.'); }
@@ -589,7 +595,7 @@ function renderSync() {
   b.className = 'sync ' + cls; $('syncText').textContent = txt;
 }
 function dayDoc(d) { return { entries: S.log[d] || [], weight: S.weights[d] ?? null, updatedAt: S.stamps.days[d] || Date.now() }; }
-function metaDoc() { return { targets: S.targets, meals: S.meals, foods: S.foods, recent: S.recent, updatedAt: S.stamps.meta || Date.now() }; }
+function metaDoc() { return { targets: S.targets, meals: S.meals, foods: S.foods, recent: S.recent, theme: S.theme || 'cobalt', updatedAt: S.stamps.meta || Date.now() }; }
 function applyDay(id, data) {
   if (data.entries && data.entries.length) S.log[id] = data.entries; else delete S.log[id];
   if (data.weight != null) S.weights[id] = data.weight; else delete S.weights[id];
@@ -597,7 +603,8 @@ function applyDay(id, data) {
   S.dirty = S.dirty.filter(k => k !== 'd:' + id);
 }
 function applyMeta(data) {
-  ['targets', 'meals', 'foods', 'recent'].forEach(k => { if (data[k] !== undefined) S[k] = data[k]; });
+  ['targets', 'meals', 'foods', 'recent', 'theme'].forEach(k => { if (data[k] !== undefined) S[k] = data[k]; });
+  applyTheme();
   S.stamps.meta = data.updatedAt || 0;
   S.dirty = S.dirty.filter(k => k !== 'meta');
 }
@@ -860,6 +867,10 @@ $('viewTrends').addEventListener('click', e => {
 });
 
 /* ---------- events ---------- */
+$('swatches').onclick = e => {
+  const b = e.target.closest('[data-c]'); if (!b) return;
+  S.theme = b.dataset.c; applyTheme(); touchMeta(); if (tab === 'trends') renderTrends();
+};
 document.querySelector('.actions').onclick = e => {
   const b = e.target.closest('[data-open]'); if (!b) return;
   ({ scan: openScan, label: () => openLabel(null), search: openSearch, meals: openMeals })[b.dataset.open]();

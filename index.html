@@ -4,7 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Cut Log</title>
-<meta name="theme-color" content="#2C55D6">
+<meta name="theme-color" content="#F2F4F8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0B0E14" media="(prefers-color-scheme: dark)">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -13,71 +14,87 @@
 <link rel="apple-touch-icon" href="icons/icon-180.png">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&display=swap">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Barlow:wght@400;500;600;700&display=swap">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-barcode" viewBox="0 0 24 24"><path d="M3 5v14M6 5v14M10 5v14M13 5v14M17 5v14M21 5v14M8 5v14M19 5v14" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></symbol>
+  <symbol id="i-camera" viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linejoin="round"/><circle cx="12" cy="13" r="3.6" stroke="currentColor" stroke-width="1.8" fill="none"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5" stroke="currentColor" stroke-width="1.9" fill="none"/><path d="M16 16l4.5 4.5" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></symbol>
+  <symbol id="i-bowl" viewBox="0 0 24 24"><path d="M3 11h18a9 9 0 0 1-18 0z" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linejoin="round"/><path d="M9 7c0-1.5 1.5-1.5 1.5-3M13.5 7c0-1.5 1.5-1.5 1.5-3" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></symbol>
+  <symbol id="i-chev-l" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-chev-r" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+</svg>
+
 <main id="app">
   <header class="top">
-    <h1>Cut Log</h1>
-    <div class="daynav">
-      <button class="icon" id="prev" aria-label="Previous day">‹</button>
-      <span id="dayLabel">Today</span>
-      <button class="icon" id="next" aria-label="Next day">›</button>
-    </div>
+    <div class="brand"><span class="mark" aria-hidden="true"></span><h1>Cut Log</h1></div>
+    <button class="sync" id="syncBtn" aria-label="Account and sync"><i id="syncDot"></i><span id="syncText">This phone</span></button>
   </header>
 
-  <section class="panel">
-    <h2>Day total</h2>
-    <div class="totals">
-      <div class="metric">
-        <span class="label">Calories</span>
-        <span class="big num" id="calNum">0</span>
-        <div class="bar"><i id="calBar"></i><b id="calLo"></b><b id="calHi"></b></div>
-        <span class="sub" id="calSub"></span>
+  <section class="hero" aria-label="Day summary">
+    <div class="daynav">
+      <button class="nav" id="prev" aria-label="Previous day"><svg><use href="#i-chev-l"/></svg></button>
+      <span id="dayLabel">Today</span>
+      <button class="nav" id="next" aria-label="Next day"><svg><use href="#i-chev-r"/></svg></button>
+    </div>
+    <div class="rings">
+      <div class="ring" id="calRing">
+        <svg viewBox="0 0 120 120" aria-hidden="true">
+          <circle cx="60" cy="60" r="52" class="track"/>
+          <circle cx="60" cy="60" r="52" class="fill" id="calArc"/>
+          <circle cx="60" cy="60" r="52" class="tick" id="calTick"/>
+        </svg>
+        <div class="ring-c"><span class="ring-n" id="calNum">0</span><span class="ring-u">kcal</span></div>
+        <span class="ring-l" id="calSub">of 2,100–2,400</span>
       </div>
-      <div class="metric p">
-        <span class="label">Protein</span>
-        <span class="big num" id="proNum">0<small>g</small></span>
-        <div class="bar"><i id="proBar"></i></div>
-        <span class="sub" id="proSub"></span>
+      <div class="ring pro">
+        <svg viewBox="0 0 120 120" aria-hidden="true">
+          <circle cx="60" cy="60" r="52" class="track"/>
+          <circle cx="60" cy="60" r="52" class="fill" id="proArc"/>
+        </svg>
+        <div class="ring-c"><span class="ring-n" id="proNum">0</span><span class="ring-u">g protein</span></div>
+        <span class="ring-l" id="proSub">of 180g</span>
       </div>
     </div>
-    <div class="status" id="status"></div>
+    <p class="status" id="status"></p>
   </section>
 
-  <section class="actions">
-    <button class="act" data-open="scan"><span class="act-t">Scan barcode</span><span class="act-s">Packaged food</span></button>
-    <button class="act" data-open="label"><span class="act-t">Photo of label</span><span class="act-s">Reads the numbers</span></button>
-    <button class="act" data-open="search"><span class="act-t">Search foods</span><span class="act-s">Eggs, potatoes, chicken…</span></button>
-    <button class="act" data-open="meals"><span class="act-t">My meals</span><span class="act-s">One tap</span></button>
+  <section class="actions" aria-label="Add food">
+    <button class="act primary" data-open="scan"><svg><use href="#i-barcode"/></svg><span class="act-t">Scan barcode</span><span class="act-s">Packaged food</span></button>
+    <button class="act" data-open="label"><svg><use href="#i-camera"/></svg><span class="act-t">Snap label</span><span class="act-s">Reads the numbers</span></button>
+    <button class="act" data-open="search"><svg><use href="#i-search"/></svg><span class="act-t">Search</span><span class="act-s">Eggs, potatoes…</span></button>
+    <button class="act" data-open="meals"><svg><use href="#i-bowl"/></svg><span class="act-t">My meals</span><span class="act-s">One tap</span></button>
   </section>
 
-  <section class="panel">
-    <h2>Eaten</h2>
+  <section class="card">
+    <div class="card-h"><h2>Eaten</h2><span class="count" id="count"></span></div>
     <div class="rows" id="rows"></div>
   </section>
 
-  <section class="panel">
-    <h2>Morning weigh-in</h2>
+  <section class="card">
+    <div class="card-h"><h2>Morning weigh-in</h2><span class="count">lb</span></div>
     <div class="wrow">
-      <input id="wIn" type="number" inputmode="decimal" step="0.1" min="80" max="500" placeholder="lb, after waking" aria-label="Weight in pounds">
+      <input id="wIn" type="number" inputmode="decimal" step="0.1" min="80" max="500" placeholder="Weight after waking" aria-label="Weight in pounds">
       <button class="btn" id="wSave">Save</button>
     </div>
     <div class="wstats">
       <div><span class="k">7-day avg</span><span class="v" id="avg7">–</span></div>
-      <div><span class="k">vs prior 7</span><span class="v" id="delta">–</span></div>
+      <div><span class="k">vs prior week</span><span class="v" id="delta">–</span></div>
       <div><span class="k" id="goalK">To goal</span><span class="v" id="toGoal">–</span></div>
     </div>
     <div id="chart"></div>
-    <span class="hint" id="wHint"></span>
+    <p class="hint" id="wHint"></p>
   </section>
 
-  <section class="panel">
+  <section class="card">
     <details>
       <summary>Targets, saved foods and backup</summary>
       <div class="settings">
-        <form id="tForm" class="tgrid">
+        <form id="tForm" class="grid2">
           <label>Calories low<input id="tLo" type="number" inputmode="numeric"></label>
           <label>Calories high<input id="tHi" type="number" inputmode="numeric"></label>
           <label>Protein (g)<input id="tPro" type="number" inputmode="numeric"></label>
@@ -86,8 +103,8 @@
         </form>
         <h3>Saved foods</h3>
         <div id="foodList" class="mlist"></div>
-        <h3>Backup</h3>
-        <p class="hint">Your data lives only on this phone. Export a backup now and then, and import it if you switch phones.</p>
+        <h3>Backup file</h3>
+        <p class="hint">Cloud sync keeps your data safe once you're signed in. A backup file is an extra copy you can keep in iCloud Drive.</p>
         <div class="wrow">
           <button class="btn ghost" id="exportBtn">Export backup</button>
           <label class="btn ghost filebtn">Import backup<input id="importIn" type="file" accept="application/json,.json" hidden></label>
@@ -97,21 +114,21 @@
   </section>
 </main>
 
-<!-- Bottom sheet used by every add flow -->
 <div class="scrim" id="scrim" hidden></div>
 <div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle" hidden>
+  <div class="grab" aria-hidden="true"></div>
   <div class="sheet-head">
     <h2 id="sheetTitle">Add food</h2>
-    <button class="icon" id="sheetClose" aria-label="Close">×</button>
+    <button class="close" id="sheetClose" aria-label="Close"><svg><use href="#i-x"/></svg></button>
   </div>
   <div class="sheet-body" id="sheetBody"></div>
 </div>
 
 <div class="toast" id="toast" role="status" hidden></div>
-
 <input type="file" id="photoIn" accept="image/*" capture="environment" hidden>
 
 <script src="https://unpkg.com/@zxing/library@0.21.3/umd/index.min.js" defer></script>
+<script src="firebase-config.js"></script>
 <script src="foods.js"></script>
 <script src="app.js"></script>
 </body>

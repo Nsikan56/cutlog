@@ -1004,7 +1004,14 @@ $('importIn').onchange = async () => {
     S = Object.assign(seed(), data); S.dirty = []; touchAll(); renderAll(); toast('Backup restored');
   } catch (e) { toast("That file isn't a Cut Log backup."); }
 };
-document.addEventListener('visibilitychange', () => { if (!document.hidden) { renderAll(); if (Sync.user) flush(); } });
+/* If the app was left open past midnight, jump from yesterday to the new day */
+let lastToday = todayIso();
+function checkNewDay() {
+  const t = todayIso();
+  if (t !== lastToday) { if (day === lastToday) day = t; lastToday = t; renderAll(); }
+}
+setInterval(checkNewDay, 60000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { checkNewDay(); renderAll(); if (Sync.user) flush(); } });
 
 /* app feel: no pinch zoom (iOS ignores the viewport setting) */
 ['gesturestart', 'gesturechange'].forEach(t => document.addEventListener(t, e => e.preventDefault(), { passive: false }));

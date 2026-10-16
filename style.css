@@ -147,6 +147,9 @@ details[open] summary::after{content:"–"}
 .item .nm{min-width:0;overflow-wrap:anywhere;font-weight:500}
 .item .nm small{display:block;color:var(--muted);font-size:12px;font-weight:400}
 .item .meta{font-size:13px;color:var(--muted);text-align:right;white-space:nowrap}
+#labelOut{display:flex;flex-direction:column;gap:14px}
+#labelOut:empty{display:none}
+.field-note{font-size:12px;color:var(--muted);margin:-8px 0 0}
 .food-head{display:flex;flex-direction:column;gap:3px;padding:12px 14px;border-radius:14px;background:var(--raised)}
 .food-head strong{font-size:18px;font-weight:700}
 .food-head span{font-size:13px;color:var(--muted)}

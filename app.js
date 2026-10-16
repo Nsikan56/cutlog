@@ -258,7 +258,8 @@ function openAmount(f, preset) {
     <div class="chips" id="aUnits" role="group" aria-label="Unit">${units.map(u => `<button class="chip" data-u="${u.key}" aria-pressed="${u.key === unit}" title="${esc(u.long || u.label)}">${esc(u.key === 'serving' && f.servingLabel ? 'serving · ' + f.servingLabel : u.label)}</button>`).join('')}</div>
     <div class="result"><div><span class="num" id="aK">0</span><small>kcal</small></div><div class="pro"><span class="num" id="aP">0g</span><small>protein</small></div></div>
     <p class="hint" id="aNote" hidden>Spoon sizes are approximate: about 15 g per tablespoon and 5 g per teaspoon. A heaping spoon is closer to 25 g.</p>
-    <button class="btn" id="aAdd">Add to ${esc(dayName === 'Today' ? 'today' : dayName)}</button>`);
+    <button class="btn" id="aAdd">Add to ${esc(dayName === 'Today' ? 'today' : dayName)}</button>
+    <button class="btn ghost" id="aFix">Numbers look wrong? Fix them</button>`);
   const upd = () => {
     const v = calc(f, parseFloat($('aQty').value), unit);
     $('aK').textContent = Math.round(v.kcal); $('aP').textContent = Math.round(v.pro) + 'g';
@@ -276,6 +277,13 @@ function openAmount(f, preset) {
     upd();
   };
   upd();
+  $('aFix').onclick = () => {
+    const g = f.servingG || null;
+    const per = f.kcalServ != null ? { kcal: f.kcalServ, pro: f.proServ }
+      : g ? { kcal: f.kcal100 * g / 100, pro: (f.pro100 || 0) * g / 100 } : { kcal: f.kcal100, pro: f.pro100 };
+    openSheet('Fix the numbers', `<p class="hint">Enter what the label says for one serving. The app will use your numbers for this food from now on.</p><div id="labelOut"></div>`);
+    labelForm($('labelOut'), { kcal: Math.round(per.kcal), pro: r1(per.pro || 0), servingG: g || (f.kcalServ == null ? 100 : null) }, '', f.barcode || null, f.name, f.id);
+  };
   $('aAdd').onclick = () => {
     const q = parseFloat($('aQty').value);
     if (!(q > 0)) { toast('Enter how much you had.'); return; }
@@ -435,7 +443,7 @@ async function runOcr(file, barcode) {
   }
   labelForm(out, parseLabel(text), text, barcode);
 }
-function labelForm(out, p, text, barcode, name) {
+function labelForm(out, p, text, barcode, name, keepId) {
   out.insertAdjacentHTML('beforeend', `
     ${text ? '<p class="hint">Check these against the label and fix anything that looks off.</p>' : ''}
     <label>Food name<input id="lName" value="${esc(name || '')}" placeholder="e.g. Greek yogurt 0%"></label>
@@ -443,14 +451,15 @@ function labelForm(out, p, text, barcode, name) {
       <label>Calories per serving<input id="lK" type="number" inputmode="decimal" value="${p.kcal ?? ''}"></label>
       <label>Protein per serving (g)<input id="lP" type="number" inputmode="decimal" value="${p.pro ?? ''}"></label>
     </div>
-    <label>Serving size in g or ml (optional, lets you log by spoon or gram)<input id="lG" type="number" inputmode="decimal" value="${p.servingG ?? ''}" placeholder="the number in brackets, e.g. 175"></label>
+    <label>Serving size (g or ml)<input id="lG" type="number" inputmode="decimal" value="${p.servingG ?? ''}" placeholder="Optional, e.g. 175"></label>
+    <p class="field-note">The number in brackets on the label. Adding it lets you log by spoon or gram.</p>
     <button class="btn" id="lSave">Next: how much did you have?</button>
     ${text ? `<details><summary>What the reader saw</summary><div class="ocr">${esc(text)}</div></details>` : ''}`);
   $('lSave').onclick = () => {
     const nm = $('lName').value.trim(), k = parseFloat($('lK').value), pr = parseFloat($('lP').value) || 0, g = parseFloat($('lG').value);
     if (!nm) { toast('Give the food a name.'); return; }
     if (!(k >= 0)) { toast('Enter the calories per serving.'); return; }
-    const f = { id: barcode ? 'p' + barcode : 'c' + uid(), name: nm, source: 'label', kcalServ: k, proServ: pr };
+    const f = { id: keepId || (barcode ? 'p' + barcode : 'c' + uid()), name: nm, source: 'label', kcalServ: k, proServ: pr };
     if (barcode) f.barcode = barcode;
     if (g > 0) { f.servingG = g; f.servingLabel = g + ' g'; f.kcal100 = k / g * 100; f.pro100 = pr / g * 100; }
     rememberFood(f); touchMeta(); renderSettings();

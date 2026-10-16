@@ -315,18 +315,27 @@ const MODE_HINT = {
 };
 function renderSettings() {
   const T = S.targets;
-  if (document.activeElement?.closest?.('#tForm') == null) {
+  if ($('goalForm').hidden) {
     $('tLo').value = T.calLo; $('tHi').value = T.calHi; $('tPro').value = T.protein; $('tGoal').value = T.goal ?? '';
     $('tStart').value = S.startWeight ?? '';
     $('tStart').placeholder = weightsArr()[0] ? `First weigh-in: ${weightsArr()[0].lb}` : 'Your first weigh-in';
   }
-  if (document.activeElement !== $('pName')) $('pName').value = S.name || '';
+  if ($('pNameForm').hidden) $('pName').value = S.name || '';
+  $('pNameVal').textContent = S.name || 'Not set'; $('pNameVal').classList.toggle('muted', !S.name);
+  const sw = S.startWeight ?? weightsArr()[0]?.lb;
+  $('gvMode').textContent = MODES[mode()];
+  $('gvCal').textContent = `${T.calLo.toLocaleString()}–${T.calHi.toLocaleString()} kcal`;
+  $('gvPro').textContent = `${T.protein}g a day`;
+  $('gvGoal').textContent = T.goal ? `${T.goal} lb` : 'Not set';
+  $('gvStart').textContent = sw != null ? `${sw} lb${S.startWeight == null ? ' (first weigh-in)' : ''}` : 'Not set';
+  $('goalHint').textContent = MODE_HINT[mode()]; $('goalHint').hidden = !$('goalForm').hidden;
   $('youName').textContent = S.name || 'Add your name';
   $('youName').classList.toggle('muted', !S.name);
   $('avatar').textContent = (S.name || '?').trim().charAt(0).toUpperCase() || '?';
   $('modeBadge').textContent = MODES[mode()];
-  [...$('pMode').children].forEach(c => c.setAttribute('aria-pressed', c.dataset.v === mode()));
-  $('pModeHint').textContent = MODE_HINT[mode()];
+  const pm = $('pMode').dataset.pending || mode();
+  [...$('pMode').children].forEach(c => c.setAttribute('aria-pressed', c.dataset.v === pm));
+  $('pModeHint').textContent = MODE_HINT[pm];
   [...$('pScale').children].forEach(c => c.setAttribute('aria-pressed', c.dataset.v === scale()));
   $('pScaleHint').textContent = SCALE_HINT[scale()];
   $('foodCount').textContent = S.foods.length ? `${S.foods.length}` : '';
@@ -1592,20 +1601,35 @@ document.querySelector('.actions').onclick = e => {
 };
 $('syncBtn').onclick = openAccount;
 $('acctBtn').onclick = openAccount;
-$('pName').addEventListener('change', () => {
-  S.name = $('pName').value.trim().slice(0, 30); touchMeta(); renderSettings(); haptic();
+function toggleEdit(view, form, open) {
+  $(view).hidden = open; $(form).hidden = !open;
+  replay($(open ? form : view), 'fade-in');
+}
+$('pNameEdit').onclick = () => { $('pName').value = S.name || ''; toggleEdit('pNameView', 'pNameForm', true); $('pName').focus(); };
+$('pNameCancel').onclick = () => { toggleEdit('pNameView', 'pNameForm', false); renderSettings(); };
+$('pNameSave').onclick = () => {
+  S.name = $('pName').value.trim().slice(0, 30); $('pName').blur();
+  toggleEdit('pNameView', 'pNameForm', false); touchMeta(); renderSettings(); haptic();
   toast(S.name ? `Nice to meet you, ${S.name}` : 'Name cleared');
-});
-$('pName').addEventListener('keydown', e => { if (e.key === 'Enter') $('pName').blur(); });
+};
+$('pName').addEventListener('keydown', e => { if (e.key === 'Enter') $('pNameSave').click(); });
+function openGoalEdit(open) {
+  delete $('pMode').dataset.pending;
+  toggleEdit('goalView', 'goalForm', open); $('goalEdit').hidden = open;
+  renderSettings();
+}
+$('goalEdit').onclick = () => openGoalEdit(true);
+$('goalCancel').onclick = () => openGoalEdit(false);
 $('pScale').onclick = e => {
   const b = e.target.closest('[data-v]'); if (!b || b.dataset.v === scale()) return;
   S.scale = b.dataset.v; delete $('wForm').dataset.editing; touchMeta(); renderAll(); haptic();
   toast({ daily: 'Set to daily weigh-ins', weekly: 'Set to weekly weigh-ins', none: 'No scale: track your waist on Today' }[S.scale]);
 };
 $('pMode').onclick = e => {
-  const b = e.target.closest('[data-v]'); if (!b || b.dataset.v === mode()) return;
-  S.targets = { ...S.targets, mode: b.dataset.v }; touchMeta(); renderAll(); haptic();
-  toast(`Goal set to ${MODES[b.dataset.v]}. Check your targets below.`);
+  const b = e.target.closest('[data-v]'); if (!b) return;
+  $('pMode').dataset.pending = b.dataset.v; haptic();
+  [...$('pMode').children].forEach(c => c.setAttribute('aria-pressed', c === b));
+  $('pModeHint').textContent = MODE_HINT[b.dataset.v];
 };
 $('copyBtn').onclick = openCopy;
 function slideDay(dir) {
@@ -1645,34 +1669,61 @@ $('wDateBtn').onclick = () => {
 $('haveScale').onclick = () => { $('wForm').dataset.editing = '1'; $('wForm').dataset.date = todayIso(); renderWeights(); $('wIn').focus(); };
 /* ---------- waist ---------- */
 function waistArr() { return Object.entries(S.waist || {}).map(([date, v]) => ({ date, v: +v })).sort((a, b) => (a.date < b.date ? -1 : 1)); }
+const WAIST_EVERY = 14;
+const fmtIn = v => `${(Math.round(v * 100) / 100).toString()}″`;
 function renderWaist() {
-  const z = waistArr(), t = todayIso();
-  const last = z[z.length - 1], first = z[0];
-  $('zNow').textContent = last ? `${last.v}″` : '–';
+  const z = waistArr(), t = todayIso(), f = $('zForm');
+  const last = z[z.length - 1], first = z[0], editing = f.dataset.editing === '1', fresh = f.dataset.fresh === '1';
+  const logged = !!last && !editing && !fresh && daysBetween(last.date, t) < WAIST_EVERY;
+  f.hidden = logged; $('zDone').hidden = !logged;
+  if (logged) {
+    $('zNum').textContent = (Math.round(last.v * 100) / 100).toString();
+    $('zTag').textContent = last.date === t ? 'Logged today' : `Measured ${shortDate(last.date)}`;
+    const prev = z[z.length - 2], dl = $('zDelta'); dl.className = 'wdone-delta';
+    if (prev) {
+      const x = last.v - prev.v, days = daysBetween(prev.date, last.date);
+      dl.textContent = Math.abs(x) < 0.01 ? `Same as ${days} days before` : `${x > 0 ? '+' : '−'}${fmtIn(Math.abs(x))} vs ${days} days before`;
+      if (mode() === 'lose' && Math.abs(x) >= 0.01) dl.classList.add(x < 0 ? 'good' : 'bad');
+    } else dl.textContent = 'Your first measurement. Check again in two weeks.';
+    const nd = shift(last.date, WAIST_EVERY);
+    $('zNext').textContent = `Next check: ${shortDate(nd)}`;
+    $('zNew').hidden = last.date === t;
+  } else if (document.activeElement !== $('zIn')) {
+    $('zIn').value = editing && last ? last.v : '';
+  }
+  $('zStats').hidden = z.length < 2;
+  $('zStart').textContent = first ? fmtIn(first.v) : '–';
   const c = $('zChg'); c.className = 'v';
-  if (z.length >= 2) { const x = last.v - first.v; c.textContent = Math.abs(x) < 0.01 ? '0″' : `${x > 0 ? '+' : '−'}${Math.abs(x).toFixed(2).replace(/0$/, '')}″`;
+  if (z.length >= 2) { const x = last.v - first.v; c.textContent = Math.abs(x) < 0.01 ? '0″' : `${x > 0 ? '+' : '−'}${fmtIn(Math.abs(x))}`;
     if (mode() === 'lose' && Math.abs(x) >= 0.01) c.classList.add(x < 0 ? 'good' : 'bad'); }
   else c.textContent = '–';
-  $('zWhen').textContent = !last ? '–' : last.date === t ? 'Today' : `${daysBetween(last.date, t)}d ago`;
-  $('zHint').textContent = scale() === 'none'
-    ? 'Measure at your belly button, relaxed, every week or two. A shrinking waist is one of the clearest signs of fat loss.'
-    : 'Measure at your belly button, relaxed, every 1–2 weeks. Waist going down while your weight holds steady means fat loss, not muscle loss.';
+  $('zCount').textContent = `${z.length}×`;
+  const due = last && !logged && !editing && !fresh;
+  $('zHint').textContent = due ? `Time for your next measurement. It's been ${daysBetween(last.date, t)} days.`
+    : scale() === 'none' ? 'Measure at your belly button, relaxed, every two weeks. A shrinking waist is one of the clearest signs of fat loss.'
+    : 'Measure at your belly button, relaxed, every two weeks. Waist going down while your weight holds steady means fat loss, not muscle loss.';
 }
 $('zSave').onclick = () => {
-  const v = parseFloat($('zIn').value), t = todayIso();
+  const v = parseFloat($('zIn').value), t = todayIso(), f = $('zForm');
   if (!(v >= 15 && v <= 80)) { toast('Enter your waist in inches.'); return; }
-  S.waist[t] = Math.round(v * 4) / 4; touchDay(t); $('zIn').value = ''; $('zIn').blur();
-  renderWaist(); replay($('zNow'), 'pop'); haptic(); toast('Waist saved');
+  const z = waistArr(), d = f.dataset.editing === '1' && z.length ? z[z.length - 1].date : t;
+  S.waist[d] = Math.round(v * 4) / 4; touchDay(d);
+  delete f.dataset.editing; delete f.dataset.fresh; $('zIn').value = ''; $('zIn').blur();
+  renderWaist(); replay($('zDone'), 'done-in'); haptic(); toast('Waist saved');
 };
+$('zEdit').onclick = () => { $('zForm').dataset.editing = '1'; renderWaist(); replay($('zForm'), 'fade-in'); $('zIn').focus(); $('zIn').select(); };
+$('zNew').onclick = () => { $('zForm').dataset.fresh = '1'; renderWaist(); replay($('zForm'), 'fade-in'); $('zIn').focus(); };
 $('zIn').addEventListener('keydown', e => { if (e.key === 'Enter') $('zSave').click(); });
 $('tForm').onsubmit = e => {
   e.preventDefault();
   const lo = +$('tLo').value, hi = +$('tHi').value, pr = +$('tPro').value, g = +$('tGoal').value, sw = $('tStart').value.trim();
   if (!(lo > 0 && hi >= lo && pr > 0 && g > 0)) { toast('Check the targets: the low number must be below the high one.'); return; }
   if (sw && !(+sw >= 80 && +sw <= 600)) { toast('Starting weight should be in pounds.'); return; }
-  S.targets = { ...S.targets, calLo: lo, calHi: hi, protein: pr, goal: g };
+  const newMode = $('pMode').dataset.pending || mode(), changed = newMode !== mode();
+  S.targets = { ...S.targets, calLo: lo, calHi: hi, protein: pr, goal: g, mode: newMode };
   S.startWeight = sw ? r1(+sw) : null;
-  document.activeElement?.blur?.(); touchMeta(); renderAll(); haptic(); toast('Goal and targets saved');
+  document.activeElement?.blur?.(); openGoalEdit(false); touchMeta(); renderAll(); haptic();
+  toast(changed ? `Goal set to ${MODES[newMode]}` : 'Goal and targets saved');
 };
 $('foodList').onclick = e => {
   const b = e.target.closest('[data-food]'); if (!b) return;

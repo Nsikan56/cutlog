@@ -120,14 +120,23 @@
 
   <section class="card" id="waistCard">
     <div class="card-h"><h2>Waist</h2><span class="count">inches</span></div>
-    <div class="wrow">
+    <div class="wrow" id="zForm">
       <input id="zIn" type="number" inputmode="decimal" step="0.25" min="15" max="80" placeholder="Around your belly button" aria-label="Waist in inches">
       <button class="btn" id="zSave">Save</button>
     </div>
-    <div class="wstats">
-      <div><span class="k">Latest</span><span class="v" id="zNow">–</span></div>
-      <div><span class="k">Change</span><span class="v" id="zChg">–</span></div>
-      <div><span class="k">Measured</span><span class="v vsm" id="zWhen">–</span></div>
+    <div class="wdone" id="zDone" hidden>
+      <div class="wdone-main">
+        <span class="wdone-n"><span id="zNum">–</span><small>in</small></span>
+        <span class="wdone-tag"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span id="zTag">Logged today</span></span>
+        <span class="wdone-delta" id="zDelta"></span>
+        <span class="wdone-next" id="zNext"></span>
+      </div>
+      <div class="wdone-btns"><button class="edit" id="zEdit">Edit</button><button class="linkbtn" id="zNew" hidden>New</button></div>
+    </div>
+    <div class="wstats" id="zStats">
+      <div><span class="k">Start</span><span class="v" id="zStart">–</span></div>
+      <div><span class="k">Total change</span><span class="v" id="zChg">–</span></div>
+      <div><span class="k">Measured</span><span class="v" id="zCount">–</span></div>
     </div>
     <p class="hint" id="zHint"></p>
   </section>
@@ -198,10 +207,26 @@
     </section>
     <section class="card">
       <div class="card-h"><h2>Profile</h2></div>
-      <label>Your name<input id="pName" maxlength="30" placeholder="What should the app call you?" autocomplete="given-name"></label>
+      <div class="pview" id="pNameView">
+        <div class="prow"><span class="pk">Name</span><span class="pv" id="pNameVal">Not set</span></div>
+        <button class="edit" id="pNameEdit">Edit</button>
+      </div>
+      <div class="pform" id="pNameForm" hidden>
+        <label>Your name<input id="pName" maxlength="30" placeholder="What should the app call you?" autocomplete="given-name"></label>
+        <div class="pform-btns"><button class="btn" id="pNameSave">Save</button><button class="btn ghost" id="pNameCancel">Cancel</button></div>
+      </div>
     </section>
     <section class="card">
-      <div class="card-h"><h2>Goal</h2></div>
+      <div class="card-h"><h2>Goal</h2><button class="edit" id="goalEdit">Edit</button></div>
+      <div class="plist" id="goalView">
+        <div class="prow"><span class="pk">Goal</span><span class="pv" id="gvMode">–</span></div>
+        <div class="prow"><span class="pk">Calories</span><span class="pv" id="gvCal">–</span></div>
+        <div class="prow"><span class="pk">Protein</span><span class="pv" id="gvPro">–</span></div>
+        <div class="prow"><span class="pk">Goal weight</span><span class="pv" id="gvGoal">–</span></div>
+        <div class="prow"><span class="pk">Starting weight</span><span class="pv" id="gvStart">–</span></div>
+      </div>
+      <p class="hint" id="goalHint"></p>
+      <div class="pform" id="goalForm" hidden>
       <div class="seg2" id="pMode" role="group" aria-label="Goal">
         <button type="button" data-v="lose">Cutting</button><button type="button" data-v="maintain">Maintaining</button><button type="button" data-v="gain">Building</button>
       </div>
@@ -212,8 +237,9 @@
         <label>Protein (g)<input id="tPro" type="number" inputmode="numeric"></label>
         <label>Goal weight (lb)<input id="tGoal" type="number" inputmode="decimal" step="0.1"></label>
         <label class="full">Starting weight (lb, for milestones)<input id="tStart" type="number" inputmode="decimal" step="0.1" placeholder="Your first weigh-in"></label>
-        <button class="btn full" type="submit">Save goal and targets</button>
+        <div class="pform-btns full"><button class="btn" type="submit">Save</button><button class="btn ghost" type="button" id="goalCancel">Cancel</button></div>
       </form>
+      </div>
     </section>
     <section class="card">
       <div class="card-h"><h2>Weigh-ins</h2></div>

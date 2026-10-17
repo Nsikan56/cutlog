@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '32';
+const APP_V = '33';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -113,6 +113,10 @@ function unitsFor(f) {
   if (f.piece) u.push({ key: 'piece', label: f.pieceLabel || 'piece', g: f.piece });
   if (f.kcal100 != null) {
     u.push({ key: 'g', label: 'grams', g: 1 });
+    // hand portions: no scale needed (fist ≈ 1 cup, so it uses the food's cup weight when known)
+    u.push({ key: 'palm', label: 'palm', long: 'palm-sized, about 100 g', g: 100 });
+    u.push({ key: 'fist', label: 'fist', long: 'fist-sized, about 1 cup', g: f.cup || 150 });
+    u.push({ key: 'cupped', label: 'cupped hand', long: 'about ½ cup', g: (f.cup || 150) / 2 });
     u.push({ key: 'tbsp', label: 'tbsp', long: 'tablespoon', g: 15 });
     u.push({ key: 'tsp', label: 'tsp', long: 'teaspoon', g: 5 });
     if (f.cup) u.push({ key: 'cup', label: 'cup', g: f.cup });
@@ -145,6 +149,7 @@ function perLine(f) {
   return '';
 }
 function stepFor(unit) { return unit === 'g' ? 10 : unit === 'piece' ? 1 : 0.5; }
+const HAND = ['palm', 'fist', 'cupped'];
 
 /* ---------- rendering ---------- */
 function entriesFor(d) { return S.log[d] || []; }
@@ -604,7 +609,15 @@ function openAmount(f, preset, opts = {}) {
     <div class="chips" id="aUnits" role="group" aria-label="Unit">${units.map(u => `<button class="chip" data-u="${u.key}" aria-pressed="${u.key === unit}" title="${esc(u.long || u.label)}">${esc(u.key === 'serving' && f.servingLabel ? 'serving · ' + f.servingLabel : u.label)}</button>`).join('')}</div>
     <div class="result"><div><span class="num" id="aK">0</span><small>kcal</small></div><div class="pro"><span class="num" id="aP">0g</span><small>protein</small></div></div>
     ${picking ? '' : slotChips(slot)}
-    ${f.est ? '<p class="hint">Homemade dishes vary a lot with oil and portion size. This is a typical estimate; tap "Numbers look wrong?" to set your own.</p>' : ''}
+    ${f.est ? '<p class="hint">Recipes and portions vary a lot, especially with oil. This is a typical estimate; tap "Numbers look wrong?" to set your own.</p>' : ''}
+    ${f.kcal100 != null ? `<details class="hand" id="aHand"><summary>No scale? Estimate with your hand</summary>
+      <div class="hand-rows">
+        <div><b>Palm</b><span>About 100 g. Chicken, fish, meat, tofu. Size and thickness of your palm, no fingers.</span></div>
+        <div><b>Fist</b><span>About 1 cup. Rice, pasta, swallow, yam, potatoes, cereal.</span></div>
+        <div><b>Cupped hand</b><span>About ½ cup. Beans, nuts, chips, fruit, snacks.</span></div>
+        <div><b>Thumb</b><span>About 1 tablespoon. Oil, butter, peanut butter. Use the tbsp unit.</span></div>
+        <p class="hint">Use your own hand. It scales with your body, which keeps your portions consistent.</p>
+      </div></details>` : ''}
     <p class="hint" id="aNote" hidden>Spoon sizes are approximate: about 15 g per tablespoon and 5 g per teaspoon. A heaping spoon is closer to 25 g.</p>
     <button class="btn" id="aAdd">${esc(cta)}</button>
     ${NOT_SAVED.includes(f.source) ? '' : '<button class="btn ghost" id="aFix">Numbers look wrong? Fix them</button>'}
@@ -613,6 +626,7 @@ function openAmount(f, preset, opts = {}) {
     const v = calc(f, parseFloat($('aQty').value), unit);
     animateNum($('aK'), v.kcal, undefined, 220); animateNum($('aP'), v.pro, n => fmtG(n) + 'g', 220);
     $('aNote').hidden = !['tbsp', 'tsp'].includes(unit);
+    if (HAND.includes(unit) && $('aHand') && !$('aHand').dataset.seen) { $('aHand').open = true; $('aHand').dataset.seen = '1'; }
   };
   const bump = dir => { const q = parseFloat($('aQty').value) || 0; $('aQty').value = fmtQty(Math.max(0, q + dir * stepFor(unit))); upd(); };
   $('aMinus').onclick = () => bump(-1); $('aPlus').onclick = () => bump(1);
@@ -929,12 +943,20 @@ function openSearch() {
 }
 
 /* ---------- meals ---------- */
-function mealFood(m) { return { id: 'meal-' + m.id, name: m.name, source: 'meal', kcalServ: m.kcal, proServ: m.pro }; }
+function mealFood(m) {
+  const f = { id: 'meal-' + m.id, name: m.name, source: 'meal', kcalServ: m.kcal, proServ: m.pro };
+  if (m.cookedG > 0) {        // weighed batch: log any amount by grams or hand portions
+    const n = Math.max(1, m.servings || 1);
+    f.servingG = m.cookedG / n; f.servingLabel = `${Math.round(f.servingG)} g`;
+    f.kcal100 = (m.totalK ?? m.kcal * n) / m.cookedG * 100; f.pro100 = (m.totalP ?? m.pro * n) / m.cookedG * 100;
+  }
+  return f;
+}
 function entryFood(e) { return e.food || { id: 'entry-' + e.id, name: e.name, source: 'entry', kcalServ: e.kcal, proServ: e.pro }; }
 function openMeals() {
   openSheet('My meals', `
     <div class="list" id="mealList">${S.meals.length ? S.meals.map((m, i) => `<div class="meal-row">
-        <button class="item" data-m="${i}"><span class="nm">${esc(m.name)}<small>${m.items?.length ? `${m.items.length} ingredient${m.items.length > 1 ? 's' : ''}${m.servings > 1 ? ` · makes ${m.servings}` : ''}` : 'quick meal'}</small></span>
+        <button class="item" data-m="${i}"><span class="nm">${esc(m.name)}<small>${m.items?.length ? `${m.items.length} ingredient${m.items.length > 1 ? 's' : ''}${m.servings > 1 ? ` · makes ${m.servings}` : ''}${m.cookedG ? ` · weighed ${Math.round(m.cookedG).toLocaleString()} g` : ''}` : 'quick meal'}</small></span>
         <span class="meta">${m.kcal} kcal · ${m.pro}g</span></button>
         <button class="edit" data-edit="${i}" aria-label="Edit ${esc(m.name)}">Edit</button></div>`).join('') : '<p class="empty">No saved meals yet. Build one from the foods you cook with.</p>'}</div>
     <p class="hint">Tap a meal, choose how many, and add it.</p>
@@ -951,7 +973,7 @@ function openMeals() {
 function mealTotals(d) {
   const t = d.items.reduce((a, it) => { const v = calc(it.food, it.qty, it.unit); return { kcal: a.kcal + v.kcal, pro: a.pro + v.pro }; }, { kcal: 0, pro: 0 });
   const n = Math.max(1, +d.servings || 1);
-  return { kcal: t.kcal / n, pro: t.pro / n, totalK: t.kcal };
+  return { kcal: t.kcal / n, pro: t.pro / n, totalK: t.kcal, totalP: t.pro };
 }
 function openMealEditor(d) {
   draft = d;
@@ -967,14 +989,21 @@ function openMealEditor(d) {
     <button class="btn ghost" id="addIng">+ Add ingredient</button>
     ${es.length && !hasItems ? `<button class="btn ghost" id="fromDay">Use everything logged ${day === todayIso() ? 'today' : 'this day'}</button>` : ''}
     <label>Makes how many servings?<input id="mServ" type="number" inputmode="decimal" min="1" step="1" value="${d.servings || 1}"></label>
+    ${hasItems ? `<label>Total cooked weight in grams (optional)<input id="mCooked" type="number" inputmode="numeric" min="1" value="${d.cookedG || ''}" placeholder="e.g. 1400"></label>
+    <p class="field-note">Weigh everything once it's cooked, without the pot. Then you can log any amount you dish out by grams or by hand portion.</p>
+    <p class="hint" id="mPer"></p>` : ''}
     ${hasItems ? `<div class="result"><div><span class="num" id="mK">${Math.round(t.kcal)}</span><small>kcal / serving</small></div><div class="pro"><span class="num" id="mP">${Math.round(t.pro)}g</span><small>protein / serving</small></div></div>`
       : `<p class="hint">No ingredients? Type the totals for one serving instead.</p>
          <div class="grid2"><label>Calories<input id="mKin" type="number" inputmode="numeric" value="${d.kcal ?? ''}"></label><label>Protein (g)<input id="mPin" type="number" inputmode="numeric" value="${d.pro ?? ''}"></label></div>`}
     <button class="btn" id="mSave">Save meal</button>
     ${d.id ? '<button class="btn danger" id="mDelete">Delete meal</button>' : ''}`);
-  const keep = () => { d.name = $('mName').value; d.servings = Math.max(1, parseFloat($('mServ').value) || 1); if ($('mKin')) { d.kcal = $('mKin').value; d.pro = $('mPin').value; } };
+  const keep = () => { d.name = $('mName').value; d.servings = Math.max(1, parseFloat($('mServ').value) || 1); if ($('mKin')) { d.kcal = $('mKin').value; d.pro = $('mPin').value; }
+    if ($('mCooked')) d.cookedG = parseFloat($('mCooked').value) > 0 ? parseFloat($('mCooked').value) : null; };
+  const per = () => { if (!$('mPer')) return; keep(); const t3 = mealTotals(d);
+    $('mPer').textContent = d.cookedG ? `${Math.round(t3.totalK / d.cookedG * 100)} kcal and ${fmtG(t3.totalP / d.cookedG * 100)}g protein per 100 g. One serving is about ${Math.round(d.cookedG / (d.servings || 1))} g.` : ''; };
   const back = () => openMealEditor(d);
   $('mServ').oninput = () => { keep(); if (hasItems) { const t2 = mealTotals(d); $('mK').textContent = Math.round(t2.kcal); $('mP').textContent = Math.round(t2.pro) + 'g'; } };
+  if ($('mCooked')) { $('mCooked').oninput = per; per(); }
   $('addIng').onclick = () => {
     keep();
     pick = { label: 'Add to meal', onDone: (f, q, u) => { draft = d; d.items.push({ food: f, qty: q, unit: u }); back(); } };
@@ -997,9 +1026,11 @@ function openMealEditor(d) {
     keep();
     const name = d.name.trim(); if (!name) { toast('Give the meal a name.'); return; }
     let kcal, pro;
-    if (d.items.length) { const t2 = mealTotals(d); kcal = Math.round(t2.kcal); pro = Math.round(t2.pro); }
+    let totalK = null, totalP = null;
+    if (d.items.length) { const t2 = mealTotals(d); kcal = Math.round(t2.kcal); pro = Math.round(t2.pro); totalK = t2.totalK; totalP = t2.totalP; }
     else { kcal = Math.round(parseFloat(d.kcal)); pro = Math.round(parseFloat(d.pro) || 0); if (!(kcal >= 0)) { toast('Add ingredients or type the calories.'); return; } }
     const m = { id: d.id || uid(), name, servings: d.servings || 1, items: d.items, kcal, pro };
+    if (d.items.length && d.cookedG) { m.cookedG = d.cookedG; m.totalK = Math.round(totalK); m.totalP = r1(totalP); }
     const i = S.meals.findIndex(x => x.id === m.id);
     if (i >= 0) S.meals[i] = m; else S.meals.push(m);
     touchMeta(); openMeals(); toast('Meal saved');

@@ -485,3 +485,11 @@ html{background:#000}
 .pform{display:flex;flex-direction:column;gap:12px}
 .pform-btns{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .card-h .edit{padding:6px 12px}
+
+/* hand portion guide */
+.hand{border-radius:12px;background:var(--raised);padding:10px 12px}
+.hand summary{font-size:14px;color:var(--accent)}
+.hand-rows{display:flex;flex-direction:column;gap:8px;margin-top:10px}
+.hand-rows div{display:grid;grid-template-columns:92px 1fr;gap:8px;font-size:13px;line-height:1.35}
+.hand-rows b{font-weight:700}
+.hand-rows span{color:var(--muted)}

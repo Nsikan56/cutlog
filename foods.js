@@ -73,6 +73,43 @@ const NG_FOODS = [
 ].map((f,i)=>({...f, id:"ng"+i, source:"built-in", est:true}));
 BUILTIN_FOODS.push(...NG_FOODS);
 
+/* Common dishes and takeout in Canada. Typical values per 100 g (estimates: recipes and portions vary). */
+const CA_FOODS = [
+  {name:"Poutine", alias:"fries gravy curds", kcal100:225, pro100:5.5, piece:400, pieceLabel:"regular"},
+  {name:"Chicken shawarma wrap", alias:"shawarma pita", kcal100:220, pro100:12, piece:300, pieceLabel:"wrap"},
+  {name:"Chicken shawarma plate", alias:"shawarma rice platter", kcal100:170, pro100:11, piece:550, pieceLabel:"plate"},
+  {name:"Butter chicken", alias:"indian curry murgh makhani", kcal100:150, pro100:12, cup:240},
+  {name:"Pizza, pepperoni", alias:"slice pie", kcal100:290, pro100:12, piece:110, pieceLabel:"slice"},
+  {name:"Cheeseburger", alias:"burger hamburger", kcal100:260, pro100:14, piece:200, pieceLabel:"burger"},
+  {name:"French fries", alias:"chips fries", kcal100:310, pro100:3.4, piece:150, pieceLabel:"medium"},
+  {name:"Chicken wings", alias:"wings", kcal100:290, pro100:27, piece:35, pieceLabel:"wing"},
+  {name:"Spaghetti with meat sauce", alias:"pasta bolognese", kcal100:150, pro100:7, cup:250},
+  {name:"Pasta, cooked plain", alias:"spaghetti noodles", kcal100:158, pro100:5.8, cup:140},
+  {name:"Mac and cheese", alias:"macaroni kraft dinner kd", kcal100:165, pro100:6.5, cup:200},
+  {name:"Chili con carne", alias:"chilli beef beans", kcal100:120, pro100:9, cup:255},
+  {name:"Chicken stir fry", alias:"stirfry vegetables", kcal100:120, pro100:10, cup:200},
+  {name:"Beef pho", alias:"pho noodle soup vietnamese", kcal100:60, pro100:4.5, piece:700, pieceLabel:"bowl"},
+  {name:"Sushi, California roll", alias:"sushi maki", kcal100:150, pro100:4, piece:30, pieceLabel:"piece"},
+  {name:"Chicken burrito", alias:"burrito wrap mexican", kcal100:200, pro100:10, piece:400, pieceLabel:"burrito"},
+  {name:"Burrito bowl", alias:"rice bowl chipotle", kcal100:150, pro100:9, piece:500, pieceLabel:"bowl"},
+  {name:"Chicken Caesar salad", alias:"caesar salad", kcal100:160, pro100:11, piece:300, pieceLabel:"salad"},
+  {name:"Chicken noodle soup", alias:"soup", kcal100:35, pro100:2.5, cup:250},
+  {name:"Roast chicken (with skin)", alias:"rotisserie chicken", kcal100:220, pro100:24, piece:100, pieceLabel:"palm-size piece"},
+  {name:"Chicken thigh, cooked", alias:"thigh", kcal100:210, pro100:26, piece:85, pieceLabel:"thigh"},
+  {name:"Steak, cooked", alias:"beef sirloin", kcal100:250, pro100:26, piece:225, pieceLabel:"8 oz steak"},
+  {name:"Salmon, cooked", alias:"fish", kcal100:206, pro100:22, piece:150, pieceLabel:"fillet"},
+  {name:"Mashed potatoes", alias:"potato mash", kcal100:110, pro100:2, cup:210},
+  {name:"Pancakes", alias:"pancake", kcal100:230, pro100:6, piece:60, pieceLabel:"pancake"},
+  {name:"Bagel, plain", alias:"bagel", kcal100:260, pro100:10, piece:105, pieceLabel:"bagel"},
+  {name:"Muffin (bakery)", alias:"muffin blueberry", kcal100:380, pro100:6, piece:115, pieceLabel:"muffin"},
+  {name:"Donut, glazed", alias:"doughnut", kcal100:420, pro100:5, piece:60, pieceLabel:"donut"},
+  {name:"Breakfast sandwich (egg, cheese, sausage)", alias:"egg muffin breakfast", kcal100:280, pro100:13, piece:160, pieceLabel:"sandwich"},
+  {name:"Bacon, cooked", alias:"bacon", kcal100:540, pro100:37, piece:8, pieceLabel:"slice"},
+  {name:"Cheddar cheese", alias:"cheese", kcal100:400, pro100:25, piece:20, pieceLabel:"slice"},
+  {name:"Granola bar", alias:"bar", kcal100:450, pro100:7, piece:30, pieceLabel:"bar"},
+].map((f,i)=>({...f, id:"ca"+i, source:"built-in", est:true}));
+BUILTIN_FOODS.push(...CA_FOODS);
+
 /* Starting quick meals (estimates from Kan's usual plates) */
 const STARTER_MEALS = [
   {name:"Protein pancakes + 2 eggs + 2 sausages", kcal:780, pro:65},

@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '33';
+const APP_V = '34';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -490,8 +490,20 @@ let onSheetClose = null;
 const EASE = 'cubic-bezier(.2,.8,.2,1)';
 function sheetH() { return sheetEl.offsetHeight || 1; }
 function detents() { return [0, sheetH()]; }   // open where it opens, or closed
+const WIDE_Q = matchMedia('(min-width: 980px)');
 function setY(y, animate) {
   SH.y = y;
+  if (WIDE_Q.matches) {                        // laptop: a centered window that fades and lifts in
+    const p = Math.max(0, Math.min(1, 1 - y / sheetH()));
+    const tr = animate ? `transform .3s ${EASE}, opacity .22s` : 'none';
+    sheetEl.style.transition = tr;
+    sheetEl.style.transform = `translate(-50%, calc(-50% + ${(1 - p) * 24}px)) scale(${0.96 + 0.04 * p})`;
+    sheetEl.style.opacity = p;
+    scrimEl.style.transition = animate ? 'opacity .3s' : 'none'; scrimEl.style.opacity = p;
+    $('app').style.transform = '';
+    return;
+  }
+  sheetEl.style.opacity = '';
   const tr = animate ? `transform .36s ${EASE}` : 'none';
   sheetEl.style.transition = tr; sheetEl.style.transform = `translateY(${y}px)`;
   const p = Math.max(0, Math.min(1, 1 - y / sheetH()));
@@ -541,7 +553,7 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape' && SH.open) c
 
 /* finger tracking */
 function dragStart(y, t, target) {
-  if (!SH.open) return;
+  if (!SH.open || WIDE_Q.matches) return;
   SH.drag = { y0: y, startY: SH.y, mode: null, inBody: sheetBody.contains(target), samples: [[y, t]] };
 }
 function dragMove(y, t, e) {

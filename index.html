@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>Cut Log</title>
-<meta name="app-v" content="33">
+<meta name="app-v" content="34">
 <meta name="theme-color" content="#F2F4F8" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#0B0E14" media="(prefers-color-scheme: dark)">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -17,7 +17,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Barlow:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="style.css?v=33">
+<link rel="stylesheet" href="style.css?v=34">
 </head>
 <body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -42,6 +42,7 @@
   </header>
 
   <div class="view" id="viewToday">
+  <div class="col-a">
 
   <section class="hero" aria-label="Day summary">
     <div class="daynav">
@@ -85,6 +86,8 @@
     <button class="btn ghost" id="copyBtn" hidden>Copy from yesterday</button>
   </section>
 
+  </div>
+  <div class="col-b">
   <section class="card">
     <div class="card-h"><h2 id="wTitle">Morning weigh-in</h2><span class="count u-w">lb</span></div>
     <div class="noscale" id="noScale" hidden>
@@ -142,6 +145,7 @@
     <p class="hint" id="zHint"></p>
   </section>
 
+  </div>
   </div>
 
   <div class="view" id="viewTrends" hidden>
@@ -275,6 +279,7 @@
 </div>
 
 <nav class="tabbar" aria-label="Sections">
+  <div class="side-brand" aria-hidden="true"><span class="mark"></span><span>Cut Log</span></div>
   <button data-tab="today" aria-current="page"><svg><use href="#i-today"/></svg><span>Today</span></button>
   <button data-tab="trends"><svg><use href="#i-trend"/></svg><span>Trends</span></button>
   <button data-tab="you"><svg><use href="#i-you"/></svg><span>You</span></button>
@@ -306,8 +311,8 @@
 <div class="toast" id="toast" role="status" hidden></div>
 <input type="file" id="photoIn" accept="image/*" capture="environment" hidden>
 
-<script src="firebase-config.js?v=33"></script>
-<script src="foods.js?v=33"></script>
-<script src="app.js?v=33"></script>
+<script src="firebase-config.js?v=34"></script>
+<script src="foods.js?v=34"></script>
+<script src="app.js?v=34"></script>
 </body>
 </html>

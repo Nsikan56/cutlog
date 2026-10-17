@@ -493,3 +493,62 @@ html{background:#000}
 .hand-rows div{display:grid;grid-template-columns:92px 1fr;gap:8px;font-size:13px;line-height:1.35}
 .hand-rows b{font-weight:700}
 .hand-rows span{color:var(--muted)}
+
+/* ---------- laptop / desktop layout (wide screens only; the phone layout above is untouched) ---------- */
+.side-brand{display:none}
+.col-a,.col-b{display:contents}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media (min-width:980px){
+  #scroller{padding:28px 32px 48px calc(var(--side) + 32px)}
+  :root{--side:204px}
+  body::before{display:none}
+  main{max-width:1160px;gap:20px}
+  .top{padding:0 2px}
+  .top .brand{display:none}
+  .greet{font-size:26px;font-family:var(--display);font-weight:800;color:var(--ink);letter-spacing:.01em}
+
+  /* sidebar replaces the bottom tab bar */
+  .tabbar{top:0;bottom:0;right:auto;width:var(--side);display:flex;flex-direction:column;align-items:stretch;gap:4px;
+    padding:28px 16px;border-top:0;border-right:1px solid var(--line)}
+  .side-brand{display:flex;align-items:center;gap:10px;padding:0 12px 22px;font-family:var(--display);font-weight:800;font-size:24px;color:var(--ink)}
+  .tabbar button{flex-direction:row;justify-content:flex-start;gap:12px;padding:11px 14px;border-radius:12px;font-size:15px;font-weight:700}
+  .tabbar button[aria-current="page"]{background:var(--accent-soft,color-mix(in srgb,var(--accent) 14%,transparent))}
+  .tabbar button:active{transform:scale(.97)}
+  .tabbar button[aria-current="page"] svg{transform:none}
+  .launch .tabbar{animation:none}
+
+  /* Today: logging on the left, body measurements on the right */
+  #viewToday{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(0,1fr);gap:20px;align-items:start}
+  .col-a,.col-b{display:flex;flex-direction:column;gap:20px;min-width:0}
+
+  /* Trends: two-column card grid */
+  #viewTrends{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px;align-items:start}
+  #viewTrends>#range{grid-column:1/-1;justify-self:start;width:380px;order:0}
+  #viewTrends>.trend-hero{order:1;align-self:stretch}
+  #viewTrends>#burnCard{order:2}
+  #viewTrends>.card:has(#tWeightChart){order:3}
+  #viewTrends>.card:has(#tCalChart){order:4}
+  #viewTrends>.card:has(#tProChart){order:5}
+  #viewTrends>#msCard{order:8}
+  #viewTrends>.card:has(.consist){order:7}
+
+  /* You: settings flow in two columns */
+  #viewYou{display:block;column-count:2;column-gap:20px}
+  #viewYou>*{break-inside:avoid;margin:0 0 20px}
+  #viewYou>.you-hero{column-span:all}
+
+  /* pop-ups become centered windows */
+  .sheet{left:calc(50% + var(--side) / 2);top:50%;bottom:auto;right:auto;width:600px;margin-left:0;max-height:min(86vh,820px);
+    border-radius:22px;box-shadow:0 24px 70px rgba(0,0,0,.35);padding-bottom:0}
+  .grab{display:none}
+  .sheet-head{touch-action:auto;cursor:default;padding-top:18px}
+
+  .toast{left:var(--side);right:0;bottom:24px}
+}
+@media (min-width:1200px){
+  :root{--side:244px}
+  #scroller{padding-left:calc(var(--side) + 40px);padding-right:40px}
+}
+@media (min-width:980px) and (hover:hover){
+  .tabbar button:not([aria-current="page"]):hover{background:var(--raised);color:var(--ink)}
+}

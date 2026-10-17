@@ -10,7 +10,7 @@
   --body:"Barlow",system-ui,-apple-system,"Segoe UI",sans-serif;
   color-scheme:light;
 }
-@media (prefers-color-scheme: dark){:root{
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
   --bg:#0B0E14; --surface:#151A23; --raised:#1B212C; --ink:#EAEEF5; --muted:#99A3B3; --line:#262D39;
   --accent:#7C97FF; --on-accent:#0B0E14; --accent-soft:#1D2644;
   --protein:#4FD69C; --protein-soft:#15302A; --warn:#FF9B5E; --warn-soft:#3A2416;
@@ -220,12 +220,12 @@ details[open] summary::after{content:"–"}
 :root[data-accent="teal"]{--accent:#0B7F8C;--accent-soft:#DDF2F4;--hero:#0B2229;--hero-2:#123742;--ring-cal:#4CD3E0;--ring-pro:#8FE36B}
 :root[data-accent="violet"]{--accent:#6447D9;--accent-soft:#EAE5FD;--hero:#17112E;--hero-2:#281D50;--ring-cal:#A893FF}
 @media (prefers-color-scheme: dark){
-  :root[data-accent="ember"]{--accent:#FF8A4C;--accent-soft:#3A2016;--hero:#24130E;--hero-2:#3E1F15}
-  :root[data-accent="teal"]{--accent:#45C9D6;--accent-soft:#11323A;--hero:#0C252C;--hero-2:#143C47;--protein:#8FE36B;--protein-soft:#1F3318}
-  :root[data-accent="violet"]{--accent:#A893FF;--accent-soft:#251D45;--hero:#191233;--hero-2:#2B2056}
+  :root[data-accent="ember"]:not([data-theme="light"]){--accent:#FF8A4C;--accent-soft:#3A2016;--hero:#24130E;--hero-2:#3E1F15}
+  :root[data-accent="teal"]:not([data-theme="light"]){--accent:#45C9D6;--accent-soft:#11323A;--hero:#0C252C;--hero-2:#143C47;--protein:#8FE36B;--protein-soft:#1F3318}
+  :root[data-accent="violet"]:not([data-theme="light"]){--accent:#A893FF;--accent-soft:#251D45;--hero:#191233;--hero-2:#2B2056}
 }
 :root[data-accent="teal"]{--protein:#3E8F1E;--protein-soft:#E3F3DA}
-@media (prefers-color-scheme: dark){:root[data-accent="teal"]{--protein:#8FE36B;--protein-soft:#1F3318}}
+@media (prefers-color-scheme: dark){:root[data-accent="teal"]:not([data-theme="light"]){--protein:#8FE36B;--protein-soft:#1F3318}}
 .swatches{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
 .swatch{display:flex;flex-direction:column;align-items:center;gap:6px;padding:10px 4px;border-radius:14px;border:2px solid var(--line);background:var(--raised);font-size:12px;font-weight:700}
 .swatch i{width:30px;height:30px;border-radius:50%;background:conic-gradient(var(--a) 0 62%,var(--h) 62% 100%);box-shadow:inset 0 0 0 3px rgba(255,255,255,.15)}
@@ -351,7 +351,7 @@ html{background:#000}
 .rows-hint{font-size:12px;color:var(--muted);margin:2px 0 0}
 /* destructive actions stay red in every theme */
 :root{--danger:#D93636;--danger-soft:#FCE4E4}
-@media (prefers-color-scheme: dark){:root{--danger:#FF6B6B;--danger-soft:#3A1A1C}}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--danger:#FF6B6B;--danger-soft:#3A1A1C}}
 .btn.danger{background:var(--danger-soft);color:var(--danger)}
 
 /* list rows: no background highlight on tap (iOS can leave it stuck); press feedback is the scale only */
@@ -522,6 +522,46 @@ html{background:#000}
 .food-open svg{width:16px;height:16px;color:var(--muted);flex:none}
 .food-open:active{transform:scale(.985)}
 
+
+/* v40: weekly line, what fits, check-in */
+.fits{display:flex;flex-direction:column;gap:7px}
+.fits-k{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--hero-muted)}
+.fits-row{display:flex;gap:8px}
+.fit{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px;text-align:left;padding:9px 11px;border-radius:12px;background:rgba(255,255,255,.08);color:var(--hero-ink)}
+.fit b{font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fit small{font-size:12px;color:var(--hero-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fit:active{transform:scale(.96)}
+.wk{display:grid;grid-template-columns:auto 1fr;gap:1px 10px;align-items:baseline;padding-top:10px;border-top:1px solid rgba(255,255,255,.1)}
+.wk-k{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--hero-muted)}
+.wk-v{font-family:var(--display);font-size:18px;font-weight:700;text-align:right;font-variant-numeric:tabular-nums}
+.wk-v.ok{color:var(--ring-pro)} .wk-v.hi{color:var(--ring-over)}
+.wk-s{grid-column:1/-1;font-size:12px;color:var(--hero-muted);line-height:1.35}
+.ci-banner{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;padding:12px 16px;border-radius:16px;text-align:left;
+  background:var(--accent-soft);border:1px solid var(--accent);color:var(--ink)}
+.ci-banner span{display:flex;flex-direction:column;gap:1px;min-width:0}
+.ci-banner b{font-size:15px;color:var(--accent)} .ci-banner small{font-size:12px;color:var(--muted)}
+.ci-banner svg{width:16px;height:16px;color:var(--accent);flex:none}
+.ci-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.ci-grid div{display:flex;flex-direction:column;padding:10px 12px;border-radius:12px;background:var(--raised);min-width:0}
+.ci-grid .v{font-family:var(--display);font-size:24px;font-weight:800;line-height:1.05;font-variant-numeric:tabular-nums}
+.ci-grid .k{font-size:11px;color:var(--muted);font-weight:600;line-height:1.25}
+.ci-verdict{margin:0;font-size:14px;font-weight:600;line-height:1.4}
+.ci-adj{display:flex;flex-direction:column;gap:10px}
+#ciBody{display:flex;flex-direction:column;gap:12px}
+
+/* Appearance switch (v40): Dark chosen in the app, whatever the phone is set to */
+:root[data-theme="dark"]{
+  --bg:#0B0E14; --surface:#151A23; --raised:#1B212C; --ink:#EAEEF5; --muted:#99A3B3; --line:#262D39;
+  --accent:#7C97FF; --on-accent:#0B0E14; --accent-soft:#1D2644;
+  --protein:#4FD69C; --protein-soft:#15302A; --warn:#FF9B5E; --warn-soft:#3A2416;
+  --hero:#141C3A; --hero-2:#1D2852;
+  --shadow:0 1px 2px rgba(0,0,0,.3); color-scheme:dark}
+:root[data-accent="ember"][data-theme="dark"]{--accent:#FF8A4C;--accent-soft:#3A2016;--hero:#24130E;--hero-2:#3E1F15}
+  :root[data-accent="teal"][data-theme="dark"]{--accent:#45C9D6;--accent-soft:#11323A;--hero:#0C252C;--hero-2:#143C47;--protein:#8FE36B;--protein-soft:#1F3318}
+  :root[data-accent="violet"][data-theme="dark"]{--accent:#A893FF;--accent-soft:#251D45;--hero:#191233;--hero-2:#2B2056}
+:root[data-accent="teal"][data-theme="dark"]{--protein:#8FE36B;--protein-soft:#1F3318}
+:root[data-theme="dark"]{--danger:#FF6B6B;--danger-soft:#3A1A1C}
+
 /* ---------- laptop / desktop layout (wide screens only; the phone layout above is untouched) ---------- */
 .side-brand{display:none}
 .col-a,.col-b{display:contents}
@@ -554,6 +594,7 @@ html{background:#000}
   #viewTrends>#range{grid-column:1/-1;justify-self:start;width:380px;order:0}
   #viewTrends>.trend-hero{order:1;align-self:stretch}
   #viewTrends>#burnCard{order:2}
+  #viewTrends>#ciCard{order:2}
   #viewTrends>.card:has(#tWeightChart){order:3}
   #viewTrends>.card:has(#tCalChart){order:4}
   #viewTrends>.card:has(#tProChart){order:5}

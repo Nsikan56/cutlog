@@ -4,7 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>Cut Log</title>
-<meta name="app-v" content="39">
+<meta name="app-v" content="40">
+<script>/* apply Light/Dark before the page draws, so it never flashes the wrong colors */
+try { var cla = localStorage.getItem('cutlog.appearance'); if (cla === 'light' || cla === 'dark') document.documentElement.setAttribute('data-theme', cla); } catch (e) {}</script>
 <meta name="theme-color" content="#F2F4F8" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#0B0E14" media="(prefers-color-scheme: dark)">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -17,7 +19,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Barlow:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="style.css?v=39">
+<link rel="stylesheet" href="style.css?v=40">
 </head>
 <body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -43,6 +45,8 @@
 
   <div class="view" id="viewToday">
   <div class="col-a">
+
+  <button class="ci-banner" id="ciBanner" hidden><span><b>Your weekly check-in is ready</b><small id="ciBannerS"></small></span><svg><use href="#i-chev-r"/></svg></button>
 
   <section class="hero" aria-label="Day summary">
     <div class="daynav">
@@ -70,6 +74,8 @@
       </div>
     </div>
     <p class="status" id="status"></p>
+    <div class="fits" id="fits" hidden></div>
+    <div class="wk" id="wk" hidden></div>
   </section>
 
   <section class="actions" aria-label="Add food">
@@ -82,7 +88,7 @@
   <section class="card">
     <div class="card-h"><h2>Eaten</h2><span class="count" id="count"></span></div>
     <div class="rows" id="rows"></div>
-    <p class="rows-hint" id="rowsHint" hidden>Tap an entry to change the amount, move it to another meal, or remove it.</p>
+    <p class="rows-hint" id="rowsHint" hidden>Tap an entry to change the amount, move it to another meal or day, or remove it.</p>
     <button class="btn ghost" id="copyBtn" hidden>Copy from yesterday</button>
   </section>
 
@@ -164,6 +170,10 @@
         <div><span class="k" id="tGoalK">Reach goal</span><span class="v" id="tEta">–</span></div>
       </div>
     </section>
+    <section class="card" id="ciCard">
+      <div class="card-h"><h2>Weekly check-in</h2><span class="count" id="ciWhen"></span></div>
+      <div id="ciBody"></div>
+    </section>
     <section class="card burn" id="burnCard">
       <div class="card-h"><h2>Your real burn</h2><span class="conf" id="bConf"></span></div>
       <div id="burnBody"></div>
@@ -208,6 +218,10 @@
         <button class="swatch" data-c="ember" style="--a:#E8692E;--h:#22110D"><i></i>Ember</button>
         <button class="swatch" data-c="teal" style="--a:#14A3B2;--h:#0B2229"><i></i>Teal</button>
         <button class="swatch" data-c="violet" style="--a:#7B5CF0;--h:#17112E"><i></i>Violet</button>
+      </div>
+      <div class="ob-label">Appearance</div>
+      <div class="seg2" id="pLook" role="group" aria-label="Appearance">
+        <button type="button" data-v="auto">Match phone</button><button type="button" data-v="light">Light</button><button type="button" data-v="dark">Dark</button>
       </div>
     </section>
     <section class="card">
@@ -314,8 +328,8 @@
 <div class="toast" id="toast" role="status" hidden></div>
 <input type="file" id="photoIn" accept="image/*" capture="environment" hidden>
 
-<script src="firebase-config.js?v=39"></script>
-<script src="foods.js?v=39"></script>
-<script src="app.js?v=39"></script>
+<script src="firebase-config.js?v=40"></script>
+<script src="foods.js?v=40"></script>
+<script src="app.js?v=40"></script>
 </body>
 </html>

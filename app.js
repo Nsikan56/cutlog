@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '39';
+const APP_V = '40';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -186,6 +186,7 @@ function renderTotals() {
   else if (cal < T.calLo) st.textContent = mode() === 'gain' ? `${(T.calLo - cal).toLocaleString()} kcal to go to reach your range. Room for another meal.` : `${(T.calLo - cal).toLocaleString()} kcal under your range. Room for a high-protein snack.`;
   else if (cal <= T.calHi) { st.className = 'status ok'; st.textContent = 'In your range for today.'; }
   else { st.className = 'status hi'; st.textContent = `${(cal - T.calHi).toLocaleString()} kcal over your range. One day like this is fine; the weekly trend decides.`; }
+  safe(renderFits); safe(renderWeek); safe(renderCiBanner);
 }
 let shownRows = { day: null, ids: new Set() };
 function renderRows() {
@@ -646,7 +647,7 @@ function openAmount(f, preset, opts = {}) {
     <p class="hint" id="aNote" hidden>Spoon sizes are approximate: about 15 g per tablespoon and 5 g per teaspoon. A heaping spoon is closer to 25 g.</p>
     <button class="btn" id="aAdd">${esc(cta)}</button>
     ${NOT_SAVED.includes(f.source) ? '' : '<button class="btn ghost" id="aFix">Numbers look wrong? Fix them</button>'}
-    ${editing ? '<button class="btn danger" id="aDel">Remove from log</button>' : ''}`);
+    ${editing ? '<button class="btn ghost" id="aMove">Move to another day</button><button class="btn danger" id="aDel">Remove from log</button>' : ''}`);
   const upd = () => {
     const v = calc(f, parseFloat($('aQty').value), unit);
     animateNum($('aK'), v.kcal, undefined, 220); animateNum($('aP'), v.pro, n => fmtG(n) + 'g', 220);
@@ -677,6 +678,7 @@ function openAmount(f, preset, opts = {}) {
     [...$('aSlot').children].forEach(c => c.setAttribute('aria-pressed', c.dataset.s === slot));
   };
   if ($('aDel')) $('aDel').onclick = () => { closeSheet(); removeEntry(editing); };
+  if ($('aMove')) $('aMove').onclick = () => openMoveDay(editing);
   if ($('aFix')) $('aFix').onclick = () => {
     const g = f.servingG || null;
     const per = f.kcalServ != null ? { kcal: f.kcalServ, pro: f.proServ }
@@ -1442,7 +1444,7 @@ function renderTrends() {
       else { read.className = 'status hi'; read.textContent = `${verb} ${fW(r)} ${wU()} a week, on the fast side. ${dir < 0 ? 'Adding' : 'Trimming'} 200–300 kcal a day would ease the pace.`; }
     } else { $('tEta').textContent = '–'; read.className = 'status hi'; read.textContent = `Your weight isn't moving toward your goal over this range. Check that you're logging everything, and aim for the ${dir < 0 ? 'low' : 'high'} end of your calorie range.`; }
   }
-  renderBurn(); renderMilestones();
+  renderBurn(); renderMilestones(); safe(renderCheckin);
   $('tWeightChart').innerHTML = weightChart(from, to);
   $('viewTrends').classList.toggle('anim', chartAnim); chartAnim = false;
   // calories + protein
@@ -1847,6 +1849,169 @@ function renderGoalSuggest() {
   if ($('gsRedo')) $('gsRedo').onclick = () => { GS.calc = null; GS.open = true; renderGoalSuggest(); };
 }
 ['tLo', 'tHi', 'tPro', 'tGoal'].forEach(id => $(id).addEventListener('input', renderGoalSuggest));
+
+/* =================== v40: WEEK VIEW, CHECK-IN, WHAT FITS, MOVE DAY, APPEARANCE =================== */
+const weekStart = d => shift(d, -((parseIso(d).getDay() + 6) % 7));     // weeks run Monday to Sunday
+const kc = n => Math.round(n).toLocaleString();
+const rangeTxt = (a, b) => { const A = parseIso(a), B = parseIso(b), f = { month: 'short', day: 'numeric' };
+  return `${A.toLocaleDateString(undefined, f)}–${A.getMonth() === B.getMonth() ? B.getDate() : B.toLocaleDateString(undefined, f)}`; };
+
+/* Weekly budget: finished days this week (today is still in progress, so it isn't counted) */
+function weekStatus(d) {
+  const T = S.targets, t = todayIso(), ws = weekStart(d), m = mode(), done = [];
+  for (let i = 0; i < 7; i++) { const x = shift(ws, i); if (x >= t) break; const tt = dayTotals(x); if (tt) done.push(tt.kcal); }
+  if (!done.length) return null;
+  const sum = done.reduce((s, k) => s + k, 0), avg = sum / done.length;
+  // cutting/maintaining: room under the top of the range; building: how far above the bottom
+  const bank = m === 'gain' ? sum - T.calLo * done.length : T.calHi * done.length - sum;
+  const current = ws === weekStart(t), left = current ? 7 - ((parseIso(t).getDay() + 6) % 7) : 0;   // days left including today
+  return { ws, done: done.length, avg, bank, current, left, m };
+}
+function renderWeek() {
+  const el = $('wk'), w = weekStatus(day); el.hidden = !w; if (!w) return;
+  const T = S.targets, good = w.bank >= 0;
+  let v, s = `avg ${kc(w.avg)} kcal over ${w.done} day${w.done > 1 ? 's' : ''} logged`;
+  if (w.m === 'gain') v = good ? `${kc(w.bank)} kcal above your minimum` : `${kc(-w.bank)} kcal short this week`;
+  else v = good ? `${kc(w.bank)} kcal banked` : `${kc(-w.bank)} kcal over this week`;
+  if (w.current && w.left > 0) {
+    if (w.m !== 'gain' && good && w.bank >= 100) s += ` · room for up to ${kc(T.calHi + w.bank / w.left)} a day for the ${w.left} day${w.left > 1 ? 's' : ''} left`;
+    else if (w.m !== 'gain' && !good) { const aim = T.calHi + w.bank / w.left; s += aim >= T.calLo ? ` · about ${kc(aim)} a day for the ${w.left} day${w.left > 1 ? 's' : ''} left brings it back` : ' · aim for the low end of your range for the rest of the week'; }
+    else if (w.m === 'gain' && !good) s += ` · about ${kc(T.calLo - w.bank / w.left)} a day for the ${w.left} day${w.left > 1 ? 's' : ''} left catches up`;
+  }
+  el.innerHTML = `<span class="wk-k">${w.current ? 'This week' : 'That week'}</span><span class="wk-v ${good ? 'ok' : 'hi'}">${v}</span><span class="wk-s">${esc(s)}</span>`;
+}
+
+/* What fits: picks from your own meals, recent and saved foods, most protein per calorie first */
+function fitsCandidates() {
+  const seen = new Set(), out = [];
+  const add = (f, qty, unit) => { if (!f || seen.has(f.id)) return; const v = calc(f, qty, unit); if (!(v.kcal >= 20)) return; seen.add(f.id); out.push({ f, qty, unit, kcal: v.kcal, pro: v.pro }); };
+  S.meals.forEach(m => add(mealFood(m), 1, 'serving'));
+  S.recent.forEach(r => add(r.food, r.qty, r.unit));
+  S.foods.forEach(f => { const us = unitsFor(f), u = us.find(x => x.key === 'serving') || us.find(x => x.key === 'piece') || us.find(x => x.key === 'g'); if (u) add(f, u.key === 'g' ? 100 : 1, u.key); });
+  return out;
+}
+function pickFits(left) {
+  const c = fitsCandidates().filter(x => x.kcal <= left).sort((p, q) => q.pro / q.kcal - p.pro / p.kcal || q.pro - p.pro);
+  const picks = []; let k = left;
+  for (const x of c) { if (picks.length >= 2) break; if (x.kcal <= k) { picks.push(x); k -= x.kcal; } }
+  return picks;
+}
+let fitPicks = [];
+function renderFits() {
+  const el = $('fits'), T = S.targets, es = entriesFor(day);
+  const cal = es.reduce((s, e) => s + e.kcal, 0), pro = es.reduce((s, e) => s + e.pro, 0), left = Math.round(T.calHi - cal);
+  fitPicks = day === todayIso() && es.length && left >= 150 ? pickFits(left) : [];
+  el.hidden = !fitPicks.length; if (!fitPicks.length) return;
+  const proLeft = Math.max(0, Math.round(T.protein - pro));
+  el.innerHTML = `<span class="fits-k">Fits the ${kc(left)} kcal${proLeft ? ` and ${proLeft}g protein` : ''} left</span>
+    <div class="fits-row">${fitPicks.map((x, i) => `<button class="fit" data-fit="${i}"><b>${esc(x.f.name)}</b><small>${Math.round(x.kcal)} kcal · ${fmtG(x.pro)}g protein</small></button>`).join('')}</div>`;
+}
+$('fits').onclick = e => { const b = e.target.closest('[data-fit]'); if (!b) return; const x = fitPicks[+b.dataset.fit]; if (x) { haptic(); openAmount(x.f, { qty: x.qty, unit: x.unit }); } };
+
+/* Weekly check-in: last full week (Monday to Sunday) */
+function lastWeek() {
+  const T = S.targets, ws = shift(weekStart(todayIso()), -7), we = shift(ws, 6);
+  const days = Array.from({ length: 7 }, (_, i) => dayTotals(shift(ws, i))).filter(Boolean);
+  const arr = weightsArr(), wNow = avgBetween(arr, ws, we), wPrev = avgBetween(arr, shift(ws, -7), shift(ws, -1));
+  return { ws, we, n: days.length, avgK: days.length ? days.reduce((s, x) => s + x.kcal, 0) / days.length : null,
+    avgP: days.length ? days.reduce((s, x) => s + x.pro, 0) / days.length : null,
+    inRange: days.filter(x => x.kcal >= T.calLo && x.kcal <= T.calHi).length, proHit: days.filter(x => x.pro >= T.protein).length,
+    wChange: wNow != null && wPrev != null ? wNow - wPrev : null };
+}
+function renderCheckin() {
+  const box = $('ciBody'); if (!box) return;
+  const w = lastWeek(), T = S.targets, m = mode();
+  $('ciWhen').textContent = rangeTxt(w.ws, w.we);
+  try { localStorage.setItem('cutlog.checkin', w.ws); } catch (e) {}      // seen, so the Today banner goes away
+  $('ciBanner').hidden = true;
+  if (!w.n) { box.innerHTML = '<p class="empty">Log food on a few days this week. Every Monday, your check-in sums up the week before.</p>'; return; }
+  const wc = w.wChange, wTxt = wc == null ? '–' : (wc > 0 ? '+' : wc < 0 ? '−' : '') + fW(Math.abs(wc));
+  let verdict;
+  if (w.n < 4) verdict = `Only ${w.n} day${w.n > 1 ? 's' : ''} logged, so take this week's numbers with a pinch of salt. Aim for at least 5.`;
+  else if (wc == null) verdict = `${w.inRange} of ${w.n} logged days in your calorie range. Weigh in a few mornings a week to see how your weight responded.`;
+  else {
+    const moving = m === 'lose' ? wc < -0.2 : m === 'gain' ? wc > 0.1 : Math.abs(wc) <= 0.5;
+    const move = m === 'maintain' ? 'your weight held steady' : `${m === 'lose' ? 'down' : 'up'} ${fW(Math.abs(wc))} ${wU()} on the weekly average`;
+    verdict = moving ? `Good week: ${move}, with ${w.inRange} of ${w.n} days in your calorie range.`
+      : `Your weekly average ${wc > 0.05 ? 'went up' : wc < -0.05 ? 'went down' : 'held steady'} (${wTxt} ${wU()}). One week can be noise from water and salt. If it repeats next week, adjust.`;
+  }
+  const sug = goalSuggestion(m);
+  let adj;
+  if (sug && sug.src === 'burn' && (Math.abs(sug.lo - T.calLo) >= 100 || Math.abs(sug.hi - T.calHi) >= 100))
+    adj = `<div class="ci-adj"><p class="hint">Your real burn now suggests <b>${kc(sug.lo)}–${kc(sug.hi)} kcal</b> for ${MODES[m]}. You're set to ${kc(T.calLo)}–${kc(T.calHi)}.</p>
+      <button class="btn ghost" id="ciUse">Update my targets to ${kc(sug.lo)}–${kc(sug.hi)}</button></div>`;
+  else if (sug && sug.src === 'burn') adj = '<p class="hint">Your targets still match your real burn. Nothing to change.</p>';
+  else adj = '<p class="hint">After about 2 weeks of logging and weighing in, your check-in can suggest target changes from your real burn.</p>';
+  box.innerHTML = `<div class="ci-grid">
+      <div><span class="v">${kc(w.avgK)}</span><span class="k">avg kcal</span></div>
+      <div><span class="v">${Math.round(w.avgP)}g</span><span class="k">avg protein</span></div>
+      <div><span class="v">${wTxt}</span><span class="k">weight (${wU()}) vs week before</span></div>
+      <div><span class="v">${w.inRange}/${w.n}</span><span class="k">days in range</span></div>
+      <div><span class="v">${w.proHit}/${w.n}</span><span class="k">protein days</span></div>
+      <div><span class="v">${w.n}/7</span><span class="k">days logged</span></div>
+    </div>
+    <p class="ci-verdict">${esc(verdict)}</p>${adj}`;
+  if ($('ciUse')) $('ciUse').onclick = () => {
+    const old = { ...S.targets };
+    S.targets = { ...S.targets, calLo: sug.lo, calHi: sug.hi }; touchMeta(); renderAll(); renderTrends(); haptic();
+    toast('Targets updated', { label: 'Undo', fn: () => { S.targets = old; touchMeta(); renderAll(); if (tab === 'trends') renderTrends(); } });
+  };
+}
+function renderCiBanner() {
+  const b = $('ciBanner'), t = todayIso(), w = lastWeek();
+  let seen = null; try { seen = localStorage.getItem('cutlog.checkin'); } catch (e) {}
+  const show = day === t && w.n >= 3 && seen !== w.ws && daysBetween(weekStart(t), t) <= 2;   // Monday to Wednesday
+  b.hidden = !show; if (show) $('ciBannerS').textContent = `${rangeTxt(w.ws, w.we)} · ${w.n} days logged`;
+}
+$('ciBanner').onclick = () => { haptic(); showTab('trends'); requestAnimationFrame(() => $('ciCard').scrollIntoView({ behavior: REDUCED ? 'auto' : 'smooth', block: 'start' })); };
+
+/* Move an entry to another day */
+function openMoveDay(id) {
+  const from = day, e = entriesFor(from).find(x => x.id === id); if (!e) return;
+  const t = todayIso(), name = d => d === t ? 'Today' : d === shift(t, -1) ? 'Yesterday' : shortDate(d);
+  const quick = [shift(from, -1), ...(from < t ? [shift(from, 1)] : [])];
+  let to = quick[0];
+  openSheet('Move to another day', `
+    <div class="food-head"><strong>${esc(e.name)}</strong><span>${esc([e.detail, `${Math.round(e.kcal)} kcal`].filter(Boolean).join(' · '))} · now on ${esc(name(from))}</span></div>
+    <div class="chips" id="mvQuick">${quick.map(d => `<button class="chip" data-d="${d}" aria-pressed="${d === to}">${esc(name(d))}</button>`).join('')}</div>
+    <label>Or pick a date<input type="date" id="mvDate" min="${shift(t, -90)}" max="${t}" value="${to}"></label>
+    <button class="btn" id="mvGo">Move to ${esc(name(to))}</button>`);
+  const pickD = d => { to = d; $('mvDate').value = d; $('mvGo').textContent = `Move to ${name(d)}`;
+    [...$('mvQuick').children].forEach(c => c.setAttribute('aria-pressed', c.dataset.d === d)); };
+  $('mvQuick').onclick = ev => { const c = ev.target.closest('[data-d]'); if (c) { haptic(); pickD(c.dataset.d); } };
+  $('mvDate').onchange = () => { const d = $('mvDate').value; if (d) pickD(d); };
+  $('mvGo').onclick = () => {
+    if (!to || to > t) { toast("That date hasn't happened yet."); return; }
+    if (daysBetween(to, t) > 90) { toast('Pick a date within the last 3 months.'); return; }
+    if (to === from) { toast(`It's already on ${name(from)}.`); return; }
+    const list = entriesFor(from), i = list.findIndex(x => x.id === id); if (i < 0) return;
+    const [moved] = list.splice(i, 1); if (!list.length) delete S.log[from];
+    (S.log[to] ||= []).push(moved); touchDay(from); touchDay(to); renderTotals(); renderRows(); closeSheet(); haptic();
+    toast(`Moved to ${name(to)}`, { label: 'Undo', fn: () => {
+      const l2 = entriesFor(to), j = l2.findIndex(x => x.id === id); if (j < 0) return;
+      l2.splice(j, 1); if (!l2.length) delete S.log[to];
+      (S.log[from] ||= []).splice(i, 0, moved); touchDay(from); touchDay(to); renderTotals(); renderRows(); } });
+  };
+}
+
+/* Appearance: Match phone, Light or Dark. A per-device choice, like brightness; it isn't synced. */
+const LOOK_BG = { light: '#F2F4F8', dark: '#0B0E14' };
+function look() { try { const v = localStorage.getItem('cutlog.appearance'); return v === 'light' || v === 'dark' ? v : 'auto'; } catch (e) { return 'auto'; } }
+function applyLook() {
+  const v = look(), r = document.documentElement;
+  if (v === 'auto') r.removeAttribute('data-theme'); else r.setAttribute('data-theme', v);
+  document.querySelectorAll('meta[name="theme-color"]').forEach(mt => {
+    mt.dataset.orig ||= mt.content; mt.content = v === 'auto' ? mt.dataset.orig : LOOK_BG[v];
+  });
+  [...$('pLook').children].forEach(c => c.setAttribute('aria-pressed', c.dataset.v === v));
+}
+$('pLook').onclick = e => {
+  const b = e.target.closest('[data-v]'); if (!b || b.dataset.v === look()) return;
+  try { if (b.dataset.v === 'auto') localStorage.removeItem('cutlog.appearance'); else localStorage.setItem('cutlog.appearance', b.dataset.v); } catch (er) {}
+  applyLook(); haptic(); if (tab === 'trends') renderTrends();
+  toast({ auto: 'Following your phone’s light or dark setting', light: 'Light, on this device', dark: 'Dark, on this device' }[b.dataset.v]);
+};
+applyLook();
 
 /* ---------- events ---------- */
 $('swatches').onclick = e => {

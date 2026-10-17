@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '34';
+const APP_V = '36';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -517,7 +517,7 @@ function openSheet(title, html, cleanup) {
   if (onSheetClose) { try { onSheetClose(); } catch (e) {} }
   clearTimeout(SH.hideTimer);
   const swapping = SH.open;
-  sheetBody.onclick = null;
+  sheetBody.onclick = null; sheetEl.style.minHeight = '';
   $('sheetTitle').textContent = title;
   sheetBody.innerHTML = html;
   if (swapping) { replay(sheetBody, 'swap-in'); replay($('sheetTitle'), 'swap-in'); }
@@ -544,8 +544,15 @@ function closeSheet() {
   SH.hideTimer = setTimeout(() => {
     sheetEl.hidden = true; scrimEl.hidden = true;
     sheetEl.style.pointerEvents = ''; scrimEl.style.pointerEvents = '';
-    $('scroller').style.overflowY = ''; $('app').style.transform = '';
+    $('scroller').style.overflowY = ''; $('app').style.transform = ''; sheetEl.style.minHeight = '';
   }, 360);
+}
+/* While typing a search, the panel may grow but never shrink. Fewer results would otherwise
+   pull it down behind the iPhone keyboard, hiding the search box. */
+function holdSheetHeight() {
+  if (!SH.open) return;
+  const h = Math.max(sheetEl.offsetHeight, parseFloat(sheetEl.style.minHeight) || 0);
+  if (h > 0) sheetEl.style.minHeight = h + 'px';
 }
 $('sheetClose').onclick = closeSheet;
 scrimEl.onclick = closeSheet;
@@ -940,9 +947,10 @@ function openSearch() {
     }
   };
   $('results').onclick = e => { const b = e.target.closest('[data-i]'); if (b) { const it = items[+b.dataset.i]; openAmount(it.f, it.preset); } };
-  $('q').oninput = show; show();
+  $('q').oninput = () => { holdSheetHeight(); show(); }; show();
   $('online').onclick = async () => {
     const q = $('q').value.trim(); if (!q) return;
+    holdSheetHeight();
     $('results').innerHTML = '<div class="loading"><div class="spinner"></div>Searching Open Food Facts…</div>';
     try {
       const url = `${OFF}/cgi/search.pl?search_terms=${encodeURIComponent(q)}&search_simple=1&action=process&json=1&page_size=20&fields=code,product_name,brands,nutriments,serving_quantity,serving_size`;

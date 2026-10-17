@@ -141,6 +141,8 @@ details[open] summary::after{content:"–"}
 .close{width:34px;height:34px;border-radius:50%;background:var(--raised);display:grid;place-items:center;color:var(--muted)}
 .close svg{width:16px;height:16px}
 .sheet-body{overflow-y:auto;padding:6px max(18px,env(safe-area-inset-right,0px)) 22px max(18px,env(safe-area-inset-left,0px));display:flex;flex-direction:column;gap:12px;-webkit-overflow-scrolling:touch}
+/* the panel scrolls; its rows must never be squashed (scrolling rows like the unit chips could shrink to nothing) */
+.sheet-body>*{flex-shrink:0}
 .video-wrap{position:relative;border-radius:18px;overflow:hidden;background:#000;aspect-ratio:4/3;max-width:100%}
 .video-wrap video{width:100%;height:100%;object-fit:cover;display:block}
 .video-wrap .aim{position:absolute;left:5%;right:5%;top:25%;bottom:25%;border-radius:14px;box-shadow:0 0 0 999px rgba(0,0,0,.35);border:2px solid rgba(255,255,255,.9)}

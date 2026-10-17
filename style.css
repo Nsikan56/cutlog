@@ -514,6 +514,14 @@ html{background:#000}
 .gsug .seg2{background:var(--surface)}
 .gwarn{margin:0;font-size:13px;line-height:1.4;color:var(--warn);background:var(--warn-soft);padding:9px 12px;border-radius:10px}
 
+/* saved foods: one row on the You tab, the list opens in a panel */
+.food-open{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;padding:12px 14px;border-radius:14px;background:var(--raised);border:1px solid var(--line);text-align:left}
+.food-open span{display:flex;flex-direction:column;gap:2px;min-width:0}
+.food-open b{font-size:15px;font-weight:600}
+.food-open small{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.food-open svg{width:16px;height:16px;color:var(--muted);flex:none}
+.food-open:active{transform:scale(.985)}
+
 /* ---------- laptop / desktop layout (wide screens only; the phone layout above is untouched) ---------- */
 .side-brand{display:none}
 .col-a,.col-b{display:contents}

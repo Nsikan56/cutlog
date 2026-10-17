@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '38';
+const APP_V = '39';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -139,10 +139,14 @@ function unitWord(f, unitKey, qty) {
   if (qty === 1 || /s$/.test(u.label)) return u.label;
   return /o$/.test(u.label) ? u.label + 'es' : u.label + 's';
 }
+function servLabel(f) {
+  const s = f.servingLabel || (f.servingG ? f.servingG + ' g' : '');
+  return String(s).replace(/(\d)\.0+(?=\s*(g|ml)\b)/gi, '$1').replace(/(\d)(g|ml)\b/gi, '$1 $2');
+}
 function perLine(f) {
   if (f.kcal100 != null) {
     let s = `${Math.round(f.kcal100)} kcal · ${r1(f.pro100 || 0)}g protein per 100 g`;
-    if (f.servingG) s += ` · serving ${f.servingLabel || f.servingG + ' g'}`;
+    if (f.servingG) s += ` · serving ${servLabel(f)}`;
     return s;
   }
   if (f.kcalServ != null) return `${Math.round(f.kcalServ)} kcal · ${r1(f.proServ || 0)}g protein per serving`;
@@ -360,8 +364,10 @@ function renderSettings() {
   $('pScaleHint').textContent = SCALE_HINT[scale()];
   $('foodCount').textContent = S.foods.length ? `${S.foods.length}` : '';
   renderHeader();
-  $('foodList').innerHTML = S.foods.length ? S.foods.map(f => `<button class="food-row" data-food="${esc(f.id)}"><span>${esc(f.name)}<small>${esc([f.brand, perLine(f)].filter(Boolean).join(' · '))}</small></span>${icon('i-chev-r')}</button>`).join('')
-    : '<p class="empty">Foods you scan or read from a label are saved here for next time.</p>';
+  const nf = S.foods.length;
+  $('foodsBtn').hidden = !nf; $('foodsEmpty').hidden = !!nf;
+  $('foodsSum').textContent = !nf ? '' : nf <= 2 ? S.foods.map(f => f.name).join(' and ')
+    : `${S.foods.slice(0, 2).map(f => f.name).join(', ')} and ${nf - 2} more`;
 }
 function safe(fn) { try { fn(); } catch (e) { console.error('Cut Log render:', fn.name, e); } }
 function renderAll() {
@@ -625,7 +631,7 @@ function openAmount(f, preset, opts = {}) {
       <input id="aQty" type="number" inputmode="decimal" step="any" min="0" value="${startQty}" aria-label="Amount">
       <button id="aPlus" aria-label="More">+</button>
     </div>
-    <div class="chips" id="aUnits" role="group" aria-label="Unit">${units.map(u => `<button class="chip" data-u="${u.key}" aria-pressed="${u.key === unit}" title="${esc(u.long || u.label)}">${esc(u.key === 'serving' && f.servingLabel ? 'serving · ' + f.servingLabel : u.label)}</button>`).join('')}</div>
+    <div class="chips" id="aUnits" role="group" aria-label="Unit">${units.map(u => `<button class="chip" data-u="${u.key}" aria-pressed="${u.key === unit}" title="${esc(u.long || u.label)}">${esc(u.key === 'serving' && f.servingLabel ? 'serving · ' + servLabel(f) : u.label)}</button>`).join('')}</div>
     <div class="result"><div><span class="num" id="aK">0</span><small>kcal</small></div><div class="pro"><span class="num" id="aP">0g</span><small>protein</small></div></div>
     ${picking ? '' : slotChips(slot)}
     ${f.est ? '<p class="hint">Recipes and portions vary a lot, especially with oil. This is a typical estimate; tap "Numbers look wrong?" to set your own.</p>' : ''}
@@ -1983,11 +1989,28 @@ $('tForm').onsubmit = e => {
   document.activeElement?.blur?.(); openGoalEdit(false); touchMeta(); renderAll(); haptic();
   toast(changed ? `Goal set to ${MODES[newMode]}` : 'Goal and targets saved');
 };
-$('foodList').onclick = e => {
-  const b = e.target.closest('[data-food]'); if (!b) return;
-  const f = S.foods.find(x => x.id === b.dataset.food); if (f) openFoodDetail(f);
-};
-function openFoodDetail(f) {
+/* Saved foods open in a panel with a search box, instead of filling the You tab */
+const foodRow = f => `<button class="food-row" data-food="${esc(f.id)}"><span>${esc(f.name)}<small>${esc([f.brand, perLine(f)].filter(Boolean).join(' · '))}</small></span>${icon('i-chev-r')}</button>`;
+function openSavedFoods(q = '') {
+  openSheet('Saved foods', `
+    ${S.foods.length > 5 ? `<input id="fq" type="search" placeholder="Search your ${S.foods.length} foods" aria-label="Search saved foods" autocomplete="off" value="${esc(q)}">` : ''}
+    <div class="list mlist" id="fList"></div>
+    <p class="hint">Tap a food to log it, fix its numbers or delete it.</p>`);
+  const show = () => {
+    const words = ($('fq')?.value || '').trim().toLowerCase().split(/\s+/).filter(Boolean);
+    const list = S.foods.filter(f => words.every(w => (f.name + ' ' + (f.brand || '')).toLowerCase().includes(w)));
+    $('fList').innerHTML = list.length ? list.map(foodRow).join('') : '<p class="empty">No saved food matches that.</p>';
+  };
+  if ($('fq')) $('fq').oninput = () => { holdSheetHeight(); show(); };   // same keyboard fix as Search
+  show();
+  $('fList').onclick = e => {
+    const b = e.target.closest('[data-food]'); if (!b) return;
+    const f = S.foods.find(x => x.id === b.dataset.food); if (f) openFoodDetail(f, $('fq')?.value || '');
+  };
+}
+$('foodsBtn').onclick = () => openSavedFoods();
+function openFoodDetail(f, fromList) {
+  const back = fromList !== undefined;
   const per = f.kcalServ != null ? { k: f.kcalServ, p: f.proServ } : f.servingG ? { k: f.kcal100 * f.servingG / 100, p: (f.pro100 || 0) * f.servingG / 100 } : null;
   openSheet('Saved food', `
     <div class="food-head"><strong>${esc(f.name)}</strong><span>${esc([f.brand, f.barcode ? 'barcode ' + f.barcode : ''].filter(Boolean).join(' · '))}</span></div>
@@ -1995,10 +2018,12 @@ function openFoodDetail(f) {
       <div><span class="num">${Math.round(per ? per.k : f.kcal100)}</span><small>kcal per ${per ? 'serving' : '100 g'}</small></div>
       <div class="pro"><span class="num">${r1(per ? per.p : f.pro100)}g</span><small>protein</small></div>
     </div>
-    ${f.servingG ? `<p class="hint">One serving is ${esc(f.servingLabel || f.servingG + ' g')}.</p>` : ''}
+    ${f.servingG ? `<p class="hint">One serving is ${esc(servLabel(f))}.</p>` : ''}
     <button class="btn" id="fdLog">Log this food</button>
     <button class="btn ghost" id="fdEdit">Edit numbers</button>
-    <button class="btn danger" id="fdDel">Delete food</button>`);
+    <button class="btn danger" id="fdDel">Delete food</button>
+    ${back ? '<button class="btn ghost" id="fdBack">Back to saved foods</button>' : ''}`);
+  if ($('fdBack')) $('fdBack').onclick = () => openSavedFoods(fromList);
   $('fdLog').onclick = () => openAmount(f, S.recent.find(r => r.food.id === f.id));
   $('fdEdit').onclick = () => {
     openSheet('Edit numbers', '<p class="hint">Enter what the label says for one serving.</p><div id="labelOut"></div>');
@@ -2008,8 +2033,10 @@ function openFoodDetail(f) {
   $('fdDel').onclick = () => {
     const i = S.foods.findIndex(x => x.id === f.id); if (i < 0) return;
     const [gone] = S.foods.splice(i, 1), rec = S.recent.slice();
-    S.recent = S.recent.filter(r => r.food.id !== f.id); touchMeta(); renderSettings(); closeSheet(); haptic();
-    toast(`Deleted ${gone.name}`, { label: 'Undo', fn: () => { S.foods.splice(i, 0, gone); S.recent = rec; touchMeta(); renderSettings(); } });
+    S.recent = S.recent.filter(r => r.food.id !== f.id); touchMeta(); renderSettings(); haptic();
+    if (back && S.foods.length) openSavedFoods(); else closeSheet();
+    toast(`Deleted ${gone.name}`, { label: 'Undo', fn: () => { S.foods.splice(i, 0, gone); S.recent = rec; touchMeta(); renderSettings();
+      if (SH.open && $('sheetTitle').textContent === 'Saved foods') openSavedFoods($('fq')?.value || ''); } });
   };
 }
 $('exportBtn').onclick = () => {

@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '36';
+const APP_V = '37';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -645,7 +645,11 @@ function openAmount(f, preset, opts = {}) {
     const v = calc(f, parseFloat($('aQty').value), unit);
     animateNum($('aK'), v.kcal, undefined, 220); animateNum($('aP'), v.pro, n => fmtG(n) + 'g', 220);
     $('aNote').hidden = !['tbsp', 'tsp'].includes(unit);
-    if (HAND.includes(unit) && $('aHand') && !$('aHand').dataset.seen) { $('aHand').open = true; $('aHand').dataset.seen = '1'; }
+    if (HAND.includes(unit) && $('aHand') && !$('aHand').dataset.seen) {   // teaches the first couple of times, then stays tucked away
+      $('aHand').dataset.seen = '1';
+      let n = 0; try { n = +localStorage.getItem('cutlog.handGuide') || 0; localStorage.setItem('cutlog.handGuide', n + 1); } catch (e) {}
+      if (n < 2) $('aHand').open = true;
+    }
   };
   const bump = dir => { const q = parseFloat($('aQty').value) || 0; $('aQty').value = fmtQty(Math.max(0, q + dir * stepFor(unit))); upd(); };
   $('aMinus').onclick = () => bump(-1); $('aPlus').onclick = () => bump(1);
@@ -659,6 +663,8 @@ function openAmount(f, preset, opts = {}) {
     upd();
   };
   upd();
+  const fade = () => { const c = $('aUnits'); if (c) c.classList.toggle('more', c.scrollLeft + c.clientWidth < c.scrollWidth - 4); };
+  $('aUnits').addEventListener('scroll', fade, { passive: true }); requestAnimationFrame(fade); setTimeout(fade, 400);
   if ($('aSlot')) $('aSlot').onclick = e => {
     const b = e.target.closest('[data-s]'); if (!b) return;
     slot = b.dataset.s; haptic();
@@ -928,7 +934,8 @@ function openSearch() {
     <input id="q" type="search" placeholder="Sweet potato, eggs, yogurt…" aria-label="Search foods" autocomplete="off">
     <div class="list" id="results"></div>
     <button class="btn ghost" id="online" hidden>Search packaged foods online</button>
-    <button class="btn ghost" id="custom">Enter a food by hand</button>`);
+    <button class="btn ghost" id="custom">Enter a food by hand</button>
+    ${pick ? '' : '<button class="btn ghost" id="quick">Quick add: just calories and protein</button>'}`);
   let items = [];
   if ($('pickScan')) $('pickScan').onclick = openScan;
   const show = () => {
@@ -941,7 +948,10 @@ function openSearch() {
     } else {
       const words = q.split(/\s+/);
       const match = f => words.every(w => (f.name + ' ' + (f.brand || '') + ' ' + (f.alias || '')).toLowerCase().includes(w));
-      items = [...S.foods.filter(match), ...BUILTIN_FOODS.filter(match)].slice(0, 30).map(f => ({ f }));
+      // best matches first: name starts with it, then a word starts with it, then anywhere. Saved foods lead within each group.
+      const rank = f => { const n = f.name.toLowerCase(); return n.startsWith(q) ? 0 : n.split(/[^a-z0-9%]+/).some(w => w.startsWith(words[0])) ? 1 : n.includes(words[0]) ? 2 : 3; };
+      items = [...S.foods.filter(match), ...BUILTIN_FOODS.filter(match)].map((f, i) => ({ f, r: rank(f), i }))
+        .sort((a, b) => a.r - b.r || a.i - b.i).slice(0, 30).map(x => ({ f: x.f }));
       $('results').innerHTML = items.length ? listHtml(items) : '<p class="empty">No match in your foods. Try searching online.</p>';
       $('online').hidden = false;
     }
@@ -959,7 +969,29 @@ function openSearch() {
       $('results').innerHTML = items.length ? listHtml(items) : '<p class="empty">Nothing found online. Try fewer words or a brand name.</p>';
     } catch (e) { $('results').innerHTML = "<p class=\"empty\">Couldn't reach the food database. Check your connection.</p>"; }
   };
+  if ($('quick')) $('quick').onclick = () => openQuick(items.length ? '' : $('q').value.trim());   // carry the text over only if nothing matched
   $('custom').onclick = () => { const typed = $('q').value.trim(); openSheet('Enter a food', '<div id="labelOut"></div>'); labelForm($('labelOut'), {}, '', null, typed); };
+}
+
+/* ---------- quick add: one-off numbers, nothing saved to your foods ---------- */
+function openQuick(typed) {
+  const dn = $('dayLabel').textContent;
+  let slot = defaultSlot();
+  openSheet('Quick add', `
+    <p class="hint">For one-offs like a restaurant meal, a sample or a friend's cooking. Nothing is added to your saved foods.</p>
+    <label>What was it? (optional)<input id="qName" maxlength="40" value="${esc(typed || '')}" placeholder="e.g. Sample cup at work"></label>
+    <div class="grid2"><label>Calories<input id="qK" type="number" inputmode="decimal" min="0"></label><label>Protein (g)<input id="qP" type="number" inputmode="decimal" min="0"></label></div>
+    ${slotChips(slot)}
+    <button class="btn" id="qAdd">Add to ${dn === 'Today' ? 'today' : esc(dn)}</button>`);
+  $('aSlot').onclick = e => { const b = e.target.closest('[data-s]'); if (!b) return; slot = b.dataset.s; haptic();
+    [...$('aSlot').children].forEach(c => c.setAttribute('aria-pressed', c.dataset.s === slot)); };
+  $('qAdd').onclick = () => {
+    const k = parseFloat($('qK').value) || 0, pr = parseFloat($('qP').value) || 0;
+    if (!(k > 0 || pr > 0) || k > 10000 || pr > 1000) { toast('Enter the calories, the protein, or both.'); return; }
+    addEntry($('qName').value.trim() || 'Quick add', k, pr, 'quick add', null, slot);
+    closeSheet(); toast(`Added ${Math.round(k)} kcal · ${fmtG(pr)}g protein`);
+  };
+  setTimeout(() => $('qK')?.focus(), 350);
 }
 
 /* ---------- meals ---------- */

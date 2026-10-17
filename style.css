@@ -549,6 +549,27 @@ html{background:#000}
 .ci-adj{display:flex;flex-direction:column;gap:10px}
 #ciBody{display:flex;flex-direction:column;gap:12px}
 
+/* v41: protein nudge (hero is dark in every theme), More nutrients, fibre line, Nutri-Score badges */
+.nudge{margin:0;font-size:14px;line-height:1.4;padding:10px 12px;border-radius:12px;background:rgba(79,214,156,.12);border-left:3px solid var(--ring-pro);color:var(--hero-ink)}
+.nut{border-top:1px solid var(--line);padding-top:10px}
+.nut summary{font-size:14px;gap:10px}
+.nut-s{margin-left:auto;font-size:13px;font-weight:600;color:var(--muted)}
+.nut-body{display:flex;flex-direction:column;gap:8px;margin-top:10px}
+.nut-row{display:flex;justify-content:space-between;align-items:baseline;font-size:14px;font-weight:600}
+.nut-row b{font-family:var(--display);font-size:20px;font-weight:700;font-variant-numeric:tabular-nums}
+.nut .prog i{background:var(--protein)}
+.fib-line{margin:-4px 0 0;font-size:13px;font-weight:600;color:var(--muted)}
+.ns{display:inline-flex;align-items:center;gap:6px;flex:none;font-size:12px;font-weight:700;color:var(--muted);white-space:nowrap}
+.ns b{display:grid;place-items:center;width:22px;height:22px;border-radius:6px;color:#fff;font-family:var(--display);font-size:15px;font-weight:800;line-height:1}
+.ns-a b{background:#038141} .ns-b b{background:#85BB2F} .ns-c b{background:#FECB02;color:#2B2200} .ns-d b{background:#EE8100} .ns-e b{background:#E63E11}
+.ns-row{display:flex;margin-top:4px}
+.ns-row:empty{display:none}
+.item .ns,.food-row .ns{margin-left:auto}
+
+/* v42: unsaved meal row in My meals */
+.draft-row{display:flex;flex-direction:column;gap:4px}
+.draft-row .linkbtn{align-self:flex-start}
+
 /* Appearance switch (v40): Dark chosen in the app, whatever the phone is set to */
 :root[data-theme="dark"]{
   --bg:#0B0E14; --surface:#151A23; --raised:#1B212C; --ink:#EAEEF5; --muted:#99A3B3; --line:#262D39;
@@ -598,6 +619,7 @@ html{background:#000}
   #viewTrends>.card:has(#tWeightChart){order:3}
   #viewTrends>.card:has(#tCalChart){order:4}
   #viewTrends>.card:has(#tProChart){order:5}
+  #viewTrends>#fibCard{order:6}
   #viewTrends>#msCard{order:8}
   #viewTrends>.card:has(.consist){order:7}
 

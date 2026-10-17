@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>Cut Log</title>
-<meta name="app-v" content="40">
+<meta name="app-v" content="42">
 <script>/* apply Light/Dark before the page draws, so it never flashes the wrong colors */
 try { var cla = localStorage.getItem('cutlog.appearance'); if (cla === 'light' || cla === 'dark') document.documentElement.setAttribute('data-theme', cla); } catch (e) {}</script>
 <meta name="theme-color" content="#F2F4F8" media="(prefers-color-scheme: light)">
@@ -19,7 +19,7 @@ try { var cla = localStorage.getItem('cutlog.appearance'); if (cla === 'light' |
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Barlow:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="style.css?v=40">
+<link rel="stylesheet" href="style.css?v=42">
 </head>
 <body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -74,6 +74,7 @@ try { var cla = localStorage.getItem('cutlog.appearance'); if (cla === 'light' |
       </div>
     </div>
     <p class="status" id="status"></p>
+    <p class="nudge" id="nudge" hidden></p>
     <div class="fits" id="fits" hidden></div>
     <div class="wk" id="wk" hidden></div>
   </section>
@@ -88,6 +89,7 @@ try { var cla = localStorage.getItem('cutlog.appearance'); if (cla === 'light' |
   <section class="card">
     <div class="card-h"><h2>Eaten</h2><span class="count" id="count"></span></div>
     <div class="rows" id="rows"></div>
+    <details class="nut" id="nutBox" hidden><summary><span>More nutrients</span><span class="nut-s" id="nutSum"></span></summary><div class="nut-body" id="nutBody"></div></details>
     <p class="rows-hint" id="rowsHint" hidden>Tap an entry to change the amount, move it to another meal or day, or remove it.</p>
     <button class="btn ghost" id="copyBtn" hidden>Copy from yesterday</button>
   </section>
@@ -195,6 +197,11 @@ try { var cla = localStorage.getItem('cutlog.appearance'); if (cla === 'light' |
       <div class="card-h"><h2>Protein</h2><span class="count" id="tProAvg"></span></div>
       <div id="tProChart"></div>
       <p class="hint" id="tProNote"></p>
+    </section>
+    <section class="card" id="fibCard" hidden>
+      <div class="card-h"><h2>Fibre</h2><span class="count" id="tFibAvg"></span></div>
+      <div id="tFibChart"></div>
+      <p class="hint" id="tFibNote"></p>
     </section>
     <section class="card">
       <div class="card-h"><h2>Consistency</h2><span class="count" id="tDays"></span></div>
@@ -328,8 +335,8 @@ try { var cla = localStorage.getItem('cutlog.appearance'); if (cla === 'light' |
 <div class="toast" id="toast" role="status" hidden></div>
 <input type="file" id="photoIn" accept="image/*" capture="environment" hidden>
 
-<script src="firebase-config.js?v=40"></script>
-<script src="foods.js?v=40"></script>
-<script src="app.js?v=40"></script>
+<script src="firebase-config.js?v=42"></script>
+<script src="foods.js?v=42"></script>
+<script src="app.js?v=42"></script>
 </body>
 </html>

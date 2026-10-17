@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '40';
+const APP_V = '42';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -124,13 +124,41 @@ function unitsFor(f) {
   }
   return u;
 }
+/* fib is null when the food has no fibre data, so a total never pretends to know more than it does */
 function calc(f, qty, unitKey) {
   const u = unitsFor(f).find(x => x.key === unitKey);
-  if (!u || !(qty > 0)) return { kcal: 0, pro: 0 };
-  if (u.key === 'serving' && f.kcalServ != null) return { kcal: qty * f.kcalServ, pro: qty * (f.proServ || 0) };
+  if (!u || !(qty > 0)) return { kcal: 0, pro: 0, fib: null };
+  if (u.key === 'serving' && f.kcalServ != null) {
+    const fib = f.fibServ != null ? qty * f.fibServ : f.fib100 != null && f.servingG ? qty * f.servingG * f.fib100 / 100 : null;
+    return { kcal: qty * f.kcalServ, pro: qty * (f.proServ || 0), fib };
+  }
   const g = qty * u.g;
-  return { kcal: g * f.kcal100 / 100, pro: g * (f.pro100 || 0) / 100 };
+  const fib = f.fib100 != null ? g * f.fib100 / 100 : f.fibServ != null && f.servingG ? g * f.fibServ / f.servingG : null;
+  return { kcal: g * f.kcal100 / 100, pro: g * (f.pro100 || 0) / 100, fib };
 }
+const hasFib = f => !!f && (f.fib100 != null || f.fibServ != null);
+const fibPerServ = (f, g) => { const v = f.fibServ != null ? f.fibServ : f.fib100 != null ? f.fib100 * (g || 100) / 100 : null; return v == null ? null : r1(v); };
+function setFib(e, v) { if (v == null || !isFinite(v)) delete e.fib; else e.fib = r1(v); }
+/* Fibre for one logged entry, in grams, or null when unknown. Entries logged before v41 have no fib field:
+   built-in foods and saved foods that have fibre now are worked out from the entry's own amount, without changing what's saved. */
+function entryFib(e) {
+  if (e.fib != null) return e.fib;
+  const f = e.food; if (!f || !(e.qty > 0)) return null;
+  let src = null;
+  if (f.source === 'built-in') src = BUILTIN_FOODS.find(b => b.id === f.id && b.name === f.name);
+  else if (!hasFib(f)) { const s = S.foods.find(x => x.id === f.id); if (s && s.kcal100 === f.kcal100 && s.kcalServ === f.kcalServ) src = s; }
+  if (!hasFib(f) && !hasFib(src)) return null;
+  const v = calc(hasFib(f) ? f : { ...f, fib100: src.fib100, fibServ: src.fibServ }, e.qty, e.unit);
+  return v.fib;
+}
+function dayFib(d) {
+  const es = entriesFor(d); let g = 0, known = 0;
+  es.forEach(e => { const x = entryFib(e); if (x != null) { g += x; known++; } });
+  return { g, known, total: es.length };
+}
+/* Nutri-Score: Open Food Facts' A–E grade for packaged foods. Only a–e are kept. */
+const nsOk = g => /^[a-e]$/.test(g || '');
+const nsBadge = (f, long) => nsOk(f?.nutri) ? `<span class="ns ns-${f.nutri}" title="Nutri-Score ${f.nutri.toUpperCase()}: a grade from Open Food Facts for packaged foods, A best to E least">${long ? 'Nutri-Score ' : ''}<b>${f.nutri.toUpperCase()}</b></span>` : '';
 function unitWord(f, unitKey, qty) {
   const u = unitsFor(f).find(x => x.key === unitKey);
   if (!u) return '';
@@ -186,7 +214,7 @@ function renderTotals() {
   else if (cal < T.calLo) st.textContent = mode() === 'gain' ? `${(T.calLo - cal).toLocaleString()} kcal to go to reach your range. Room for another meal.` : `${(T.calLo - cal).toLocaleString()} kcal under your range. Room for a high-protein snack.`;
   else if (cal <= T.calHi) { st.className = 'status ok'; st.textContent = 'In your range for today.'; }
   else { st.className = 'status hi'; st.textContent = `${(cal - T.calHi).toLocaleString()} kcal over your range. One day like this is fine; the weekly trend decides.`; }
-  safe(renderFits); safe(renderWeek); safe(renderCiBanner);
+  safe(renderFits); safe(renderWeek); safe(renderCiBanner); safe(renderNudge); safe(renderNut);
 }
 let shownRows = { day: null, ids: new Set() };
 function renderRows() {
@@ -442,7 +470,7 @@ function slotChips(sel) { return `<div class="chips slots" id="aSlot" role="grou
 /* ---------- log actions ---------- */
 function addEntry(name, kcal, pro, detail, src, slot) {
   const e = { id: uid(), name, kcal: r1(kcal), pro: r1(pro), detail: detail || '', at: Date.now(), slot: slot || defaultSlot(src?.food?.id) };
-  if (src) { e.food = src.food; e.qty = src.qty; e.unit = src.unit; }
+  if (src) { e.food = src.food; e.qty = src.qty; e.unit = src.unit; setFib(e, src.fib); }
   (S.log[day] ||= []).push(e);
   touchDay(day); renderTotals(); renderRows(); haptic();
 }
@@ -626,7 +654,7 @@ function openAmount(f, preset, opts = {}) {
   let slot = editEntry ? slotOf(editEntry) : defaultSlot(f.id);
   const cta = picking ? picking.label : editing ? 'Save changes' : `Add to ${dayName === 'Today' ? 'today' : dayName}`;
   openSheet(editing ? 'Edit entry' : 'How much?', `
-    <div class="food-head"><strong>${esc(f.name)}</strong><span>${esc([f.brand, perLine(f)].filter(Boolean).join(' · '))}</span></div>
+    <div class="food-head" id="aFood" data-id="${esc(f.id)}"><strong>${esc(f.name)}</strong><span>${esc([f.brand, perLine(f)].filter(Boolean).join(' · '))}</span><span class="ns-row" id="aNs">${nsBadge(f, true)}</span></div>
     <div class="stepper">
       <button id="aMinus" aria-label="Less">−</button>
       <input id="aQty" type="number" inputmode="decimal" step="any" min="0" value="${startQty}" aria-label="Amount">
@@ -634,6 +662,7 @@ function openAmount(f, preset, opts = {}) {
     </div>
     <div class="chips" id="aUnits" role="group" aria-label="Unit">${units.map(u => `<button class="chip" data-u="${u.key}" aria-pressed="${u.key === unit}" title="${esc(u.long || u.label)}">${esc(u.key === 'serving' && f.servingLabel ? 'serving · ' + servLabel(f) : u.label)}</button>`).join('')}</div>
     <div class="result"><div><span class="num" id="aK">0</span><small>kcal</small></div><div class="pro"><span class="num" id="aP">0g</span><small>protein</small></div></div>
+    <p class="fib-line" id="aF" hidden></p>
     ${picking ? '' : slotChips(slot)}
     ${f.est ? '<p class="hint">Recipes and portions vary a lot, especially with oil. This is a typical estimate; tap "Numbers look wrong?" to set your own.</p>' : ''}
     ${f.kcal100 != null ? `<details class="hand" id="aHand"><summary>No scale? Estimate with your hand</summary>
@@ -651,6 +680,7 @@ function openAmount(f, preset, opts = {}) {
   const upd = () => {
     const v = calc(f, parseFloat($('aQty').value), unit);
     animateNum($('aK'), v.kcal, undefined, 220); animateNum($('aP'), v.pro, n => fmtG(n) + 'g', 220);
+    $('aF').hidden = v.fib == null || !(v.kcal > 0); if (v.fib != null) $('aF').textContent = `${fmtG(v.fib)}g fibre`;
     $('aNote').hidden = !['tbsp', 'tsp'].includes(unit);
     if (HAND.includes(unit) && $('aHand') && !$('aHand').dataset.seen) {   // teaches the first couple of times, then stays tucked away
       $('aHand').dataset.seen = '1';
@@ -669,7 +699,7 @@ function openAmount(f, preset, opts = {}) {
     if (unit !== 'g' && parseFloat($('aQty').value) >= 10) $('aQty').value = 1;
     upd();
   };
-  upd();
+  upd(); enrichFood(f);
   const fade = () => { const c = $('aUnits'); if (c) c.classList.toggle('more', c.scrollLeft + c.clientWidth < c.scrollWidth - 4); };
   $('aUnits').addEventListener('scroll', fade, { passive: true }); requestAnimationFrame(fade); setTimeout(fade, 400);
   if ($('aSlot')) $('aSlot').onclick = e => {
@@ -684,7 +714,7 @@ function openAmount(f, preset, opts = {}) {
     const per = f.kcalServ != null ? { kcal: f.kcalServ, pro: f.proServ }
       : g ? { kcal: f.kcal100 * g / 100, pro: (f.pro100 || 0) * g / 100 } : { kcal: f.kcal100, pro: f.pro100 };
     openSheet('Fix the numbers', `<p class="hint">Enter what the label says for one serving. The app will use your numbers for this food from now on.</p><div id="labelOut"></div>`);
-    labelForm($('labelOut'), { kcal: Math.round(per.kcal), pro: r1(per.pro || 0), servingG: g || (f.kcalServ == null ? 100 : null) }, '', f.barcode || null, f.name, f.id);
+    labelForm($('labelOut'), { kcal: Math.round(per.kcal), pro: r1(per.pro || 0), fib: fibPerServ(f, g), servingG: g || (f.kcalServ == null ? 100 : null) }, '', f.barcode || null, f.name, f.id);
   };
   $('aAdd').onclick = () => {
     const q = parseFloat($('aQty').value);
@@ -694,7 +724,7 @@ function openAmount(f, preset, opts = {}) {
     if (picking) { pick = null; picking.onDone(f, q, unit, v); return; }
     if (editing) {
       const moved = editEntry && slotOf(editEntry) !== slot;
-      if (editEntry) Object.assign(editEntry, { kcal: r1(v.kcal), pro: r1(v.pro), detail, food: f, qty: q, unit, slot });
+      if (editEntry) { Object.assign(editEntry, { kcal: r1(v.kcal), pro: r1(v.pro), detail, food: f, qty: q, unit, slot }); setFib(editEntry, v.fib); }
       if (moved) { S.slotPref[f.id] = slot; touchMeta(); }      // moving a food teaches the app where it usually goes
       touchDay(day); renderTotals(); renderRows(); closeSheet();
       toast(moved ? `Moved to ${SLOTS.find(s => s[0] === slot)[1]}. It'll go there next time too.` : 'Entry updated'); return;
@@ -703,15 +733,17 @@ function openAmount(f, preset, opts = {}) {
     // logging the same thing again in the same meal adds to the existing line
     const same = entriesFor(day).find(x => x.food && x.food.id === f.id && x.unit === unit && slotOf(x) === slot);
     if (same) {
-      const prev = { kcal: same.kcal, pro: same.pro, qty: same.qty, detail: same.detail };
+      const prev = { kcal: same.kcal, pro: same.pro, qty: same.qty, detail: same.detail }, prevFib = same.fib;
+      const had = entryFib(same);
       same.qty = r1(same.qty + q); same.kcal = r1(same.kcal + v.kcal); same.pro = r1(same.pro + v.pro);
+      setFib(same, had != null && v.fib != null ? had + v.fib : null);   // only known when both parts are known
       same.detail = `${fmtQty(same.qty)} ${unitWord(f, unit, same.qty)}`;
       touchDay(day); renderTotals(); renderRows(); haptic(); closeSheet();
       replay(document.querySelector(`.row[data-id="${CSS.escape(same.id)}"]`), 'row-bump');
-      toast(`Now ${same.detail} · ${Math.round(same.kcal)} kcal`, { label: 'Undo', fn: () => { Object.assign(same, prev); touchDay(day); renderTotals(); renderRows(); } });
+      toast(`Now ${same.detail} · ${Math.round(same.kcal)} kcal`, { label: 'Undo', fn: () => { Object.assign(same, prev); setFib(same, prevFib); touchDay(day); renderTotals(); renderRows(); } });
       return;
     }
-    addEntry(f.name, v.kcal, v.pro, detail, { food: f, qty: q, unit }, slot);
+    addEntry(f.name, v.kcal, v.pro, detail, { food: f, qty: q, unit, fib: v.fib }, slot);
     closeSheet(); toast(`Added ${Math.round(v.kcal)} kcal · ${fmtG(v.pro)}g protein`);
   };
 }
@@ -727,7 +759,34 @@ function offToFood(p, code) {
   const sq = parseFloat(p.serving_quantity);
   if (sq > 0) { f.servingG = sq; f.servingLabel = p.serving_size || sq + ' g'; }
   if (f.kcal100 == null && n['energy-kcal_serving'] != null) { f.kcalServ = +n['energy-kcal_serving']; f.proServ = +(n['proteins_serving'] || 0); }
+  offExtras(f, p);
   return (f.kcal100 != null || f.kcalServ != null) ? f : null;
+}
+/* fibre and Nutri-Score, when Open Food Facts has them */
+function offExtras(f, p) {
+  const n = p.nutriments || {};
+  if (n['fiber_100g'] != null && n['fiber_100g'] !== '' && +n['fiber_100g'] >= 0) f.fib100 = +n['fiber_100g'];
+  else if (f.kcalServ != null && n['fiber_serving'] != null && n['fiber_serving'] !== '' && +n['fiber_serving'] >= 0) f.fibServ = +n['fiber_serving'];
+  if (nsOk(p.nutriscore_grade)) f.nutri = p.nutriscore_grade;
+  return f;
+}
+const OFF_FIELDS = 'product_name,product_name_en,product_name_fr,brands,nutriments,serving_quantity,serving_size,nutriscore_grade';
+/* Foods scanned before v41 have no fibre or grade. The first time one is opened, ask Open Food Facts once and add only
+   those two things; calories and protein are never touched (they may have been fixed by hand). */
+const enrichTried = new Set();
+async function enrichFood(f) {
+  if (!f?.barcode || f.source !== 'scan' || f.nutri !== undefined || hasFib(f) || enrichTried.has(f.id) || !navigator.onLine) return;
+  enrichTried.add(f.id);
+  try {
+    const res = await fetch(`${OFF}/api/v2/product/${f.barcode}.json?fields=nutriments,nutriscore_grade`);
+    if (!res.ok) return;
+    const j = await res.json(); if (j.status !== 1 || !j.product) return;
+    const add = offExtras({ kcalServ: f.kcalServ }, j.product);
+    const saved = S.foods.find(x => x.id === f.id);
+    [f, saved].forEach(t => { if (!t) return; t.nutri = add.nutri || ''; if (add.fib100 != null) t.fib100 = add.fib100; else if (add.fibServ != null && t.kcalServ != null) t.fibServ = add.fibServ; });
+    touchMeta(); renderTotals();
+    if (SH.open && $('sheetTitle').textContent === 'How much?' && $('aFood')?.dataset.id === f.id) { $('aNs').innerHTML = nsBadge(f, true); $('aQty').dispatchEvent(new Event('input')); }
+  } catch (e) { /* offline or blocked: try again next visit */ }
 }
 async function lookupBarcode(code) {
   code = String(code).replace(/\D/g, '');
@@ -736,7 +795,7 @@ async function lookupBarcode(code) {
   const tries = code.length === 12 ? [code, '0' + code] : [code];
   for (const c of tries) {
     try {
-      const res = await fetch(`${OFF}/api/v2/product/${c}.json?fields=product_name,product_name_en,product_name_fr,brands,nutriments,serving_quantity,serving_size`);
+      const res = await fetch(`${OFF}/api/v2/product/${c}.json?fields=${OFF_FIELDS}`);
       if (!res.ok) continue;
       const j = await res.json();
       if (j.status === 1 && j.product) {
@@ -848,7 +907,7 @@ async function prepImage(file) {
   const scale = Math.min(1, 1800 / Math.max(bmp.width, bmp.height));
   const c = document.createElement('canvas');
   c.width = Math.round(bmp.width * scale); c.height = Math.round(bmp.height * scale);
-  const x = c.getContext('2d'); x.drawImage(bmp, 0, 0, c.width, c.height);
+  const x = c.getContext('2d'); x.drawImage(bmp, 0, 0, c.width, c.height); try { bmp.close(); } catch (e) {}
   const im = x.getImageData(0, 0, c.width, c.height), d = im.data;
   let min = 255, max = 0;
   for (let i = 0; i < d.length; i += 4) { const g = d[i] * .299 + d[i + 1] * .587 + d[i + 2] * .114; d[i] = g; if (g < min) min = g; if (g > max) max = g; }
@@ -860,7 +919,7 @@ async function prepImage(file) {
 function parseLabel(text) {
   const lines = text.replace(/[|]/g, ' ').split(/\n+/).map(l => l.trim()).filter(Boolean);
   const num = s => parseFloat(String(s).replace(',', '.'));
-  let kcal = null, pro = null, servingG = null, servingText = '';
+  let kcal = null, pro = null, fib = null, servingG = null, servingText = '';
   for (const l of lines) {
     const low = l.toLowerCase().replace(/(\d)o\b/g, '$10').replace(/\bo(\d)/g, '0$1');
     if (kcal == null && /calor/.test(low) && !/from fat/.test(low)) {
@@ -872,15 +931,21 @@ function parseLabel(text) {
       const m = after.match(/(\d{1,3}(?:[.,]\d)?)\s*g/) || after.match(/(\d{1,3}(?:[.,]\d)?)/);
       if (m) pro = num(m[1]);
     }
+    if (fib == null && /fib(re|er)/.test(low) && !/soluble|insoluble/.test(low)) {        // "Fibre / Fibres 4 g", "Dietary Fiber 3g"
+      const after = low.slice(low.search(/fib(re|er)/));
+      const m = after.match(/(\d{1,2}(?:[.,]\d)?)\s*g/);
+      if (m) fib = num(m[1]);
+    }
     if (servingG == null && /(per|pour|serving|portion|size)/.test(low)) {
       const m = low.match(/\(?\s*(\d{1,4}(?:[.,]\d)?)\s*(g|ml|mℓ)\b/);
       if (m) { servingG = num(m[1]); servingText = l.replace(/\s+/g, ' ').slice(0, 60); }
     }
   }
   if (servingG == null) { const m = text.match(/\(\s*(\d{1,4})\s*(g|ml)\s*\)/i); if (m) { servingG = num(m[1]); servingText = m[0]; } }
-  return { kcal, pro, servingG, servingText };
+  return { kcal, pro, fib, servingG, servingText };
 }
 function openLabel(barcode) {
+  if (pick && draft && barcode) { draft.pendingCode = barcode; draft.touched = true; saveDraft(draft); }   // remembered in case iOS restarts the app during the photo
   openSheet('Snap the label', `
     <p class="hint">Take a clear, straight-on photo of the Nutrition Facts table in good light. The reading happens on your phone and takes a few seconds. The first time, it downloads a small reader.</p>
     <button class="btn" id="takeLabel">Take photo</button>
@@ -915,17 +980,20 @@ function labelForm(out, p, text, barcode, name, keepId) {
       <label>Calories per serving<input id="lK" type="number" inputmode="decimal" value="${p.kcal ?? ''}"></label>
       <label>Protein per serving (g)<input id="lP" type="number" inputmode="decimal" value="${p.pro ?? ''}"></label>
     </div>
+    <label>Fibre per serving (g, optional)<input id="lF" type="number" inputmode="decimal" min="0" value="${p.fib ?? ''}" placeholder="Leave blank if the label doesn't say"></label>
     <label>Serving size (g or ml)<input id="lG" type="number" inputmode="decimal" value="${p.servingG ?? ''}" placeholder="Optional, e.g. 175"></label>
     <p class="field-note">The number in brackets on the label. Adding it lets you log by spoon or gram.</p>
     <button class="btn" id="lSave">Next: how much did you have?</button>
     ${text ? `<details><summary>What the reader saw</summary><div class="ocr">${esc(text)}</div></details>` : ''}`);
   $('lSave').onclick = () => {
-    const nm = $('lName').value.trim(), k = parseFloat($('lK').value), pr = parseFloat($('lP').value) || 0, g = parseFloat($('lG').value);
+    const nm = $('lName').value.trim(), k = parseFloat($('lK').value), pr = parseFloat($('lP').value) || 0, g = parseFloat($('lG').value), fb = parseFloat($('lF').value);
     if (!nm) { toast('Give the food a name.'); return; }
     if (!(k >= 0)) { toast('Enter the calories per serving.'); return; }
     const f = { id: keepId || (barcode ? 'p' + barcode : 'c' + uid()), name: nm, source: 'label', kcalServ: k, proServ: pr };
     if (barcode) f.barcode = barcode;
-    if (g > 0) { f.servingG = g; f.servingLabel = g + ' g'; f.kcal100 = k / g * 100; f.pro100 = pr / g * 100; }
+    if (fb >= 0 && fb < 100) f.fibServ = fb;
+    if (g > 0) { f.servingG = g; f.servingLabel = g + ' g'; f.kcal100 = k / g * 100; f.pro100 = pr / g * 100; if (f.fibServ != null) f.fib100 = fb / g * 100; }
+    const old = keepId && S.foods.find(x => x.id === keepId); if (old && nsOk(old.nutri)) f.nutri = old.nutri;   // keep the grade when fixing numbers
     rememberFood(f); touchMeta(); renderSettings();
     openAmount(f, { qty: 1, unit: 'serving' });
   };
@@ -934,7 +1002,7 @@ function labelForm(out, p, text, barcode, name, keepId) {
 /* ---------- search ---------- */
 function listHtml(items) {
   return items.map((it, i) => `<button class="item" data-i="${i}"><span class="nm">${esc(it.f.name)}${it.f.brand ? `<small>${esc(it.f.brand)}</small>` : ''}</span>
-    <span class="meta">${esc(it.meta || (it.f.kcal100 != null ? Math.round(it.f.kcal100) + ' kcal/100g' : Math.round(it.f.kcalServ) + ' kcal/serv'))}</span></button>`).join('');
+    ${nsBadge(it.f)}<span class="meta">${esc(it.meta || (it.f.kcal100 != null ? Math.round(it.f.kcal100) + ' kcal/100g' : Math.round(it.f.kcalServ) + ' kcal/serv'))}</span></button>`).join('');
 }
 function openSearch() {
   openSheet(pick ? 'Add an ingredient' : 'Search foods', `
@@ -971,7 +1039,7 @@ function openSearch() {
     holdSheetHeight();
     $('results').innerHTML = '<div class="loading"><div class="spinner"></div>Searching Open Food Facts…</div>';
     try {
-      const url = `${OFF}/cgi/search.pl?search_terms=${encodeURIComponent(q)}&search_simple=1&action=process&json=1&page_size=20&fields=code,product_name,brands,nutriments,serving_quantity,serving_size`;
+      const url = `${OFF}/cgi/search.pl?search_terms=${encodeURIComponent(q)}&search_simple=1&action=process&json=1&page_size=20&fields=code,product_name,brands,nutriments,serving_quantity,serving_size,nutriscore_grade`;
       const j = await (await fetch(url)).json();
       items = (j.products || []).map(p => offToFood(p, p.code)).filter(Boolean).map(f => ({ f }));
       $('results').innerHTML = items.length ? listHtml(items) : '<p class="empty">Nothing found online. Try fewer words or a brand name.</p>';
@@ -1005,22 +1073,31 @@ function openQuick(typed) {
 /* ---------- meals ---------- */
 function mealFood(m) {
   const f = { id: 'meal-' + m.id, name: m.name, source: 'meal', kcalServ: m.kcal, proServ: m.pro };
+  const n = Math.max(1, m.servings || 1);
   if (m.cookedG > 0) {        // weighed batch: log any amount by grams or hand portions
-    const n = Math.max(1, m.servings || 1);
     f.servingG = m.cookedG / n; f.servingLabel = `${Math.round(f.servingG)} g`;
     f.kcal100 = (m.totalK ?? m.kcal * n) / m.cookedG * 100; f.pro100 = (m.totalP ?? m.pro * n) / m.cookedG * 100;
+  }
+  // fibre only when every ingredient has it (worked out from the saved ingredients, nothing new is stored)
+  const fibs = (m.items || []).map(it => entryFib({ food: it.food, qty: it.qty, unit: it.unit }));
+  if (fibs.length && fibs.every(x => x != null)) {
+    const tot = fibs.reduce((a, b) => a + b, 0);
+    f.fibServ = tot / n; if (m.cookedG > 0) f.fib100 = tot / m.cookedG * 100;
   }
   return f;
 }
 function entryFood(e) { return e.food || { id: 'entry-' + e.id, name: e.name, source: 'entry', kcalServ: e.kcal, proServ: e.pro }; }
 function openMeals() {
   openSheet('My meals', `
+    ${draftRow()}
     <div class="list" id="mealList">${S.meals.length ? S.meals.map((m, i) => `<div class="meal-row">
         <button class="item" data-m="${i}"><span class="nm">${esc(m.name)}<small>${m.items?.length ? `${m.items.length} ingredient${m.items.length > 1 ? 's' : ''}${m.servings > 1 ? ` · makes ${m.servings}` : ''}${m.cookedG ? ` · weighed ${Math.round(m.cookedG).toLocaleString()} g` : ''}` : 'quick meal'}</small></span>
         <span class="meta">${m.kcal} kcal · ${m.pro}g</span></button>
         <button class="edit" data-edit="${i}" aria-label="Edit ${esc(m.name)}">Edit</button></div>`).join('') : '<p class="empty">No saved meals yet. Build one from the foods you cook with.</p>'}</div>
     <p class="hint">Tap a meal, choose how many, and add it.</p>
     <button class="btn" id="newMeal">Build a new meal</button>`);
+  if ($('mDraft')) $('mDraft').onclick = () => { const x = loadDraft(); if (x) resumeDraft(x.d); };
+  if ($('mDraftX')) $('mDraftX').onclick = () => { clearDraft(); haptic(); openMeals(); };
   $('mealList').onclick = e => {
     const ed = e.target.closest('[data-edit]');
     if (ed) { const m = S.meals[+ed.dataset.edit]; openMealEditor(JSON.parse(JSON.stringify({ ...m, items: m.items || [] }))); return; }
@@ -1035,8 +1112,32 @@ function mealTotals(d) {
   const n = Math.max(1, +d.servings || 1);
   return { kcal: t.kcal / n, pro: t.pro / n, totalK: t.kcal, totalP: t.pro };
 }
+/* The meal being built is kept on this phone as it changes. iOS sometimes restarts a home-screen app after the camera
+   or the label reader (they use a lot of memory), which used to wipe a half-built meal. Per device, not synced, and not
+   part of the saved data. */
+const DRAFT_KEY = 'cutlog.mealDraft', DRAFT_RESUME_MS = 15 * 60 * 1000;
+const draftWorth = d => !!(d && Array.isArray(d.items) && ((d.name || '').trim() || d.items.length));
+function saveDraft(d) { try { if (draftWorth(d) && d.touched) localStorage.setItem(DRAFT_KEY, JSON.stringify({ d, at: Date.now() })); } catch (e) {} }
+function loadDraft() { try { const x = JSON.parse(localStorage.getItem(DRAFT_KEY)); return x && draftWorth(x.d) ? x : null; } catch (e) { return null; } }
+function clearDraft() { try { localStorage.removeItem(DRAFT_KEY); } catch (e) {} }
+function draftRow() {
+  const x = loadDraft(); if (!x) return '';
+  const d = x.d, n = d.items.length, what = [(d.name || '').trim() || 'No name yet', n ? `${n} ingredient${n > 1 ? 's' : ''}` : ''].filter(Boolean).join(' · ');
+  return `<div class="draft-row"><button class="food-open" id="mDraft"><span><b>${d.id ? 'Finish editing your meal' : 'Finish your unsaved meal'}</b><small>${esc(what)}</small></span>${icon('i-chev-r')}</button>
+    <button class="linkbtn" id="mDraftX">Discard it</button></div>`;
+}
+/* Back to the meal as it was. If a label photo was in progress for an unknown barcode, go straight back to it. */
+function resumeDraft(d, afterRestart) {
+  openMealEditor(d);
+  if (d.pendingCode) {
+    const code = d.pendingCode;
+    pick = { label: 'Add to meal', onDone: (f, q, u) => { draft = d; delete d.pendingCode; d.touched = true; d.items.push({ food: f, qty: q, unit: u }); openMealEditor(d); } };
+    openLabel(code);
+    toast(afterRestart ? "Picked up your meal. The label photo didn't finish, so try it again." : 'Back to the label for that barcode');
+  } else if (afterRestart) toast('Picked up your meal where you left off');
+}
 function openMealEditor(d) {
-  draft = d;
+  draft = d; saveDraft(d);
   const hasItems = d.items.length > 0, t = mealTotals(d);
   const es = entriesFor(day);
   openSheet(d.id ? 'Edit meal' : 'Build a meal', `
@@ -1062,25 +1163,28 @@ function openMealEditor(d) {
   const per = () => { if (!$('mPer')) return; keep(); const t3 = mealTotals(d);
     $('mPer').textContent = d.cookedG ? `${Math.round(t3.totalK / d.cookedG * 100)} kcal and ${fmtG(t3.totalP / d.cookedG * 100)}g protein per 100 g. One serving is about ${Math.round(d.cookedG / (d.servings || 1))} g.` : ''; };
   const back = () => openMealEditor(d);
-  $('mServ').oninput = () => { keep(); if (hasItems) { const t2 = mealTotals(d); $('mK').textContent = Math.round(t2.kcal); $('mP').textContent = Math.round(t2.pro) + 'g'; } };
-  if ($('mCooked')) { $('mCooked').oninput = per; per(); }
+  const touch = () => { d.touched = true; saveDraft(d); };   // only real changes count as an unsaved meal
+  $('mName').oninput = () => { keep(); touch(); };
+  if ($('mKin')) $('mKin').oninput = $('mPin').oninput = () => { keep(); touch(); };
+  $('mServ').oninput = () => { keep(); touch(); if (hasItems) { const t2 = mealTotals(d); $('mK').textContent = Math.round(t2.kcal); $('mP').textContent = Math.round(t2.pro) + 'g'; } };
+  if ($('mCooked')) { $('mCooked').oninput = () => { per(); touch(); }; per(); }
   $('addIng').onclick = () => {
-    keep();
-    pick = { label: 'Add to meal', onDone: (f, q, u) => { draft = d; d.items.push({ food: f, qty: q, unit: u }); back(); } };
+    keep(); delete d.pendingCode; if (d.touched) saveDraft(d);
+    pick = { label: 'Add to meal', onDone: (f, q, u) => { draft = d; delete d.pendingCode; d.touched = true; d.items.push({ food: f, qty: q, unit: u }); back(); } };
     openSearch();
   };
   $('ingList').onclick = e => {
     const rm = e.target.closest('[data-rm]');
-    if (rm) { keep(); d.items.splice(+rm.dataset.rm, 1); back(); return; }
+    if (rm) { keep(); d.touched = true; d.items.splice(+rm.dataset.rm, 1); back(); return; }
     const b = e.target.closest('[data-ing]'); if (!b) return;
     keep(); const i = +b.dataset.ing, it = d.items[i];
-    pick = { label: 'Update ingredient', onDone: (f, q, u) => { draft = d; d.items[i] = { food: f, qty: q, unit: u }; back(); } };
+    pick = { label: 'Update ingredient', onDone: (f, q, u) => { draft = d; d.touched = true; d.items[i] = { food: f, qty: q, unit: u }; back(); } };
     openAmount(it.food, { qty: it.qty, unit: it.unit });
   };
   if ($('fromDay')) $('fromDay').onclick = () => {
     keep();
     es.forEach(e => d.items.push({ food: entryFood(e), qty: e.food ? e.qty : 1, unit: e.food ? e.unit : 'serving' }));
-    back();
+    d.touched = true; back();
   };
   $('mSave').onclick = () => {
     keep();
@@ -1093,11 +1197,11 @@ function openMealEditor(d) {
     if (d.items.length && d.cookedG) { m.cookedG = d.cookedG; m.totalK = Math.round(totalK); m.totalP = r1(totalP); }
     const i = S.meals.findIndex(x => x.id === m.id);
     if (i >= 0) S.meals[i] = m; else S.meals.push(m);
-    touchMeta(); openMeals(); toast('Meal saved');
+    clearDraft(); touchMeta(); openMeals(); toast('Meal saved');
   };
   if ($('mDelete')) $('mDelete').onclick = () => {
     const i = S.meals.findIndex(x => x.id === d.id); if (i < 0) return;
-    const [gone] = S.meals.splice(i, 1); touchMeta(); openMeals();
+    const [gone] = S.meals.splice(i, 1); clearDraft(); touchMeta(); openMeals();
     toast(`Deleted ${gone.name}`, { label: 'Undo', fn: () => { S.meals.splice(i, 0, gone); touchMeta(); if (SH.open && $('sheetTitle').textContent === 'My meals') openMeals(); } });
   };
 }
@@ -1461,6 +1565,7 @@ function renderTrends() {
     line: T.protein, ticks: [50, 100, 150, 200, 250], label: 'Daily protein',
     colorFor: v => v >= T.protein ? 'var(--protein)' : 'var(--accent)' }) : empty;
   $('tCalNote').textContent = logged.length ? 'Green band is your cut range. Tap a bar to open that day.' : '';
+  safe(() => renderFibChart(days));
   $('tProNote').textContent = logged.length ? `Dashed line is your ${T.protein}g target.` : '';
   const inRange = logged.filter(t => t.kcal >= T.calLo && t.kcal <= T.calHi).length, hit = logged.filter(t => t.pro >= T.protein).length;
   $('tDays').textContent = `last ${range} days`;
@@ -1850,6 +1955,51 @@ function renderGoalSuggest() {
 }
 ['tLo', 'tHi', 'tPro', 'tGoal'].forEach(id => $(id).addEventListener('input', renderGoalSuggest));
 
+/* =================== v41: PROTEIN NUDGE, FIBRE, NUTRI-SCORE =================== */
+/* Protein nudge: only on today, only when calories are well along and protein is clearly behind them.
+   It disappears by itself once protein catches up, so a normal day never shows it. */
+const FIB_LO = 25, FIB_HI = 38;          // general adult guideline range (g a day); nothing about the user is stored
+function nudgeFor(cal, pro, T) {
+  if (!(T.protein > 0) || pro >= T.protein) return null;
+  const calFrac = cal / T.calHi, proFrac = pro / T.protein;
+  if (calFrac < 0.5 || proFrac >= calFrac - 0.2) return null;
+  const proLeft = Math.round(T.protein - pro), kLeft = Math.round(T.calHi - cal);
+  const lead = `Protein is behind your calories: ${Math.round(pro)}g of ${T.protein}g with ${kc(cal)} of ${kc(T.calHi)} kcal used.`;
+  if (kLeft < 100) return `${lead} Get some protein in if you're still eating, and put protein first at each meal tomorrow.`;
+  if (proLeft / kLeft * 100 > 20) return `${lead} ${proLeft}g in ${kc(kLeft)} kcal is more than even lean foods can fit. Get what you can, and lead with protein tomorrow.`;
+  return `${lead} The ${proLeft}g left needs to fit in ${kc(kLeft)} kcal: lean picks like chicken breast, egg whites, Greek yogurt or a shake.`;
+}
+function renderNudge() {
+  const el = $('nudge'), es = entriesFor(day);
+  const cal = es.reduce((a, e) => a + e.kcal, 0), pro = es.reduce((a, e) => a + e.pro, 0);
+  const msg = day === todayIso() && es.length ? nudgeFor(cal, pro, S.targets) : null;
+  const was = !el.hidden; el.hidden = !msg; if (!msg) return;
+  el.textContent = msg; if (!was) replay(el, 'fade-in');
+}
+/* More nutrients on Today: fibre, counted only from foods that have fibre data, and saying how many that is */
+function renderNut() {
+  const box = $('nutBox'), es = entriesFor(day); box.hidden = !es.length; if (!es.length) return;
+  const f = dayFib(day), g = Math.round(f.g);
+  $('nutSum').textContent = f.known ? `${f.known < f.total ? 'at least ' : ''}${g}g fibre` : 'no fibre data';
+  const cover = f.known === f.total ? `From all ${f.total} food${f.total > 1 ? 's' : ''} logged.`
+    : f.known ? `From ${f.known} of ${f.total} foods. The other ${f.total - f.known} ${f.total - f.known > 1 ? "don't" : "doesn't"} have fibre data, so the real total is higher.`
+    : "None of these foods have fibre data yet. Scanned packaged foods and the built-in whole foods usually do.";
+  $('nutBody').innerHTML = `<div class="nut-row"><span>Fibre</span><b>${f.known ? (f.known < f.total ? '≥ ' : '') + g + 'g' : '–'}</b></div>
+    <div class="prog"><i style="width:${Math.round(Math.min(1, f.g / FIB_HI) * 100)}%"></i></div>
+    <p class="hint">Most adults do well with about ${FIB_LO}–${FIB_HI}g a day. Fibre comes from vegetables, fruit, beans, oats and whole grains, and it helps keep you full. ${cover}</p>`;
+}
+
+/* Trends fibre card: hidden until a day in the range has fibre data */
+function renderFibChart(days) {
+  const vals = days.map(d => { const f = dayFib(d); return f.known ? f.g : null; }), have = vals.filter(v => v != null);
+  $('fibCard').hidden = !have.length; if (!have.length) return;
+  let known = 0, total = 0; days.forEach(d => { const f = dayFib(d); known += f.known; total += f.total; });
+  $('tFibAvg').textContent = `avg ${Math.round(have.reduce((a, b) => a + b, 0) / have.length)}g`;
+  $('tFibChart').innerHTML = barChart(days, vals, { lo: FIB_LO, hi: FIB_HI, ticks: [10, 20, 30, 40, 50, 60], label: 'Daily fibre',
+    colorFor: v => v >= FIB_LO ? 'var(--protein)' : 'var(--accent)' });
+  $('tFibNote').textContent = `Green band is the ${FIB_LO}–${FIB_HI}g most adults aim for. Counted from ${known} of ${total} foods logged in this range that have fibre data${known < total ? ', so real totals are higher' : ''}.`;
+}
+
 /* =================== v40: WEEK VIEW, CHECK-IN, WHAT FITS, MOVE DAY, APPEARANCE =================== */
 const weekStart = d => shift(d, -((parseIso(d).getDay() + 6) % 7));     // weeks run Monday to Sunday
 const kc = n => Math.round(n).toLocaleString();
@@ -2155,7 +2305,7 @@ $('tForm').onsubmit = e => {
   toast(changed ? `Goal set to ${MODES[newMode]}` : 'Goal and targets saved');
 };
 /* Saved foods open in a panel with a search box, instead of filling the You tab */
-const foodRow = f => `<button class="food-row" data-food="${esc(f.id)}"><span>${esc(f.name)}<small>${esc([f.brand, perLine(f)].filter(Boolean).join(' · '))}</small></span>${icon('i-chev-r')}</button>`;
+const foodRow = f => `<button class="food-row" data-food="${esc(f.id)}"><span>${esc(f.name)}<small>${esc([f.brand, perLine(f)].filter(Boolean).join(' · '))}</small></span>${nsBadge(f)}${icon('i-chev-r')}</button>`;
 function openSavedFoods(q = '') {
   openSheet('Saved foods', `
     ${S.foods.length > 5 ? `<input id="fq" type="search" placeholder="Search your ${S.foods.length} foods" aria-label="Search saved foods" autocomplete="off" value="${esc(q)}">` : ''}
@@ -2178,12 +2328,12 @@ function openFoodDetail(f, fromList) {
   const back = fromList !== undefined;
   const per = f.kcalServ != null ? { k: f.kcalServ, p: f.proServ } : f.servingG ? { k: f.kcal100 * f.servingG / 100, p: (f.pro100 || 0) * f.servingG / 100 } : null;
   openSheet('Saved food', `
-    <div class="food-head"><strong>${esc(f.name)}</strong><span>${esc([f.brand, f.barcode ? 'barcode ' + f.barcode : ''].filter(Boolean).join(' · '))}</span></div>
+    <div class="food-head"><strong>${esc(f.name)}</strong><span>${esc([f.brand, f.barcode ? 'barcode ' + f.barcode : ''].filter(Boolean).join(' · '))}</span>${nsOk(f.nutri) ? `<span class="ns-row">${nsBadge(f, true)}</span>` : ''}</div>
     <div class="result">
       <div><span class="num">${Math.round(per ? per.k : f.kcal100)}</span><small>kcal per ${per ? 'serving' : '100 g'}</small></div>
       <div class="pro"><span class="num">${r1(per ? per.p : f.pro100)}g</span><small>protein</small></div>
     </div>
-    ${f.servingG ? `<p class="hint">One serving is ${esc(servLabel(f))}.</p>` : ''}
+    ${f.servingG || hasFib(f) ? `<p class="hint">${[f.servingG ? `One serving is ${esc(servLabel(f))}.` : '', hasFib(f) ? `${fmtG(fibPerServ(f, per ? f.servingG : null))}g fibre per ${per ? 'serving' : '100 g'}.` : ''].filter(Boolean).join(' ')}</p>` : ''}
     <button class="btn" id="fdLog">Log this food</button>
     <button class="btn ghost" id="fdEdit">Edit numbers</button>
     <button class="btn danger" id="fdDel">Delete food</button>
@@ -2192,7 +2342,7 @@ function openFoodDetail(f, fromList) {
   $('fdLog').onclick = () => openAmount(f, S.recent.find(r => r.food.id === f.id));
   $('fdEdit').onclick = () => {
     openSheet('Edit numbers', '<p class="hint">Enter what the label says for one serving.</p><div id="labelOut"></div>');
-    labelForm($('labelOut'), { kcal: per ? Math.round(per.k) : Math.round(f.kcal100), pro: per ? r1(per.p) : r1(f.pro100 || 0), servingG: f.servingG || (per ? null : 100) }, '', f.barcode || null, f.name, f.id);
+    labelForm($('labelOut'), { kcal: per ? Math.round(per.k) : Math.round(f.kcal100), pro: per ? r1(per.p) : r1(f.pro100 || 0), fib: fibPerServ(f, per ? f.servingG : null), servingG: f.servingG || (per ? null : 100) }, '', f.barcode || null, f.name, f.id);
     $('lSave').textContent = 'Save and log it';
   };
   $('fdDel').onclick = () => {
@@ -2234,6 +2384,7 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) { ch
 ['gesturestart', 'gesturechange'].forEach(t => document.addEventListener(t, e => e.preventDefault(), { passive: false }));
 
 renderAll();
+if (S.onboarded) { const md = loadDraft(); if (md && Date.now() - md.at < DRAFT_RESUME_MS) setTimeout(() => safe(() => resumeDraft(md.d, true)), 300); }
 if (!S.msInit && S.onboarded) { S.msInit = true; checkMilestones(true); }
 if (!S.onboarded) showOnboarding(1);
 else if (!REDUCED) document.body.classList.add('launch');

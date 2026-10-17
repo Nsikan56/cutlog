@@ -497,6 +497,23 @@ html{background:#000}
 .hand-rows b{font-weight:700}
 .hand-rows span{color:var(--muted)}
 
+/* goal suggestions (inside the Goal edit form) */
+.gsug{display:flex;flex-direction:column;gap:10px;padding:12px 14px;border-radius:14px;background:var(--raised);border:1px solid var(--line)}
+.gsug-h{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.gsug-h b{font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.gsug-src{font-size:12px;font-weight:700;padding:3px 10px;border-radius:999px;background:var(--accent-soft);color:var(--accent);white-space:nowrap}
+.gsug-src.ok{background:var(--protein-soft);color:var(--protein)}
+.gsug-n{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap;font-family:var(--display);font-size:30px;font-weight:800;line-height:1.05;font-variant-numeric:tabular-nums}
+.gsug-n small{font-family:var(--body);font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-left:5px}
+.gsug-pro{color:var(--protein);font-size:24px}
+.gsug-eta{margin:0;font-size:14px;font-weight:600}
+.gsug-ok{margin:0;font-size:13px;font-weight:600;color:var(--protein)}
+.gsug .linkbtn{align-self:flex-start}
+.gsug-q{display:flex;flex-direction:column;gap:12px}
+.gsug .ob-card{background:var(--surface)}
+.gsug .seg2{background:var(--surface)}
+.gwarn{margin:0;font-size:13px;line-height:1.4;color:var(--warn);background:var(--warn-soft);padding:9px 12px;border-radius:10px}
+
 /* ---------- laptop / desktop layout (wide screens only; the phone layout above is untouched) ---------- */
 .side-brand{display:none}
 .col-a,.col-b{display:contents}

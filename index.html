@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>Cut Log</title>
-<meta name="app-v" content="37">
+<meta name="app-v" content="38">
 <meta name="theme-color" content="#F2F4F8" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#0B0E14" media="(prefers-color-scheme: dark)">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -17,7 +17,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Barlow:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="style.css?v=37">
+<link rel="stylesheet" href="style.css?v=38">
 </head>
 <body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -236,12 +236,14 @@
         <button type="button" data-v="lose">Cutting</button><button type="button" data-v="maintain">Maintaining</button><button type="button" data-v="gain">Building</button>
       </div>
       <p class="hint" id="pModeHint"></p>
+      <div class="gsug" id="gSug" aria-live="polite"></div>
       <form id="tForm" class="grid2">
         <label>Calories low<input id="tLo" type="number" inputmode="numeric"></label>
         <label>Calories high<input id="tHi" type="number" inputmode="numeric"></label>
         <label>Protein (g)<input id="tPro" type="number" inputmode="numeric"></label>
         <label><span>Goal weight (<span class="u-w">lb</span>)</span><input id="tGoal" type="number" inputmode="decimal" step="0.1"></label>
         <label class="full"><span>Starting weight (<span class="u-w">lb</span>, for milestones)</span><input id="tStart" type="number" inputmode="decimal" step="0.1" placeholder="Your first weigh-in"></label>
+        <p class="gwarn full" id="gWarn" hidden></p>
         <div class="pform-btns full"><button class="btn" type="submit">Save</button><button class="btn ghost" type="button" id="goalCancel">Cancel</button></div>
       </form>
       </div>
@@ -311,8 +313,8 @@
 <div class="toast" id="toast" role="status" hidden></div>
 <input type="file" id="photoIn" accept="image/*" capture="environment" hidden>
 
-<script src="firebase-config.js?v=37"></script>
-<script src="foods.js?v=37"></script>
-<script src="app.js?v=37"></script>
+<script src="firebase-config.js?v=38"></script>
+<script src="foods.js?v=38"></script>
+<script src="app.js?v=38"></script>
 </body>
 </html>

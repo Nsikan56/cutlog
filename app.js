@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '37';
+const APP_V = '38';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -1706,9 +1706,7 @@ function showOnboarding(step = 1) {
   replay(b, 'swap-in'); $('onboard').scrollTop = 0;
 }
 function suggestTargets(cm, lb, age, goalLb) {
-  const kg = lb * 0.4536, f = ACTS.find(a => a[0] === OB.act)[3];
-  const bmr = 10 * kg + 6.25 * cm - 5 * age + (OB.sex === 'male' ? 5 : -161);
-  const tdee = Math.round(bmr * f / 50) * 50, floor = OB.sex === 'male' ? 1500 : 1200;
+  const tdee = mifflinTdee(OB.sex, age, cm, lb, OB.act), floor = OB.sex === 'male' ? 1500 : 1200;
   let lo, hi;
   if (OB.goal === 'lose') { lo = tdee - 750; hi = tdee - 500; }
   else if (OB.goal === 'gain') { lo = tdee + 200; hi = tdee + 400; }
@@ -1723,6 +1721,126 @@ function hideOnboarding() {
   const o = $('onboard'); if (o.hidden) return;
   o.classList.remove('in'); setTimeout(() => { o.hidden = true; }, 380);
 }
+
+/* =================== GOAL SUGGESTIONS (inside the Goal edit form) ===================
+   Once Trends has about 2 weeks of data, suggestions come from your real burn.
+   Before that, 4 quick answers (sex, age, height, activity) give an estimate.
+   Those answers live in memory for this visit only and are never saved or synced. */
+const GS = { sex: 'male', age: '', ft: '', inch: '', cm: '', lb: '', act: 'active', open: false, calc: null };
+const GOAL_DELTA = { lose: [-750, -500], maintain: [-150, 150], gain: [200, 400] };
+function mifflinTdee(sex, age, cm, lb, act) {
+  const kg = lb * 0.4536, f = ACTS.find(a => a[0] === act)[3];
+  const bmr = 10 * kg + 6.25 * cm - 5 * age + (sex === 'male' ? 5 : -161);
+  return Math.round(bmr * f / 50) * 50;
+}
+function loggedLb() {                 // best guess at today's weight from what's logged (lb)
+  const n = trendNow(); if (n != null) return n;
+  const t = todayIso(), recent = weightsArr().filter(w => w.date >= shift(t, -30) && w.date <= t);
+  if (recent.length) return recent[recent.length - 1].lb;
+  return S.startWeight ?? null;
+}
+const currentLb = () => loggedLb() ?? GS.lbLb ?? null;
+const pendingMode = () => $('pMode').dataset.pending || mode();
+function formGoalLb() { const v = parseFloat($('tGoal').value); return v > 0 ? fromW(v) : null; }
+function goalSuggestion(m) {
+  const e = estimateBurn();
+  let burn, src, floor = 1200;
+  if (e.ready) { burn = e.burn; src = 'burn'; }
+  else if (GS.calc) { burn = GS.calc.tdee; src = 'formula'; floor = GS.calc.sex === 'male' ? 1500 : 1200; }
+  else return null;
+  const [dLo, dHi] = GOAL_DELTA[m];
+  const lo = Math.max(floor, r50(burn + dLo)), hi = Math.max(lo + 100, r50(burn + dHi));
+  return { burn, src, lo, hi };
+}
+function suggestPro(m, cur, goal) {
+  const base = m === 'lose' && goal ? goal : cur;
+  return base ? Math.min(250, Math.max(90, Math.round(base * 0.8 / 5) * 5)) : null;
+}
+function roughDate(d) {
+  const n = d.getDate(), mo = d.toLocaleDateString(undefined, { month: 'long' });
+  const far = (d - new Date()) / 864e5 > 300 ? ` ${d.getFullYear()}` : '';
+  return (n <= 10 ? `early ${mo}` : n <= 20 ? `mid-${mo}` : `late ${mo}`) + far;
+}
+function goalEta(m, cur, goal, sug) {
+  if (m === 'maintain') return cur ? `This should hold your weight steady around ${fWs(cur)} ${wU()}.` : '';
+  if (cur == null || !goal) return '';
+  if (m === 'lose' ? goal >= cur : goal <= cur) return '';
+  const perWeek = Math.abs(sug.burn - (sug.lo + sug.hi) / 2) * 7 / KCAL_PER_LB;   // lb a week
+  if (perWeek < 0.05) return '';
+  const d = new Date(); d.setDate(d.getDate() + Math.round(Math.abs(cur - goal) / perWeek * 7));
+  return `At about ${fW(perWeek)} ${wU()} a week, you'd reach ${fWs(goal)} ${wU()} around ${roughDate(d)}.`;
+}
+function goalWarning(m, cur, goal) {
+  if (cur == null || !goal) return '';
+  const c = `${fWs(cur)} ${wU()}`;
+  if (m === 'lose' && goal >= cur) return `Your goal weight isn't below your current weight (about ${c}). For Cutting, set a lower goal.`;
+  if (m === 'gain' && goal <= cur) return `Your goal weight isn't above your current weight (about ${c}). For Building, set a higher goal.`;
+  if (m === 'maintain' && Math.abs(goal - cur) > 5) return `Maintaining holds you near your current weight (about ${c}), but your goal is ${fW(Math.abs(goal - cur))} ${wU()} away. Set it close to ${c}, or pick ${goal < cur ? 'Cutting' : 'Building'}.`;
+  return '';
+}
+function renderGoalSuggest() {
+  const box = $('gSug'); if (!box || $('goalForm').hidden) return;
+  const m = pendingMode(), cur = currentLb(), goal = formGoalLb();
+  const w = goalWarning(m, cur, goal); $('gWarn').textContent = w; $('gWarn').hidden = !w;
+  const sug = goalSuggestion(m);
+  const head = `<div class="gsug-h"><b>Suggested for ${MODES[m]}</b>${sug ? `<span class="gsug-src${sug.src === 'burn' ? ' ok' : ''}">${sug.src === 'burn' ? 'Real burn' : 'Estimate'}</span>` : ''}</div>`;
+  if (!sug && !GS.open) {
+    box.innerHTML = `${head}<p class="hint">Your real burn on Trends takes about 2 weeks of logging. Until then, answer 4 quick questions for an estimate. Nothing is saved.</p>
+      <button type="button" class="btn ghost" id="gsAsk">Suggest targets for me</button>`;
+    $('gsAsk').onclick = () => { GS.open = true; haptic(); renderGoalSuggest(); replay($('gSug'), 'fade-in'); };
+    return;
+  }
+  if (!sug) {
+    const needW = loggedLb() == null;
+    const hIn = metric() ? `<input id="gsCm" type="number" inputmode="decimal" placeholder="cm" value="${esc(GS.cm)}" aria-label="Height in centimetres">`
+      : `<div class="grid2"><input id="gsFt" type="number" inputmode="numeric" placeholder="ft" value="${esc(GS.ft)}" aria-label="Feet"><input id="gsIn" type="number" inputmode="decimal" placeholder="in" value="${esc(GS.inch)}" aria-label="Inches"></div>`;
+    box.innerHTML = `${head}<p class="hint">Used once for this estimate and not saved.</p>
+      <div class="gsug-q">
+        <label>Sex (for the calorie formula)${obSeg('gsSex', [['male', 'Male'], ['female', 'Female']], GS.sex)}</label>
+        <label>Age<input id="gsAge" type="number" inputmode="numeric" min="14" max="100" value="${esc(GS.age)}" placeholder="e.g. 27"></label>
+        <label>Height${hIn}</label>
+        ${needW ? `<label>Current weight (${wU()})<input id="gsLb" type="number" inputmode="decimal" step="0.1" value="${esc(GS.lb)}" placeholder="${metric() ? 'e.g. 84' : 'e.g. 185'}"></label>` : ''}
+        <div class="ob-label">How active are you?</div>
+        <div class="ob-cards" id="gsAct">${ACTS.map(([v, t, s]) => `<button type="button" class="ob-card" data-v="${v}" aria-pressed="${v === GS.act}"><strong>${t}</strong><span>${s}</span></button>`).join('')}</div>
+        <p class="err" id="gsErr" hidden></p>
+        <button type="button" class="btn" id="gsGo">Show my suggestion</button>
+      </div>`;
+    const keep = { gsAge: 'age', gsCm: 'cm', gsFt: 'ft', gsIn: 'inch', gsLb: 'lb' };   // typed answers survive a redraw
+    Object.entries(keep).forEach(([id, k]) => { if ($(id)) $(id).oninput = () => { GS[k] = $(id).value; }; });
+    const seg = (id, k) => $(id).onclick = e => { const t = e.target.closest('[data-v]'); if (!t) return; GS[k] = t.dataset.v; haptic();
+      [...$(id).children].forEach(c => c.setAttribute('aria-pressed', c === t)); };
+    seg('gsSex', 'sex'); seg('gsAct', 'act');
+    $('gsGo').onclick = () => {
+      const err = t => { $('gsErr').textContent = t; $('gsErr').hidden = false; };
+      const age = +GS.age, cm = metric() ? +GS.cm : (+GS.ft * 12 + (+GS.inch || 0)) * 2.54;
+      if (!(age >= 14 && age <= 100)) return err('Enter your age.');
+      if (!(cm >= 120 && cm <= 230)) return err('Enter your height.');
+      if (needW) { const lb = fromW(+GS.lb); if (!(lb >= 80 && lb <= 600)) return err(`Enter your current weight in ${metric() ? 'kilograms' : 'pounds'}.`); GS.lbLb = lb; }
+      GS.calc = { tdee: mifflinTdee(GS.sex, age, cm, currentLb(), GS.act), sex: GS.sex };
+      GS.open = false; haptic(); renderGoalSuggest(); replay($('gSug'), 'fade-in');
+    };
+    return;
+  }
+  const pro = suggestPro(m, cur, goal), eta = goalEta(m, cur, goal, sug);
+  const L = +$('tLo').value, H = +$('tHi').value, P = +$('tPro').value, T = S.targets;
+  const filled = L === sug.lo && H === sug.hi && (!pro || P >= pro);
+  const saved = T.calLo === sug.lo && T.calHi === sug.hi && (!pro || T.protein >= pro) && m === mode();
+  const src = sug.src === 'burn' ? `Worked out from your real burn of about ${r50(sug.burn).toLocaleString()} kcal a day over the last 4 weeks.`
+    : `Based on an estimated burn of about ${sug.burn.toLocaleString()} kcal a day. Once Trends has about 2 weeks of your logging, your real burn takes over.`;
+  box.innerHTML = `${head}
+    <div class="gsug-n"><span>${sug.lo.toLocaleString()}–${sug.hi.toLocaleString()}<small>kcal</small></span>${pro ? `<span class="gsug-pro">${pro}g+<small>protein</small></span>` : ''}</div>
+    ${eta ? `<p class="gsug-eta">${esc(eta)}</p>` : ''}
+    <p class="hint">${src}</p>
+    ${filled ? `<p class="gsug-ok">${saved ? 'Your targets already match this suggestion.' : 'Filled in below. Tap Save to keep them.'}</p>` : '<button type="button" class="btn ghost" id="gsUse">Use these</button>'}
+    ${sug.src === 'formula' ? '<button type="button" class="linkbtn" id="gsRedo">Change my answers</button>' : ''}`;
+  if ($('gsUse')) $('gsUse').onclick = () => {
+    $('tLo').value = sug.lo; $('tHi').value = sug.hi;
+    if (pro && !(+$('tPro').value >= pro)) $('tPro').value = pro;      // only ever raises protein
+    haptic(); renderGoalSuggest(); replay($('tForm'), 'fade-in');
+  };
+  if ($('gsRedo')) $('gsRedo').onclick = () => { GS.calc = null; GS.open = true; renderGoalSuggest(); };
+}
+['tLo', 'tHi', 'tPro', 'tGoal'].forEach(id => $(id).addEventListener('input', renderGoalSuggest));
 
 /* ---------- events ---------- */
 $('swatches').onclick = e => {
@@ -1750,7 +1868,7 @@ $('pName').addEventListener('keydown', e => { if (e.key === 'Enter') $('pNameSav
 function openGoalEdit(open) {
   delete $('pMode').dataset.pending;
   toggleEdit('goalView', 'goalForm', open); $('goalEdit').hidden = open;
-  renderSettings();
+  renderSettings(); if (open) renderGoalSuggest();
 }
 $('goalEdit').onclick = () => openGoalEdit(true);
 $('goalCancel').onclick = () => openGoalEdit(false);
@@ -1769,6 +1887,7 @@ $('pMode').onclick = e => {
   $('pMode').dataset.pending = b.dataset.v; haptic();
   [...$('pMode').children].forEach(c => c.setAttribute('aria-pressed', c === b));
   $('pModeHint').textContent = MODE_HINT[b.dataset.v];
+  renderGoalSuggest();
 };
 $('copyBtn').onclick = openCopy;
 function slideDay(dir) {

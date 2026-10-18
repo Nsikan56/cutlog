@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '50';
+const APP_V = '52';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -2188,7 +2188,7 @@ const GUIDE = [
     <p>If the app closes while you're building a meal, it keeps your progress. My meals shows <b>Finish your unsaved meal</b>.</p>`],
   ['The Today screen', `
     <p>The left ring is calories, with a small mark where your range starts. The right ring is protein.</p>
-    <p>Below the rings: how your day is going, a <b>protein nudge</b> if protein falls behind your calories, <b>What fits</b> (foods from your own list that fit what's left) and <b>This week</b> (calories banked or over across the week).</p>
+    <p>Below the rings: how your day is going, a <b>protein nudge</b> if protein falls behind your calories, <b>What fits</b> (foods from your own list that fit what's left) and <b>This week</b> (calories banked or over across the week, and how much you can eat today and stay on budget). Only days you logged count; days with nothing logged are named underneath so you know they're left out.</p>
     <p><b>More nutrients</b>, under your food list, shows fibre. It only counts foods that have fibre data, so it says "at least" when some don't. A meal counts the ingredients that have it. Foods missing it are listed there; tap one to add the number from its label.</p>`],
   ['Weigh-ins and waist', `
     <p>Pick <b>Every morning</b>, <b>Once a week</b> or <b>No scale</b> in You → Weigh-ins. Weigh after the bathroom, before food or water.</p>
@@ -2364,18 +2364,40 @@ function weekStatus(d) {
   const current = ws === weekStart(t), left = current ? 7 - ((parseIso(t).getDay() + 6) % 7) : 0;   // days left including today
   return { ws, done: done.length, avg, bank, current, left, m };
 }
+/* v51: finished days this week with nothing logged (they aren't counted, so the line says so).
+   Days before the first day anything was ever logged don't count as missing (a new user's first week). */
+function weekMissing(w) {
+  const t = todayIso(), first = Object.keys(S.log).filter(k => S.log[k] && S.log[k].length).sort()[0], out = [];
+  for (let i = 0; i < 7; i++) { const x = shift(w.ws, i); if (x >= t) break; if (first && x < first) continue; if (!dayTotals(x)) out.push(x); }
+  return out;
+}
+function wkOpen(v) { try { if (v === undefined) return localStorage.getItem('cutlog.wkOpen') === '1'; localStorage.setItem('cutlog.wkOpen', v ? '1' : '0'); } catch (e) { return false; } }
 function renderWeek() {
   const el = $('wk'), w = weekStatus(day); el.hidden = !w; if (!w) return;
-  const T = S.targets, good = w.bank >= 0;
-  let v, s = `avg ${kc(w.avg)} kcal over ${w.done} day${w.done > 1 ? 's' : ''} logged`;
+  const T = S.targets, good = w.bank >= 0, one = w.left === 1, live = w.current && w.left > 0;
+  const span = one ? 'today' : `a day for the ${w.left} days left (including today)`;
+  const short = one ? 'today' : `a day for ${w.left} days`;
+  let v, s = `From ${w.done} day${w.done > 1 ? 's' : ''} logged, avg ${kc(w.avg)} kcal.`, line = '';
   if (w.m === 'gain') v = good ? `${kc(w.bank)} kcal above your minimum` : `${kc(-w.bank)} kcal short this week`;
   else v = good ? `${kc(w.bank)} kcal banked` : `${kc(-w.bank)} kcal over this week`;
-  if (w.current && w.left > 0) {
-    if (w.m !== 'gain' && good && w.bank >= 100) s += ` · room for up to ${kc(T.calHi + w.bank / w.left)} a day for the ${w.left} day${w.left > 1 ? 's' : ''} left`;
-    else if (w.m !== 'gain' && !good) { const aim = T.calHi + w.bank / w.left; s += aim >= T.calLo ? ` · about ${kc(aim)} a day for the ${w.left} day${w.left > 1 ? 's' : ''} left brings it back` : ' · aim for the low end of your range for the rest of the week'; }
-    else if (w.m === 'gain' && !good) s += ` · about ${kc(T.calLo - w.bank / w.left)} a day for the ${w.left} day${w.left > 1 ? 's' : ''} left catches up`;
-  }
-  el.innerHTML = `<span class="wk-k">${w.current ? 'This week' : 'That week'}</span><span class="wk-v ${good ? 'ok' : 'hi'}">${v}</span><span class="wk-s">${esc(s)}</span>`;
+  if (live && w.m !== 'gain' && good && w.bank >= 100) { const x = kc(T.calHi + w.bank / w.left);
+    s += ` You can eat up to ${x} ${span} and stay on budget for the week.`; line = `Up to <b>${x}</b> ${short}`; }
+  else if (live && w.m !== 'gain' && !good) { const aim = T.calHi + w.bank / w.left;
+    if (aim >= T.calLo) { s += ` About ${kc(aim)} ${span} brings it back.`; line = `Aim for about <b>${kc(aim)}</b> ${short}`; }
+    else { s += ' Aim for the low end of your range for the rest of the week.'; line = 'Low end of your range for the rest of the week'; } }
+  else if (live && w.m === 'gain' && !good) { const x = kc(T.calLo - w.bank / w.left); s += ` About ${x} ${span} catches up.`; line = `About <b>${x}</b> ${short} catches up`; }
+  if (!line) line = `avg <b>${kc(w.avg)}</b> kcal over ${w.done} day${w.done > 1 ? 's' : ''}`;
+  const miss = weekMissing(w), names = miss.map(x => parseIso(x).toLocaleDateString(undefined, { weekday: 'short' }));
+  const warn = miss.length ? `<span class="wk-dot" aria-hidden="true">·</span><span class="wk-warn">${miss.length} day${miss.length > 1 ? 's' : ''} not logged</span>` : '';
+  // Mon-Sun strip: logged days with their calories, missing days flagged, today ringed, days ahead faint
+  const t = todayIso(), first = Object.keys(S.log).filter(k => S.log[k] && S.log[k].length).sort()[0];
+  const cells = Array.from({ length: 7 }, (_, i) => { const x = shift(w.ws, i), tt = dayTotals(x), d = parseIso(x);
+    const cls = x === t ? 'now' : x > t ? 'ahead' : tt ? 'ok' : (first && x < first) ? 'pre' : 'miss';
+    const n = cls === 'now' ? 'today' : tt ? kc(tt.kcal) : cls === 'miss' ? 'none' : '';
+    return `<span class="wkc ${cls}" title="${esc(d.toLocaleDateString(undefined, { weekday: 'long' }))}"><i>${esc(d.toLocaleDateString(undefined, { weekday: 'narrow' }))}</i><b></b><em>${n}</em></span>`; }).join('');
+  const m = miss.length ? `<p class="wk-s wk-m" id="wkMiss">${esc(names.join(', '))} not logged, so ${miss.length > 1 ? 'they’re' : 'it’s'} not counted.</p>` : '';
+  el.innerHTML = `<details class="wkd" id="wkD"${wkOpen() ? ' open' : ''}><summary><span class="wk-k">${w.current ? 'This week' : 'That week'}</span><span class="wk-v ${good ? 'ok' : 'hi'}">${v}</span><svg class="wk-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg><span class="wk-line" id="wkLine"><span>${line}</span>${warn}</span></summary><div class="wk-body"><div class="wk-days" id="wkDays">${cells}</div><p class="wk-s">${esc(s)}</p>${m}</div></details>`;
+  $('wkD').addEventListener('toggle', e => { wkOpen(e.target.open); if (e.target.open && typeof haptic === 'function') try { haptic(); } catch (x) {} });
 }
 
 /* What fits: picks from your own meals, recent and saved foods, most protein per calorie first */

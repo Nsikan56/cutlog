@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '52';
+const APP_V = '54';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -45,6 +45,22 @@ function animateNum(el, to, fmt = n => Math.round(n).toLocaleString(), ms = 550)
   const step = now => { const p = Math.min(1, (now - t0) / ms); el.textContent = fmt(from + (to - from) * easeOut(p)); if (p < 1) el._raf = requestAnimationFrame(step); };
   el._raf = requestAnimationFrame(step);
 }
+/* v54: every dropdown (<details>) glides open and shut instead of snapping. The open attribute is set at the start of opening
+   and removed at the end of closing, so 'toggle' listeners and saved open/closed states work as before. */
+const EASE_OUT = 'cubic-bezier(.2,.8,.2,1)';
+function smoothDetails(e) {
+  const s = e.target.closest('summary'), d = s && s.parentElement;
+  if (!d || d.tagName !== 'DETAILS' || REDUCED || typeof d.animate !== 'function') return;
+  e.preventDefault();
+  const from = d.getBoundingClientRect().height, opening = !d.open || d.classList.contains('shut');
+  if (d._anim) { d._anim.cancel(); d._anim = null; }
+  d.classList.remove('shut', 'opening');
+  d.open = opening; const to = d.getBoundingClientRect().height;   // measure the end size without painting
+  d.open = true; d.classList.add(opening ? 'opening' : 'shut'); d.style.overflow = 'hidden';
+  const a = d._anim = d.animate({ height: [from + 'px', to + 'px'] }, { duration: opening ? 340 : 260, easing: EASE_OUT });
+  a.onfinish = () => { d._anim = null; d.style.overflow = ''; d.classList.remove('opening', 'shut'); if (!opening) d.open = false; };
+}
+document.addEventListener('click', smoothDetails);
 function replay(el, cls) { if (!el || REDUCED) return; el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls); }
 /* light haptic tap: iOS 18 gives a tick when a switch-style checkbox toggles */
 const hapticEl = (() => { const l = document.createElement('label'); l.ariaHidden = 'true'; l.style.cssText = 'position:fixed;left:-9999px;opacity:0;pointer-events:none';
@@ -556,10 +572,14 @@ function pushRecent(f, qty, unit) {
 }
 
 /* ---------- toast ---------- */
-let toastTimer;
-function hideToast() { const t = $('toast'); t.classList.remove('in'); clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, 260); }
-function toast(msg, action) {
-  const t = $('toast'); clearTimeout(toastTimer); t.textContent = ''; t.hidden = false;
+let toastTimer, toastNext = null;
+function hideToast() { const t = $('toast'); t.classList.remove('in'); clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.hidden = true; if (toastNext) { const [m, a] = toastNext; toastNext = null; setTimeout(() => toast(m, a), 120); } }, 260); }
+/* opts.wait (v53): if a message with a button (like Undo) is still up, show this one right after it instead of covering it */
+function toast(msg, action, opts) {
+  const t = $('toast');
+  if (opts?.wait && !t.hidden && t.querySelector('.toast-act')) { toastNext = [msg, action]; return; }
+  toastNext = null; clearTimeout(toastTimer); t.textContent = ''; t.hidden = false;
   requestAnimationFrame(() => requestAnimationFrame(() => t.classList.add('in')));
   const m = document.createElement('span'); m.className = 'toast-msg'; m.textContent = msg; t.appendChild(m);
   if (action) {
@@ -606,10 +626,11 @@ function openSheet(title, html, cleanup) {
   if (onSheetClose) { try { onSheetClose(); } catch (e) {} }
   clearTimeout(SH.hideTimer);
   const swapping = SH.open;
+  const h0 = swapping ? sheetEl.getBoundingClientRect().height : 0;   // v54: measured before the typing lock below is cleared
   sheetBody.onclick = null; sheetEl.style.minHeight = '';
   $('sheetTitle').textContent = title;
   sheetBody.innerHTML = html;
-  if (swapping) { replay(sheetBody, 'swap-in'); replay($('sheetTitle'), 'swap-in'); }
+  if (swapping) { replay(sheetBody, 'swap-in'); replay($('sheetTitle'), 'swap-in'); glideSheet(h0); }
   sheetBody.scrollTop = 0;
   onSheetClose = cleanup || null;
   sheetEl.style.pointerEvents = ''; scrimEl.style.pointerEvents = '';
@@ -622,8 +643,18 @@ function openSheet(title, html, cleanup) {
     requestAnimationFrame(() => setY(0, true));
   } else if (SH.y !== 0) setY(0, true);
 }
+/* v54: when one screen in the panel replaces another, the panel glides to its new height instead of jumping */
+function glideSheet(h0) {
+  if (REDUCED || !h0 || typeof sheetEl.animate !== 'function') return;
+  if (sheetEl._glide) sheetEl._glide.cancel();
+  const h1 = sheetEl.getBoundingClientRect().height; if (Math.abs(h1 - h0) < 6) return;
+  sheetEl.style.overflow = 'hidden';
+  const a = sheetEl._glide = sheetEl.animate({ height: [h0 + 'px', h1 + 'px'] }, { duration: 320, easing: EASE_OUT });
+  a.onfinish = a.oncancel = () => { if (sheetEl._glide === a) { sheetEl._glide = null; sheetEl.style.overflow = ''; } };
+}
 function closeSheet() {
   if (draft) markDraft('open', false);   // left the meal on purpose: keep it in My meals, don't pop it up next launch
+  const unsaved = draft && draft.touched && loadDraft() ? draft : null;   // v53: closed without Save meal
   pick = null; draft = null;
   if (onSheetClose) { try { onSheetClose(); } catch (e) {} onSheetClose = null; }
   if (!SH.open) return;
@@ -631,6 +662,8 @@ function closeSheet() {
   safe(renderTotals);   // v50: changes made in a panel (fixing a food, saving a meal) show on Today right away
   sheetEl.style.pointerEvents = 'none'; scrimEl.style.pointerEvents = 'none';
   setY(sheetH(), true);
+  if (unsaved) toast(unsaved.id ? 'Meal changes not saved yet' : 'New meal not saved yet',
+    { label: 'Save', fn: () => { if (saveMealFrom(unsaved)) toast('Meal saved'); } }, { wait: true });
   clearTimeout(SH.hideTimer);
   SH.hideTimer = setTimeout(() => {
     sheetEl.hidden = true; scrimEl.hidden = true;
@@ -1190,7 +1223,13 @@ function openMeals() {
   if ($('mDraftX')) $('mDraftX').onclick = () => { clearDraft(); haptic(); openMeals(); };
   $('mealList').onclick = e => {
     const ed = e.target.closest('[data-edit]');
-    if (ed) { const m = S.meals[+ed.dataset.edit]; openMealEditor(JSON.parse(JSON.stringify({ ...m, items: m.items || [] }))); return; }
+    if (ed) { const m = S.meals[+ed.dataset.edit], fresh = () => JSON.parse(JSON.stringify({ ...m, items: m.items || [] }));
+      // v53: a change made but not saved (closed without Save meal) used to vanish here: Edit showed the old saved meal
+      const x = loadDraft();
+      if (x && x.d.id === m.id && x.d.touched) { openMealEditor(x.d);
+        toast('Unsaved changes are back', { label: 'Discard', fn: () => { clearDraft(); openMealEditor(fresh()); } }); }
+      else openMealEditor(fresh());
+      return; }
     const b = e.target.closest('[data-m]'); if (!b) return;
     const m = S.meals[+b.dataset.m];
     openAmount(mealFood(m), { qty: 1, unit: 'serving' });
@@ -1233,6 +1272,19 @@ function resumeDraft(d, afterRestart) {
     openLabel(code);
     toast(afterRestart ? "Picked up your meal. The label photo didn't finish, so try it again." : 'Back to the label for that barcode');
   } else if (afterRestart) toast('Picked up your meal where you left off');
+}
+/* Saves the meal being built or edited. Shared by the Save meal button and v53's "Save" on the not-saved-yet message. */
+function saveMealFrom(d) {
+  const name = (d.name || '').trim(); if (!name) { toast('Give the meal a name.'); return false; }
+  let kcal, pro;
+  let totalK = null, totalP = null;
+  if (d.items.length) { const t2 = mealTotals(d); kcal = Math.round(t2.kcal); pro = Math.round(t2.pro); totalK = t2.totalK; totalP = t2.totalP; }
+  else { kcal = Math.round(parseFloat(d.kcal)); pro = Math.round(parseFloat(d.pro) || 0); if (!(kcal >= 0)) { toast('Add ingredients or type the calories.'); return false; } }
+  const m = { id: d.id || uid(), name, servings: d.servings || 1, items: d.items, kcal, pro };
+  if (d.items.length && d.cookedG) { m.cookedG = d.cookedG; m.totalK = Math.round(totalK); m.totalP = r1(totalP); }
+  const i = S.meals.findIndex(x => x.id === m.id);
+  if (i >= 0) S.meals[i] = m; else S.meals.push(m);
+  d.id = m.id; clearDraft(); touchMeta(); return true;
 }
 function openMealEditor(d) {
   draft = d; saveDraft(d, false);
@@ -1292,19 +1344,7 @@ function openMealEditor(d) {
     es.forEach(e => d.items.push({ food: entryFood(e), qty: e.food ? e.qty : 1, unit: e.food ? e.unit : 'serving' }));
     d.touched = true; back();
   };
-  $('mSave').onclick = () => {
-    keep();
-    const name = d.name.trim(); if (!name) { toast('Give the meal a name.'); return; }
-    let kcal, pro;
-    let totalK = null, totalP = null;
-    if (d.items.length) { const t2 = mealTotals(d); kcal = Math.round(t2.kcal); pro = Math.round(t2.pro); totalK = t2.totalK; totalP = t2.totalP; }
-    else { kcal = Math.round(parseFloat(d.kcal)); pro = Math.round(parseFloat(d.pro) || 0); if (!(kcal >= 0)) { toast('Add ingredients or type the calories.'); return; } }
-    const m = { id: d.id || uid(), name, servings: d.servings || 1, items: d.items, kcal, pro };
-    if (d.items.length && d.cookedG) { m.cookedG = d.cookedG; m.totalK = Math.round(totalK); m.totalP = r1(totalP); }
-    const i = S.meals.findIndex(x => x.id === m.id);
-    if (i >= 0) S.meals[i] = m; else S.meals.push(m);
-    clearDraft(); touchMeta(); openMeals(); toast('Meal saved');
-  };
+  $('mSave').onclick = () => { keep(); if (saveMealFrom(d)) { openMeals(); toast('Meal saved'); } };
   if ($('mDelete')) $('mDelete').onclick = () => {
     const i = S.meals.findIndex(x => x.id === d.id); if (i < 0) return;
     const [gone] = S.meals.splice(i, 1); clearDraft(); touchMeta(); openMeals();

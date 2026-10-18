@@ -118,8 +118,9 @@ label{display:flex;flex-direction:column;gap:5px;font-size:13px;color:var(--mute
 .hint{font-size:13px;color:var(--muted);margin:0}
 details summary{cursor:pointer;font-size:15px;font-weight:600;list-style:none;display:flex;justify-content:space-between;align-items:center}
 details summary::-webkit-details-marker{display:none}
-details summary::after{content:"+";font-size:20px;color:var(--muted);font-weight:400}
-details[open] summary::after{content:"–"}
+details summary::after{content:"+";font-size:20px;color:var(--muted);font-weight:400;transition:transform .35s var(--spring,ease)}
+details[open] summary::after{content:"–";transform:rotate(180deg)}
+details.shut summary::after{content:"+";transform:none}
 .settings{display:flex;flex-direction:column;gap:10px;margin-top:14px}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .mlist .mrow{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--line);font-size:14px}
@@ -337,6 +338,10 @@ html{background:#000}
 .launch .actions{animation:rise .5s var(--out) .12s both}
 .launch #viewToday>.card{animation:rise .5s var(--out) .18s both}
 .launch .tabbar{animation:rise .5s var(--out) .1s both}
+/* v54: dropdown contents fade in as they open and out as they close (the height glide is in app.js) */
+@keyframes detIn{from{opacity:0;transform:translateY(-6px)}}
+details.opening>:not(summary){animation:detIn .34s var(--out) both}
+details.shut>:not(summary){opacity:0;transform:translateY(-4px);transition:opacity .18s,transform .26s var(--out)}
 /* sync dot changes smoothly */
 .sync i{transition:background-color .3s}
 
@@ -539,13 +544,12 @@ html{background:#000}
 .wk-v{font-family:var(--display);font-size:18px;font-weight:700;text-align:right;font-variant-numeric:tabular-nums}
 .wk-v.ok{color:var(--ring-pro)} .wk-v.hi{color:var(--ring-over)}
 .wk-chev{width:18px;height:18px;align-self:center;fill:none;stroke:var(--hero-muted);stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round;transition:transform .25s cubic-bezier(.2,.8,.2,1)}
-.wkd[open] .wk-chev{transform:rotate(180deg)}
+.wkd[open] .wk-chev{transform:rotate(180deg)} .wkd.shut .wk-chev{transform:none}
 .wk-line{grid-column:1/-1;font-size:13px;font-weight:500;color:var(--hero-muted);line-height:1.35;display:flex;flex-wrap:wrap;align-items:baseline;gap:0 6px}
 .wk-line b{color:var(--hero-ink);font-weight:700;font-variant-numeric:tabular-nums}
 .wk-dot{opacity:.6}
 .wk-warn{color:var(--ring-over);font-weight:600}
-.wk-body{display:flex;flex-direction:column;gap:10px;margin-top:12px;animation:wkIn .28s cubic-bezier(.2,.8,.2,1)}
-@keyframes wkIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+.wk-body{display:flex;flex-direction:column;gap:10px;margin-top:12px}
 .wk-days{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
 .wkc{display:flex;flex-direction:column;align-items:center;gap:5px;padding:7px 0 6px;border-radius:10px;background:rgba(255,255,255,.05)}
 .wkc i{font-style:normal;font-size:11px;font-weight:700;color:var(--hero-muted)}

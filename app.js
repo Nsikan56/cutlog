@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '47';
+const APP_V = '48';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -591,6 +591,7 @@ function openSheet(title, html, cleanup) {
   } else if (SH.y !== 0) setY(0, true);
 }
 function closeSheet() {
+  if (draft) markDraft('open', false);   // left the meal on purpose: keep it in My meals, don't pop it up next launch
   pick = null; draft = null;
   if (onSheetClose) { try { onSheetClose(); } catch (e) {} onSheetClose = null; }
   if (!SH.open) return;
@@ -1165,7 +1166,15 @@ function mealTotals(d) {
    part of the saved data. */
 const DRAFT_KEY = 'cutlog.mealDraft', DRAFT_RESUME_MS = 15 * 60 * 1000;
 const draftWorth = d => !!(d && Array.isArray(d.items) && ((d.name || '').trim() || d.items.length));
-function saveDraft(d) { try { if (draftWorth(d) && d.touched) localStorage.setItem(DRAFT_KEY, JSON.stringify({ d, at: Date.now() })); } catch (e) {} }
+/* v48: 'at' only moves on a real change, and a draft is picked up by itself once, only if the builder was still open
+   when the app went away. Before, just opening the builder restamped the time, so it popped up on every launch. */
+function saveDraft(d, changed = true) { try {
+  if (!(draftWorth(d) && d.touched)) return;
+  const old = changed ? null : JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null');
+  localStorage.setItem(DRAFT_KEY, JSON.stringify({ d, at: old?.at || Date.now(), open: true, resumed: !!old?.resumed }));
+} catch (e) {} }
+function markDraft(k, v) { try { const x = JSON.parse(localStorage.getItem(DRAFT_KEY)); if (x) { x[k] = v; localStorage.setItem(DRAFT_KEY, JSON.stringify(x)); } } catch (e) {} }
+const autoResume = x => !!(x && x.open && !x.resumed && Date.now() - x.at < DRAFT_RESUME_MS);
 function loadDraft() { try { const x = JSON.parse(localStorage.getItem(DRAFT_KEY)); return x && draftWorth(x.d) ? x : null; } catch (e) { return null; } }
 function clearDraft() { try { localStorage.removeItem(DRAFT_KEY); } catch (e) {} }
 function draftRow() {
@@ -1179,13 +1188,13 @@ function resumeDraft(d, afterRestart) {
   openMealEditor(d);
   if (d.pendingCode) {
     const code = d.pendingCode;
-    pick = { label: 'Add to meal', onDone: (f, q, u) => { draft = d; delete d.pendingCode; d.touched = true; d.items.push({ food: f, qty: q, unit: u }); openMealEditor(d); } };
+    pick = { label: 'Add to meal', onDone: (f, q, u) => { draft = d; delete d.pendingCode; d.touched = true; d.items.push({ food: f, qty: q, unit: u }); saveDraft(d); openMealEditor(d); } };
     openLabel(code);
     toast(afterRestart ? "Picked up your meal. The label photo didn't finish, so try it again." : 'Back to the label for that barcode');
   } else if (afterRestart) toast('Picked up your meal where you left off');
 }
 function openMealEditor(d) {
-  draft = d; saveDraft(d);
+  draft = d; saveDraft(d, false);
   const hasItems = d.items.length > 0, t = mealTotals(d);
   const es = entriesFor(day);
   openSheet(d.id ? 'Edit meal' : 'Build a meal', `
@@ -1210,7 +1219,13 @@ function openMealEditor(d) {
     if ($('mCooked')) d.cookedG = parseFloat($('mCooked').value) > 0 ? parseFloat($('mCooked').value) : null; };
   const per = () => { if (!$('mPer')) return; keep(); const t3 = mealTotals(d);
     $('mPer').textContent = d.cookedG ? `${Math.round(t3.totalK / d.cookedG * 100)} kcal and ${fmtG(t3.totalP / d.cookedG * 100)}g protein per 100 g. One serving is about ${Math.round(d.cookedG / (d.servings || 1))} g.` : ''; };
-  const back = () => openMealEditor(d);
+  const back = () => { saveDraft(d); openMealEditor(d); };   // back to the builder after a change
+  /* Undo for a removed or changed ingredient: puts the list back the way it was */
+  const undoIng = (msg, prev) => toast(msg, { label: 'Undo', fn: () => {
+    d.items = prev; d.touched = true;
+    if (draft === d && SH.open && /^(Edit meal|Build a meal)$/.test($('sheetTitle').textContent)) { keep(); back(); }
+    else if (loadDraft()) saveDraft(d);
+  } });
   const touch = () => { d.touched = true; saveDraft(d); };   // only real changes count as an unsaved meal
   $('mName').oninput = () => { keep(); touch(); };
   if ($('mKin')) $('mKin').oninput = $('mPin').oninput = () => { keep(); touch(); };
@@ -1223,10 +1238,12 @@ function openMealEditor(d) {
   };
   $('ingList').onclick = e => {
     const rm = e.target.closest('[data-rm]');
-    if (rm) { keep(); d.touched = true; d.items.splice(+rm.dataset.rm, 1); back(); return; }
+    if (rm) { keep(); const prev = d.items.slice(), gone = d.items[+rm.dataset.rm]; d.touched = true; d.items.splice(+rm.dataset.rm, 1); back();
+      undoIng(`Removed ${gone.food.name}`, prev); return; }
     const b = e.target.closest('[data-ing]'); if (!b) return;
     keep(); const i = +b.dataset.ing, it = d.items[i];
-    pick = { label: 'Update ingredient', onDone: (f, q, u) => { draft = d; d.touched = true; d.items[i] = { food: f, qty: q, unit: u }; back(); } };
+    pick = { label: 'Update ingredient', onDone: (f, q, u) => { draft = d; const prev = d.items.slice(); d.touched = true; d.items[i] = { food: f, qty: q, unit: u }; back();
+      if (q !== it.qty || u !== it.unit || f.id !== it.food.id) undoIng(`${f.name}: now ${fmtQty(q)} ${unitWord(f, u, q)}`, prev); } };
     openAmount(it.food, { qty: it.qty, unit: it.unit });
   };
   if ($('fromDay')) $('fromDay').onclick = () => {
@@ -2663,7 +2680,7 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) { ch
 ['gesturestart', 'gesturechange'].forEach(t => document.addEventListener(t, e => e.preventDefault(), { passive: false }));
 
 renderAll();
-if (S.onboarded) { const md = loadDraft(); if (md && Date.now() - md.at < DRAFT_RESUME_MS) setTimeout(() => safe(() => resumeDraft(md.d, true)), 300); }
+if (S.onboarded) { const md = loadDraft(); if (autoResume(md)) { markDraft('resumed', true); setTimeout(() => safe(() => resumeDraft(md.d, true)), 300); } }
 if (!S.msInit && S.onboarded) { S.msInit = true; checkMilestones(true); }
 if (!S.onboarded) showOnboarding(1);
 else if (!REDUCED) document.body.classList.add('launch');

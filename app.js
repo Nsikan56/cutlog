@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '43';
+const APP_V = '44';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -227,7 +227,7 @@ function renderTotals() {
   else if (cal < T.calLo) st.textContent = mode() === 'gain' ? `${(T.calLo - cal).toLocaleString()} kcal to go to reach your range. Room for another meal.` : `${(T.calLo - cal).toLocaleString()} kcal under your range. Room for a high-protein snack.`;
   else if (cal <= T.calHi) { st.className = 'status ok'; st.textContent = 'In your range for today.'; }
   else { st.className = 'status hi'; st.textContent = `${(cal - T.calHi).toLocaleString()} kcal over your range. One day like this is fine; the weekly trend decides.`; }
-  safe(renderFits); safe(renderWeek); safe(renderCiBanner); safe(renderNudge); safe(renderNut);
+  safe(renderFits); safe(renderWeek); safe(renderCiBanner); safe(renderNudge); safe(renderNut); safe(renderGuideBanner);
 }
 let shownRows = { day: null, ids: new Set() };
 function renderRows() {
@@ -2038,6 +2038,69 @@ function renderFibChart(days) {
     colorFor: v => v >= FIB_LO ? 'var(--protein)' : 'var(--accent)' });
   $('tFibNote').textContent = `Green band is the ${FIB_LO}–${FIB_HI}g most adults aim for. Counted from ${known} of ${total} foods logged in this range that have fibre data${known < total ? ', so real totals are higher' : ''}.`;
 }
+
+/* =================== v44: HOW TO USE CUT LOG =================== */
+/* A plain-language guide in the You tab (and a one-time banner on Today for new people). Seen/first-shown live on
+   this device only (localStorage cutlog.guide), not in saved or synced data. */
+const GUIDE = [
+  ['Getting started', `
+    <p>Put Cut Log on your home screen: in Safari, tap Share, then <b>Add to Home Screen</b>. It works offline and saves everything on your phone first.</p>
+    <p>Your goal and daily targets (a calorie range and a protein target) are in <b>You → Goal</b>. Change them any time.</p>
+    <p>To back up and sync with a laptop, tap the pill at the top right and sign in. Syncing works once your email has been added to the invite list, so ask the person who shared the app. Until then, everything still works on your phone.</p>`],
+  ['Logging food', `
+    <p><b>Scan barcode</b> for packaged food. If it isn't in the free database, snap the label once and the app remembers that barcode next time.</p>
+    <p><b>Snap label</b> reads a Nutrition Facts photo on your phone. Check the numbers it found before saving.</p>
+    <p><b>Search</b> covers whole foods, Nigerian and Canadian dishes, your saved foods, and packaged foods online. Nothing fits? Use <b>Enter a food by hand</b>, or <b>Quick add</b> for just calories and protein (good for samples or a meal out).</p>
+    <p>On <b>How much?</b> pick an amount in pieces, servings, grams, cups or spoons. No scale? Use your hand: a <b>palm</b> of meat (about 100 g), a <b>fist</b> of rice or pasta (about a cup), a <b>cupped hand</b> of snacks, a <b>thumb</b> of oil or peanut butter. Dishes come in <b>small, regular and large</b> plates or bowls, with a picture guide.</p>
+    <p>Staples like chicken, rice and pasta have a <b>Raw weight / Cooked</b> switch: pick how it was when you measured it. Food you cook yourself asks <b>Cooked with oil or butter?</b> Oil is the most common hidden source of calories.</p>
+    <p>Packaged foods may show a <b>Nutri-Score</b> letter from A (most nutritious) to E (least).</p>
+    <p>Food is grouped into Breakfast, Lunch, Dinner and Snacks, and the app learns where you usually put each food. <b>Tap any entry</b> to change the amount, move it to another meal or day, or remove it (with Undo). <b>Copy from yesterday</b> repeats a whole day or one meal.</p>`],
+  ['My meals', `
+    <p>Build a meal once from its ingredients and log it with one tap after that. Set how many servings it makes.</p>
+    <p>Cooking a big pot? Weigh the whole pot once it's cooked (without the pot) and enter the <b>cooked weight</b>. Then log whatever you dish out by grams or by hand portion.</p>
+    <p>If the app closes while you're building a meal, it keeps your progress. My meals shows <b>Finish your unsaved meal</b>.</p>`],
+  ['The Today screen', `
+    <p>The left ring is calories, with a small mark where your range starts. The right ring is protein.</p>
+    <p>Below the rings: how your day is going, a <b>protein nudge</b> if protein falls behind your calories, <b>What fits</b> (foods from your own list that fit what's left) and <b>This week</b> (calories banked or over across the week).</p>
+    <p><b>More nutrients</b>, under your food list, shows fibre. It only counts foods that have fibre data, so it says "at least" when some don't.</p>`],
+  ['Weigh-ins and waist', `
+    <p>Pick <b>Every morning</b>, <b>Once a week</b> or <b>No scale</b> in You → Weigh-ins. Weigh after the bathroom, before food or water.</p>
+    <p>Daily weight jumps around by a few pounds from water, salt and carbs. The <b>7-day average</b> is the number that matters.</p>
+    <p>Measure your <b>waist</b> at the belly button, relaxed, every two weeks. A shrinking waist is one of the clearest signs of fat loss, and it works without a scale.</p>`],
+  ['Trends', `
+    <p><b>Weight trend</b> shows how fast you're losing or gaining each week, and the date you'd reach your goal. It appears after about a week of weigh-ins.</p>
+    <p>The <b>weekly check-in</b> sums up last week every Monday: average calories and protein, weight change, and a one-line verdict.</p>
+    <p><b>Your real burn</b> works out how many calories you actually burn from what you eat and how your weight moves. It takes about two weeks of logging and weighing in, then it can suggest better targets.</p>
+    <p>Charts for calories, protein and fibre: tap a bar to open that day. Plus consistency stats and <b>milestones</b> with a little celebration.</p>`],
+  ['Your settings', `
+    <p>In <b>You</b>: your name, goal (Cutting, Maintaining or Building) with suggested targets, weigh-in frequency, lb or kg, four app colours, Light or Dark, your saved foods, and a backup file you can keep in iCloud Drive.</p>
+    <p>Your age, height and sex are only used to suggest targets. They're never saved.</p>`],
+  ['What to expect', `
+    <p><b>First week:</b> your weight will bounce around. That's water, not fat. Keep logging and weighing.</p>
+    <p><b>After about a week:</b> your weekly rate and goal date show up on Trends.</p>
+    <p><b>After about two weeks:</b> your real burn is ready and can fine-tune your targets.</p>
+    <p>Hand portions, plate sizes and dishes are estimates. Being consistent matters more than being exact, because your real burn adjusts to how you log.</p>
+    <p>A steady cut is about 0.5–1% of your body weight a week. Hitting your protein target most days helps keep muscle while you lose fat.</p>
+    <p>A day over your range is fine. The weekly trend decides your progress.</p>`],
+];
+const GUIDE_KEY = 'cutlog.guide', GUIDE_DAYS = 7;
+function guideState() { try { return JSON.parse(localStorage.getItem(GUIDE_KEY)) || {}; } catch (e) { return {}; } }
+function setGuide(x) { try { localStorage.setItem(GUIDE_KEY, JSON.stringify({ ...guideState(), ...x })); } catch (e) {} }
+function openGuide() {
+  setGuide({ seen: 1 }); $('guideBanner').hidden = true;
+  openSheet('How to use Cut Log', `<p class="hint">Tap a topic to open it.</p>
+    <div class="guide">${GUIDE.map(([t, h], i) => `<details class="guide-s"${i === 0 ? ' open' : ''}><summary>${t}</summary><div class="guide-b">${h}</div></details>`).join('')}</div>`);
+}
+/* Banner on Today: once per device, until the guide is opened, for up to a week */
+function renderGuideBanner() {
+  const b = $('guideBanner'); if (!b) return;
+  const g = guideState();
+  if (!g.seen && !g.first && S.onboarded) setGuide({ first: Date.now() });
+  const first = guideState().first;
+  b.hidden = !!g.seen || !S.onboarded || day !== todayIso() || !first || Date.now() - first > GUIDE_DAYS * 864e5;
+}
+$('guideBtn').onclick = () => { haptic(); openGuide(); };
+$('guideBanner').onclick = () => { haptic(); openGuide(); };
 
 /* =================== v40: WEEK VIEW, CHECK-IN, WHAT FITS, MOVE DAY, APPEARANCE =================== */
 const weekStart = d => shift(d, -((parseIso(d).getDay() + 6) % 7));     // weeks run Monday to Sunday

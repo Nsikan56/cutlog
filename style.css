@@ -594,6 +594,19 @@ html{background:#000}
 .guide-b b{font-weight:700}
 #guideBanner{margin-bottom:0}
 
+/* v45: weight estimate */
+.est-open{align-self:flex-start;margin-top:-6px}
+.est{display:flex;flex-direction:column;gap:12px;padding:12px 14px;border-radius:14px;background:var(--raised);border:1px solid var(--line)}
+.est .seg2{background:var(--surface)}
+.chips.wrap{flex-wrap:wrap;overflow-x:visible}
+.est-out{margin:0;font-size:14px;font-weight:600;color:var(--protein)}
+.est-note{margin:4px 0 0;font-size:13px;line-height:1.4;color:var(--warn);background:var(--warn-soft);padding:9px 12px;border-radius:10px}
+
+/* v46: foods missing fibre */
+.nut-miss{display:flex;flex-direction:column;gap:8px;padding-top:10px;border-top:1px solid var(--line)}
+.nut-miss-k{font-size:13px;font-weight:600;color:var(--muted)}
+.nut-miss .chip small{font-size:12px;font-weight:700;color:var(--accent);margin-left:3px}
+
 /* Appearance switch (v40): Dark chosen in the app, whatever the phone is set to */
 :root[data-theme="dark"]{
   --bg:#0B0E14; --surface:#151A23; --raised:#1B212C; --ink:#EAEEF5; --muted:#99A3B3; --line:#262D39;

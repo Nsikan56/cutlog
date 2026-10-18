@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '44';
+const APP_V = '47';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -159,7 +159,16 @@ function entryFib(e) {
   const f = e.food; if (!f || !(e.qty > 0)) return null;
   let src = null;
   if (f.source === 'built-in') src = BUILTIN_FOODS.find(b => b.id === f.id && b.name === f.name);
-  else if (!hasFib(f)) { const s = S.foods.find(x => x.id === f.id); if (s && s.kcal100 === f.kcal100 && s.kcalServ === f.kcalServ) src = s; }
+  else if (!hasFib(f)) {
+    /* The saved food may have been fixed since (Edit numbers re-saves calories rounded per serving and recalculates per 100 g),
+       so compare what it gives for this entry's amount with what was logged, allowing for rounding (v47). */
+    const s = S.foods.find(x => x.id === f.id);
+    if (s && hasFib(s) && unitsFor(s).some(u => u.key === e.unit)) {
+      const v = calc(s, e.qty, e.unit), logged = e.kcal - (OIL[e.oil]?.k || 0);
+      if (v.fib != null && Math.abs(v.kcal - logged) <= Math.max(3, logged * 0.03)) return v.fib;
+    }
+    return null;
+  }
   if (!hasFib(f) && !hasFib(src)) return null;
   const v = calc(hasFib(f) ? f : { ...f, fib100: src.fib100, fibServ: src.fibServ }, e.qty, e.unit);
   return v.fib;
@@ -227,7 +236,7 @@ function renderTotals() {
   else if (cal < T.calLo) st.textContent = mode() === 'gain' ? `${(T.calLo - cal).toLocaleString()} kcal to go to reach your range. Room for another meal.` : `${(T.calLo - cal).toLocaleString()} kcal under your range. Room for a high-protein snack.`;
   else if (cal <= T.calHi) { st.className = 'status ok'; st.textContent = 'In your range for today.'; }
   else { st.className = 'status hi'; st.textContent = `${(cal - T.calHi).toLocaleString()} kcal over your range. One day like this is fine; the weekly trend decides.`; }
-  safe(renderFits); safe(renderWeek); safe(renderCiBanner); safe(renderNudge); safe(renderNut); safe(renderGuideBanner);
+  safe(renderFits); safe(renderWeek); safe(renderCiBanner); safe(renderNudge); safe(renderNut); safe(renderGuideBanner); safe(renderEstBanner);
 }
 let shownRows = { day: null, ids: new Set() };
 function renderRows() {
@@ -299,7 +308,7 @@ function avgBetween(arr, from, to) {
 }
 function renderWeights() {
   const t = todayIso(), arr = weightsArr(), sc = scale(), f = $('wForm');
-  safe(renderWaist);
+  safe(renderWaist); safe(renderEstBanner);     // a new weigh-in ends the estimate reminder right away
   $('wTitle').textContent = sc === 'weekly' ? 'Weekly weigh-in' : sc === 'none' ? 'Weight' : 'Morning weigh-in';
   const noneMode = sc === 'none' && f.dataset.editing !== '1';
   $('noScale').hidden = !noneMode;
@@ -1796,6 +1805,7 @@ function showOnboarding(step = 1) {
           <div class="grid2" id="obFt" ${OB.hu === 'cm' ? 'hidden' : ''}><input id="obFeet" type="number" inputmode="numeric" placeholder="ft" value="${OB.ft}" aria-label="Feet"><input id="obIn" type="number" inputmode="decimal" placeholder="in" value="${OB.inch}" aria-label="Inches"></div>
           <input id="obCm" type="number" inputmode="decimal" placeholder="cm" value="${OB.cm}" aria-label="Centimetres" ${OB.hu === 'ft' ? 'hidden' : ''}></label>
         <label>Current weight (${OB.units === 'metric' ? 'kg' : 'lb'})<input id="obLb" type="number" inputmode="decimal" step="0.1" value="${OB.lb}" placeholder="${OB.units === 'metric' ? 'e.g. 84' : 'e.g. 185'}"></label>
+        <button type="button" class="linkbtn est-open" id="obEstBtn">Don't know your weight? Estimate it</button><div id="obEst" hidden></div>
         <div class="ob-label">How active are you?</div>
         <div class="ob-cards" id="obAct">${ACTS.map(([v, t, s]) => `<button type="button" class="ob-card" data-v="${v}" aria-pressed="${v === OB.act}"><strong>${t}</strong><span>${s}</span></button>`).join('')}</div>
         <label>Your goal ${obSeg('obGoal', [['lose', 'Lose fat'], ['maintain', 'Maintain'], ['gain', 'Build']], OB.goal)}</label>
@@ -1812,6 +1822,10 @@ function showOnboarding(step = 1) {
     seg('obAct', 'act'); seg('obScale', 'scale');
     seg('obUnits', 'units', () => { keep(); OB.hu = OB.units === 'metric' ? 'cm' : 'ft'; showOnboarding(2); });
     $('obBack').onclick = () => { keep(); showOnboarding(1); };
+    $('obEstBtn').onclick = () => { haptic(); $('obEstBtn').hidden = true; $('obEst').hidden = false;
+      estBox($('obEst'), 'ob', () => { keep(); return { metric: OB.units === 'metric', sex: OB.sex, cm: OB.hu === 'cm' ? +OB.cm : (+OB.ft * 12 + (+OB.inch || 0)) * 2.54 }; },
+        est => { OB.est = est; $('obLb').value = OB.units === 'metric' ? Math.round(est.mid * KG * 10) / 10 : est.mid; OB.lb = $('obLb').value; replay($('obLb'), 'fade-in'); });
+      replay($('obEst'), 'fade-in'); };
     $('obNext').onclick = () => {
       keep();
       const toLb = v => OB.units === 'metric' ? v / KG : v;
@@ -1831,7 +1845,8 @@ function showOnboarding(step = 1) {
   if (step === 3) {
     const c = OB.calc;
     b.innerHTML = `<div class="ob-step"><span class="ob-n">Step 2 of 2</span><h2>Your starting targets</h2>
-        <p class="hint">Based on an estimated burn of about ${c.tdee.toLocaleString()} kcal a day. Adjust anything you like.</p></div>
+        <p class="hint">Based on an estimated burn of about ${c.tdee.toLocaleString()} kcal a day. Adjust anything you like.</p>
+        ${estUsed() ? `<p class="est-note">Your weight is an estimate, so treat these as a starting point. Weigh in once in the next two weeks (a pharmacy, gym or a friend's scale) and log it; the app will remind you.</p>` : ''}</div>
       <div class="ob-sum"><div><span class="num">${c.lo.toLocaleString()}–${c.hi.toLocaleString()}</span><small>kcal a day</small></div><div class="pro"><span class="num">${c.pro}g</span><small>protein</small></div></div>
       <div class="ob-form grid2">
         <label>Calories low<input id="obLo" type="number" inputmode="numeric" value="${c.lo}"></label>
@@ -1848,7 +1863,9 @@ function showOnboarding(step = 1) {
       if (!(lo > 0 && hi >= lo && pr > 0 && g > 0)) { $('obErr').textContent = 'Check the numbers: the low calories must be below the high.'; $('obErr').hidden = false; return; }
       S.targets = { calLo: lo, calHi: hi, protein: pr, goal: g, mode: OB.goal };
       S.units = OB.units || 'imperial';
-      S.name = (OB.name || '').slice(0, 30); S.startWeight = rW(OB.calc.lbNow); S.scale = OB.scale || 'daily';
+      const guessed = estUsed();
+      S.name = (OB.name || '').slice(0, 30); S.startWeight = guessed ? null : rW(OB.calc.lbNow); S.scale = OB.scale || 'daily';
+      if (guessed) saveEst(OB.est); else clearEst();     // an estimate is never a starting weight (milestones count from a real weigh-in)
       S.onboarded = true; S.msInit = true; if (!Sync.user) S.metaUnsynced = true;
       touchMeta(); hideOnboarding(); renderAll(); haptic();
       const hi5 = S.name ? `, ${S.name}` : '';
@@ -1951,7 +1968,8 @@ function renderGoalSuggest() {
         <label>Sex (for the calorie formula)${obSeg('gsSex', [['male', 'Male'], ['female', 'Female']], GS.sex)}</label>
         <label>Age<input id="gsAge" type="number" inputmode="numeric" min="14" max="100" value="${esc(GS.age)}" placeholder="e.g. 27"></label>
         <label>Height${hIn}</label>
-        ${needW ? `<label>Current weight (${wU()})<input id="gsLb" type="number" inputmode="decimal" step="0.1" value="${esc(GS.lb)}" placeholder="${metric() ? 'e.g. 84' : 'e.g. 185'}"></label>` : ''}
+        ${needW ? `<label>Current weight (${wU()})<input id="gsLb" type="number" inputmode="decimal" step="0.1" value="${esc(GS.lb)}" placeholder="${metric() ? 'e.g. 84' : 'e.g. 185'}"></label>
+          <button type="button" class="linkbtn est-open" id="gsEstBtn">Don't know your weight? Estimate it</button><div id="gsEst" hidden></div>` : ''}
         <div class="ob-label">How active are you?</div>
         <div class="ob-cards" id="gsAct">${ACTS.map(([v, t, s]) => `<button type="button" class="ob-card" data-v="${v}" aria-pressed="${v === GS.act}"><strong>${t}</strong><span>${s}</span></button>`).join('')}</div>
         <p class="err" id="gsErr" hidden></p>
@@ -1962,6 +1980,9 @@ function renderGoalSuggest() {
     const seg = (id, k) => $(id).onclick = e => { const t = e.target.closest('[data-v]'); if (!t) return; GS[k] = t.dataset.v; haptic();
       [...$(id).children].forEach(c => c.setAttribute('aria-pressed', c === t)); };
     seg('gsSex', 'sex'); seg('gsAct', 'act');
+    if ($('gsEstBtn')) $('gsEstBtn').onclick = () => { haptic(); $('gsEstBtn').hidden = true; $('gsEst').hidden = false;
+      estBox($('gsEst'), 'gs', () => ({ metric: metric(), sex: GS.sex, cm: metric() ? +GS.cm : (+GS.ft * 12 + (+GS.inch || 0)) * 2.54 }),
+        est => { $('gsLb').value = metric() ? Math.round(est.mid * KG * 10) / 10 : est.mid; GS.lb = $('gsLb').value; saveEst(est); replay($('gsLb'), 'fade-in'); }); };
     $('gsGo').onclick = () => {
       const err = t => { $('gsErr').textContent = t; $('gsErr').hidden = false; };
       const age = +GS.age, cm = metric() ? +GS.cm : (+GS.ft * 12 + (+GS.inch || 0)) * 2.54;
@@ -2025,7 +2046,45 @@ function renderNut() {
     : "None of these foods have fibre data yet. Scanned packaged foods and the built-in whole foods usually do.";
   $('nutBody').innerHTML = `<div class="nut-row"><span>Fibre</span><b>${f.known ? (f.known < f.total ? '≥ ' : '') + g + 'g' : '–'}</b></div>
     <div class="prog"><i style="width:${Math.round(Math.min(1, f.g / FIB_HI) * 100)}%"></i></div>
-    <p class="hint">Most adults do well with about ${FIB_LO}–${FIB_HI}g a day. Fibre comes from vegetables, fruit, beans, oats and whole grains, and it helps keep you full. ${cover}</p>`;
+    <p class="hint">Most adults do well with about ${FIB_LO}–${FIB_HI}g a day. Fibre comes from vegetables, fruit, beans, oats and whole grains, and it helps keep you full. ${cover}</p>
+    ${missingFibHtml(es)}`;
+}
+/* v46: which of the day's foods have no fibre data, and a one-tap way to add it for saved foods */
+function missingFib(es) {
+  const fix = new Map(), other = new Map();
+  es.forEach(e => {
+    if (entryFib(e) != null) return;
+    const f = e.food, saved = f && S.foods.find(x => x.id === f.id);
+    if (saved) fix.set(saved.id, saved);
+    else other.set((f?.id || 'q') + e.name, `${e.name}${!f ? ' (quick add)' : f.source === 'meal' ? ' (meal: add fibre to its ingredients)' : ''}`);
+  });
+  return { fix: [...fix.values()], other: [...other.values()] };
+}
+function missingFibHtml(es) {
+  const m = missingFib(es); if (!m.fix.length && !m.other.length) return '';
+  return `<div class="nut-miss">
+    ${m.fix.length ? `<span class="nut-miss-k">No fibre data yet. Tap one to add it from its label:</span>
+      <div class="chips wrap" id="fibFix">${m.fix.map(f => `<button class="chip" data-fib="${esc(f.id)}">${esc(f.name)} <small>+ fibre</small></button>`).join('')}</div>` : ''}
+    ${m.other.length ? `<p class="hint">${m.fix.length ? 'Also' : 'No fibre data'}: ${esc(m.other.join(', '))}.</p>` : ''}</div>`;
+}
+$('nutBody').addEventListener('click', e => { const b = e.target.closest('[data-fib]'); if (b) { haptic(); openAddFibre(b.dataset.fib); } });
+/* add fibre to a saved food without touching its calories, so earlier entries of it start counting too */
+function openAddFibre(id) {
+  const f = S.foods.find(x => x.id === id); if (!f) return;
+  const perServ = f.kcalServ != null || f.servingG;
+  openSheet('Add fibre', `
+    <div class="food-head"><strong>${esc(f.name)}</strong><span>${esc([f.brand, perLine(f)].filter(Boolean).join(' · '))}</span></div>
+    <label>Fibre per ${perServ ? `serving${f.servingG ? ` (${esc(servLabel(f))})` : ''}` : '100 g'}, in grams<input id="afIn" type="number" inputmode="decimal" min="0" step="0.1" placeholder="e.g. 3"></label>
+    <p class="hint">On the Nutrition Facts table it's the "Fibre / Fibres" line, just under Carbohydrate. Enter 0 if it says 0.</p>
+    <button class="btn" id="afSave">Save fibre</button>`);
+  setTimeout(() => $('afIn')?.focus(), 350);
+  $('afSave').onclick = () => {
+    const v = parseFloat($('afIn').value);
+    if (!(v >= 0 && v < 100)) { toast('Enter the grams of fibre from the label.'); return; }
+    if (perServ) { f.fibServ = v; if (f.servingG) f.fib100 = v / f.servingG * 100; } else f.fib100 = v;
+    touchMeta(); renderTotals(); closeSheet(); haptic();
+    toast(`Fibre added to ${f.name}. Earlier entries of it count now too.`);
+  };
 }
 
 /* Trends fibre card: hidden until a day in the range has fibre data */
@@ -2062,10 +2121,11 @@ const GUIDE = [
   ['The Today screen', `
     <p>The left ring is calories, with a small mark where your range starts. The right ring is protein.</p>
     <p>Below the rings: how your day is going, a <b>protein nudge</b> if protein falls behind your calories, <b>What fits</b> (foods from your own list that fit what's left) and <b>This week</b> (calories banked or over across the week).</p>
-    <p><b>More nutrients</b>, under your food list, shows fibre. It only counts foods that have fibre data, so it says "at least" when some don't.</p>`],
+    <p><b>More nutrients</b>, under your food list, shows fibre. It only counts foods that have fibre data, so it says "at least" when some don't. Foods missing it are listed there; tap one to add the number from its label.</p>`],
   ['Weigh-ins and waist', `
     <p>Pick <b>Every morning</b>, <b>Once a week</b> or <b>No scale</b> in You → Weigh-ins. Weigh after the bathroom, before food or water.</p>
     <p>Daily weight jumps around by a few pounds from water, salt and carbs. The <b>7-day average</b> is the number that matters.</p>
+    <p>Don't know your weight and no scale? In setup (or in Goal suggestions) tap <b>Don't know your weight? Estimate it</b>. It's a rough guess from your clothing sizes (a formula built from 507 measured adults), used only for your starting targets. After two weeks the app asks for one real weigh-in, at a pharmacy, gym or a friend's place.</p>
     <p>Measure your <b>waist</b> at the belly button, relaxed, every two weeks. A shrinking waist is one of the clearest signs of fat loss, and it works without a scale.</p>`],
   ['Trends', `
     <p><b>Weight trend</b> shows how fast you're losing or gaining each week, and the date you'd reach your goal. It appears after about a week of weigh-ins.</p>
@@ -2101,6 +2161,123 @@ function renderGuideBanner() {
 }
 $('guideBtn').onclick = () => { haptic(); openGuide(); };
 $('guideBanner').onclick = () => { haptic(); openGuide(); };
+
+/* =================== v45/v46: WEIGHT ESTIMATE WITHOUT A SCALE ===================
+   A rough range from height and clothing sizes, only used to set starting targets: never saved as a weigh-in or a starting
+   weight. v46 replaced the v45 rules of thumb with formulas fitted to real measured people:
+   - Data: Heinz et al. (2003), "Exploring Relationships in Body Dimensions", Journal of Statistics Education 11(2):
+     507 physically active adults (247 men, 260 women, ages 18-67, median 27) with measured weight, height and girths.
+   - Clothing size -> body measurement: women's numeric sizes from ASTM D5585-11e1 (misses, straight figure: waist, hip);
+     tops from Nike's published size charts (men's chest, women's bust; men's XS and women's 3XL extended by one step).
+   - Each person's real measurements were turned into the size they'd buy, and weight was fitted (least squares, per sex)
+     on height + those sizes, so the stated error includes the coarseness of sizes. 10-fold cross-validated error below.
+   - "Do you lift?": average gap between real and predicted weight by muscularity (flexed arm girth / waist) in the same data:
+     men -4 / +1.5 / +7 lb, women -1.5 / 0 / +3 lb for No / A bit / Yes. Very muscular lifters can be heavier still,
+     so "Yes" widens the top of the range by the study's top-10% gap (men +10 lb). */
+const SIZES = ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL'];
+const TOP_IN = { male: [33.5, 36, 39.25, 42.5, 46.25, 51, 55.75], female: [31, 34, 36.75, 39.5, 42.75, 46.5, 50.5] };   // chart midpoints, inches
+const ASTM_NUM = { '00': [25.375, 33.25], '0': [26.125, 33.875], '2': [26.875, 35.125], '4': [27.625, 36.375], '6': [28.5, 37.5], '8': [29.5, 38.5],
+  '10': [30.5, 39.5], '12': [32.25, 41], '14': [34, 42.5], '16': [36, 44.25], '18': [38.25, 46], '20': [40.5, 48] };   // waist, hip inches
+const NUM_ORDER = ['00', '0', '2', '4', '6', '8', '10', '12', '14', '16', '18', '20'];   // object keys like '2' sort before '00', so keep the order here
+const EST_MODEL = {                          // kg = b0 + b1*height_cm + ...girths in cm; p80 = 80% of people within ± (lb)
+  male: { both: { b: [-98.519, 0.5654, 0.05172, 0.83748], p80: 13 }, waist: { b: [-95.43217, 0.56772, 0.85935], p80: 13 }, top: { b: [-80.35437, 0.74446, 0.25311], p80: 23 } },
+  female: { both: { b: [-101.66441, 0.36639, 0.23856, 1.07057, 0.04444], p80: 8 }, num: { b: [-96.33003, 0.37187, 1.24826, 0.06026], p80: 8 }, top: { b: [-103.98038, 0.4308, 1.08713], p80: 14 } },
+};
+const BUILD_ADJ = { male: { no: -4, bit: 1.5, yes: 7, yesTop: 10 }, female: { no: -1.5, bit: 0, yes: 3, yesTop: 3 } };   // lb
+/* women's jeans sold by waist inches -> nearest ASTM numeric size by waist */
+const numFromWaist = w => Object.keys(ASTM_NUM).reduce((a, k) => Math.abs(ASTM_NUM[k][0] - w) < Math.abs(ASTM_NUM[a][0] - w) ? k : a, '8');
+function estimateWeight({ cm, sex, top, waistIn, num, build }) {
+  if (!(cm >= 120 && cm <= 230)) return null;
+  const sx = sex === 'female' ? 'female' : 'male', IN = 2.54, ti = SIZES.indexOf(top), M = EST_MODEL[sx];
+  const topCm = ti >= 0 ? TOP_IN[sx][ti] * IN : null;
+  let kg, p80;
+  if (sx === 'male') {
+    const w = waistIn >= 20 && waistIn <= 70 ? Math.round(waistIn) * IN : null;
+    if (topCm && w) { const b = M.both.b; kg = b[0] + b[1] * cm + b[2] * topCm + b[3] * w; p80 = M.both.p80; }
+    else if (w) { const b = M.waist.b; kg = b[0] + b[1] * cm + b[2] * w; p80 = M.waist.p80; }
+    else if (topCm) { const b = M.top.b; kg = b[0] + b[1] * cm + b[2] * topCm; p80 = M.top.p80; }
+    else return null;
+  } else {
+    const n = ASTM_NUM[num] ? num : waistIn >= 20 && waistIn <= 50 ? numFromWaist(waistIn) : null;
+    const nw = n ? ASTM_NUM[n][0] * IN : null, nh = n ? ASTM_NUM[n][1] * IN : null;
+    if (topCm && n) { const b = M.both.b; kg = b[0] + b[1] * cm + b[2] * topCm + b[3] * nw + b[4] * nh; p80 = M.both.p80; }
+    else if (n) { const b = M.num.b; kg = b[0] + b[1] * cm + b[2] * nw + b[3] * nh; p80 = M.num.p80; }
+    else if (topCm) { const b = M.top.b; kg = b[0] + b[1] * cm + b[2] * topCm; p80 = M.top.p80; }
+    else return null;
+  }
+  const adj = BUILD_ADJ[sx], bd = adj[build] != null ? build : 'no';
+  const mid = kg / KG + adj[bd], r5 = x => Math.round(x / 5) * 5;
+  const lo = Math.max(80, r5(mid - p80)), hi = r5(mid + p80 + (bd === 'yes' ? adj.yesTop : 0));
+  return { lo, hi, mid: Math.max(80, r5(mid)), beyond: mid > 250 };       // the study's heaviest person was 256 lb
+}
+/* the "Estimate my weight" panel, shared by setup and Goal suggestions. ctx() gives {metric, sex, cm}; done(est) fills the weight box */
+function estBox(el, p, ctx, done) {
+  const st = { top: null, num: null, build: 'no' }, c0 = ctx(), fem = c0.sex === 'female';
+  el.innerHTML = `<div class="est">
+    <p class="hint">A rough guess from your clothing sizes, using a formula built from 507 measured adults. It's only used for your starting targets. For most people it lands within about ${fem ? (c0.metric ? '4 kg' : '8 lb') : (c0.metric ? '6 kg' : '13 lb')}, so weigh in once when you can.</p>
+    <div class="ob-label">Your usual ${fem ? 'top' : 'shirt'} size</div>
+    <div class="chips wrap" id="${p}Shirt">${SIZES.map(z => `<button type="button" class="chip" data-z="${z}" aria-pressed="false">${z}</button>`).join('')}</div>
+    ${fem ? `<div class="ob-label">Pants size, if you know it</div>
+      <div class="chips wrap" id="${p}Num">${NUM_ORDER.map(z => `<button type="button" class="chip" data-n="${z}" aria-pressed="false">${z}</button>`).join('')}</div>
+      <label>Or jeans sold by waist (${c0.metric ? 'cm' : 'inches, like 28'})<input id="${p}Waist" type="number" inputmode="decimal" placeholder="${c0.metric ? 'e.g. 71' : 'e.g. 28'}"></label>`
+    : `<label>Jeans waist size, optional (${c0.metric ? 'cm' : 'the inches number, like 34'})<input id="${p}Waist" type="number" inputmode="decimal" placeholder="${c0.metric ? 'e.g. 86' : 'e.g. 34'}"></label>`}
+    <div class="ob-label">Do you lift, or have a muscular build?</div>
+    ${obSeg(p + 'Build', [['no', 'No'], ['bit', 'A bit'], ['yes', 'Yes']], 'no')}
+    <p class="err" id="${p}EErr" hidden></p>
+    <button type="button" class="btn ghost" id="${p}EGo">Estimate my weight</button>
+    <p class="est-out" id="${p}EOut" hidden></p></div>`;
+  const chipRow = (id, key, attr) => { if ($(id)) $(id).onclick = e => { const b = e.target.closest(`[data-${attr}]`); if (!b) return; haptic(); st[key] = st[key] === b.dataset[attr] ? null : b.dataset[attr];
+    [...$(id).children].forEach(x => x.setAttribute('aria-pressed', x.dataset[attr] === st[key])); }; };
+  chipRow(p + 'Shirt', 'top', 'z'); chipRow(p + 'Num', 'num', 'n');
+  $(p + 'Build').onclick = e => { const b = e.target.closest('[data-v]'); if (!b) return; haptic(); st.build = b.dataset.v;
+    [...$(p + 'Build').children].forEach(x => x.setAttribute('aria-pressed', x === b)); };
+  $(p + 'EGo').onclick = () => {
+    const c = ctx(), err = t => { $(p + 'EErr').textContent = t; $(p + 'EErr').hidden = !t; };
+    const w = parseFloat($(p + 'Waist').value), waistIn = w > 0 ? (c.metric ? w / 2.54 : w) : null;
+    if (!(c.cm >= 120 && c.cm <= 230)) return err('Enter your height above first.');
+    if (!st.top && !st.num && !waistIn) return err(fem ? 'Pick a top size or a pants size.' : 'Pick a shirt size or enter your jeans waist.');
+    if (waistIn && !(waistIn >= 20 && waistIn <= (fem ? 50 : 70))) return err(c.metric ? 'Enter the waist in centimetres, like 86.' : 'Enter the inches number from your jeans, like 34.');
+    err('');
+    const est = estimateWeight({ cm: c.cm, sex: c.sex, top: st.top, waistIn, num: st.num, build: st.build });
+    if (!est) return err(fem ? 'Pick a top size or a pants size.' : 'Pick a shirt size or enter your jeans waist.');
+    const show = v => c.metric ? `${Math.round(v * KG)} kg` : `${v} lb`;
+    $(p + 'EOut').textContent = `About ${show(est.lo).replace(/ (kg|lb)$/, '')}–${show(est.hi)}. We've put ${show(est.mid)} in your weight box. Change it if you know better.`
+      + (st.build === 'yes' ? ' Very muscular people can weigh more than any size-based guess shows.' : '')
+      + (est.beyond ? ' This is above the weights the formula was built from, so treat it as very rough.' : '');
+    $(p + 'EOut').hidden = false; haptic(); done(est);
+  };
+}
+const EST_KEY = 'cutlog.est', EST_DAYS = 14;
+function loadEst() { try { return JSON.parse(localStorage.getItem(EST_KEY)); } catch (e) { return null; } }
+function saveEst(e) { try { localStorage.setItem(EST_KEY, JSON.stringify({ at: Date.now(), lo: e.lo, hi: e.hi, mid: e.mid })); } catch (er) {} }
+function clearEst() { try { localStorage.removeItem(EST_KEY); } catch (e) {} }
+/* was the weight in setup the estimate (not typed over)? */
+const estUsed = () => !!OB.est && !!OB.calc && Math.abs(OB.calc.lbNow - OB.est.mid) < 1;
+/* Two weeks after an estimate, if there's still no weigh-in, Today asks for one real weigh-in */
+function renderEstBanner() {
+  const b = $('estBanner'); if (!b) return;
+  const e = loadEst();
+  if (e && weightsArr().length) { clearEst(); b.hidden = true; return; }     // a real weigh-in replaces the guess
+  b.hidden = !e || !S.onboarded || day !== todayIso() || Date.now() - e.at < EST_DAYS * 864e5;
+}
+function openEstReminder() {
+  const e = loadEst(); if (!e) return;
+  const v = x => metric() ? `${Math.round(x * KG)} kg` : `${x} lb`;
+  openSheet('Time for one real weigh-in', `
+    <p>Your starting targets came from an estimate of about ${v(e.lo).replace(/ (kg|lb)$/, '')}–${v(e.hi)}. One real weigh-in makes your targets and your progress much more accurate.</p>
+    <p class="hint">No scale at home? Pharmacies, gyms and some grocery stores have one, or borrow a friend's. Weigh in the morning if you can, before food.</p>
+    <button class="btn" id="estLog">Log my weight</button>
+    <button class="btn ghost" id="estLater">Remind me next week</button>`);
+  $('estLog').onclick = () => {
+    closeSheet(); showTab('today'); day = todayIso(); renderAll();
+    if (scale() === 'none') $('haveScale').click();
+    setTimeout(() => { $('wForm').scrollIntoView({ behavior: REDUCED ? 'auto' : 'smooth', block: 'center' }); $('wIn').focus(); }, 380);
+  };
+  $('estLater').onclick = () => {      // shows again in 7 days
+    try { localStorage.setItem(EST_KEY, JSON.stringify({ ...e, at: Date.now() - (EST_DAYS - 7) * 864e5 })); } catch (er) {}
+    closeSheet(); renderEstBanner(); toast("OK, I'll ask again next week"); };
+}
+$('estBanner').onclick = () => { haptic(); openEstReminder(); };
 
 /* =================== v40: WEEK VIEW, CHECK-IN, WHAT FITS, MOVE DAY, APPEARANCE =================== */
 const weekStart = d => shift(d, -((parseIso(d).getDay() + 6) % 7));     // weeks run Monday to Sunday

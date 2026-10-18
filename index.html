@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>Cut Log</title>
-<meta name="app-v" content="44">
+<meta name="app-v" content="47">
 <script>/* apply Light/Dark before the page draws, so it never flashes the wrong colors */
 try { var cla = localStorage.getItem('cutlog.appearance'); if (cla === 'light' || cla === 'dark') document.documentElement.setAttribute('data-theme', cla); } catch (e) {}</script>
 <meta name="theme-color" content="#F2F4F8" media="(prefers-color-scheme: light)">
@@ -19,7 +19,7 @@ try { var cla = localStorage.getItem('cutlog.appearance'); if (cla === 'light' |
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Barlow:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="style.css?v=44">
+<link rel="stylesheet" href="style.css?v=47">
 </head>
 <body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -46,6 +46,7 @@ try { var cla = localStorage.getItem('cutlog.appearance'); if (cla === 'light' |
   <div class="view" id="viewToday">
   <div class="col-a">
 
+  <button class="ci-banner" id="estBanner" hidden><span><b>Time for one real weigh-in</b><small>Your targets started from an estimate. A real number sharpens them.</small></span><svg><use href="#i-chev-r"/></svg></button>
   <button class="ci-banner" id="guideBanner" hidden><span><b>New to Cut Log?</b><small>A quick guide to everything it does, and what to expect</small></span><svg><use href="#i-chev-r"/></svg></button>
   <button class="ci-banner" id="ciBanner" hidden><span><b>Your weekly check-in is ready</b><small id="ciBannerS"></small></span><svg><use href="#i-chev-r"/></svg></button>
 
@@ -340,8 +341,8 @@ try { var cla = localStorage.getItem('cutlog.appearance'); if (cla === 'light' |
 <div class="toast" id="toast" role="status" hidden></div>
 <input type="file" id="photoIn" accept="image/*" capture="environment" hidden>
 
-<script src="firebase-config.js?v=44"></script>
-<script src="foods.js?v=44"></script>
-<script src="app.js?v=44"></script>
+<script src="firebase-config.js?v=47"></script>
+<script src="foods.js?v=47"></script>
+<script src="app.js?v=47"></script>
 </body>
 </html>

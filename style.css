@@ -570,6 +570,21 @@ html{background:#000}
 .draft-row{display:flex;flex-direction:column;gap:4px}
 .draft-row .linkbtn{align-self:flex-start}
 
+/* v43: raw/cooked switch, cooking oil, plate sizes */
+.seg2.st{background:var(--raised)}
+.st-hint{margin:-6px 0 0;font-size:12px;color:var(--muted);line-height:1.35}
+.oil{display:flex;flex-direction:column;gap:6px}
+.oil-k{font-size:13px;font-weight:600;color:var(--muted)}
+.oil .chip small{font-size:12px;font-weight:600;opacity:.75;margin-left:2px}
+.plates{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}
+.plates div{display:flex;flex-direction:column;align-items:center;text-align:center;gap:2px}
+.plates svg{width:56px;height:56px}
+.plates .pl{fill:var(--surface);stroke:var(--line);stroke-width:2}
+.plates .fd{fill:var(--accent);opacity:.55}
+.plates b{font-size:13px}
+.plates span{font-size:11px;color:var(--muted);line-height:1.3}
+#aPlate>.hint{margin-top:12px}
+
 /* Appearance switch (v40): Dark chosen in the app, whatever the phone is set to */
 :root[data-theme="dark"]{
   --bg:#0B0E14; --surface:#151A23; --raised:#1B212C; --ink:#EAEEF5; --muted:#99A3B3; --line:#262D39;

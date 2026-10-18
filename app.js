@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '42';
+const APP_V = '43';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -107,10 +107,23 @@ function touchAll() {
 let day = todayIso();
 
 /* ---------- nutrition math ---------- */
+/* v43: cooked food without a scale. Plate and bowl sizes, raw/cooked twins for staples, and oil added in cooking. */
+const PLATE_HINT = {
+  plate: { s: 'side plate, or a light helping', m: 'a normal dinner plate, not heaped', l: 'heaped, or a restaurant plate' },
+  bowl: { s: 'small bowl, or half full', m: 'a normal bowl', l: 'a big bowl, or a restaurant bowl' },
+};
+const OIL = { none: { k: 0, t: 'None' }, little: { k: 40, t: 'A little', d: 'a little oil' }, lot: { k: 120, t: 'A lot', d: 'plenty of oil' } };
+const oilKey = k => OIL[k] && k !== 'none' ? k : null;
+/* the built-in food behind an entry's saved copy (older copies don't have the newer twin/cook fields) */
+const baseOf = f => (f && f.source === 'built-in' && BUILTIN_FOODS.find(b => b.id === f.id && b.name === f.name)) || f;
+const twinOf = f => { const b = baseOf(f); return b?.twin ? BUILTIN_FOODS.find(x => x.name === b.twin) || null : null; };
 function unitsFor(f) {
   const u = [];
   if (f.kcalServ != null || f.servingG) u.push({ key: 'serving', label: 'serving', long: f.servingLabel ? `serving (${f.servingLabel})` : 'serving', g: f.servingG || null });
-  if (f.piece) u.push({ key: 'piece', label: f.pieceLabel || 'piece', g: f.piece });
+  const dish = f.piece && /^(plate|bowl)$/.test(f.pieceLabel || '');      // plates and bowls come in three sizes
+  if (dish) u.push({ key: 'pieceS', label: `small ${f.pieceLabel}`, long: PLATE_HINT[f.pieceLabel].s, g: f.piece * 0.6 });
+  if (f.piece) u.push({ key: 'piece', label: f.pieceLabel || 'piece', long: dish ? PLATE_HINT[f.pieceLabel].m : undefined, g: f.piece });
+  if (dish) u.push({ key: 'pieceL', label: `large ${f.pieceLabel}`, long: PLATE_HINT[f.pieceLabel].l, g: f.piece * 1.5 });
   if (f.kcal100 != null) {
     u.push({ key: 'g', label: 'grams', g: 1 });
     // hand portions: no scale needed (fist ≈ 1 cup, so it uses the food's cup weight when known)
@@ -470,7 +483,7 @@ function slotChips(sel) { return `<div class="chips slots" id="aSlot" role="grou
 /* ---------- log actions ---------- */
 function addEntry(name, kcal, pro, detail, src, slot) {
   const e = { id: uid(), name, kcal: r1(kcal), pro: r1(pro), detail: detail || '', at: Date.now(), slot: slot || defaultSlot(src?.food?.id) };
-  if (src) { e.food = src.food; e.qty = src.qty; e.unit = src.unit; setFib(e, src.fib); }
+  if (src) { e.food = src.food; e.qty = src.qty; e.unit = src.unit; setFib(e, src.fib); if (src.oil) e.oil = src.oil; }
   (S.log[day] ||= []).push(e);
   touchDay(day); renderTotals(); renderRows(); haptic();
 }
@@ -653,8 +666,14 @@ function openAmount(f, preset, opts = {}) {
   const editEntry = editing ? entriesFor(day).find(x => x.id === editing) : null;
   let slot = editEntry ? slotOf(editEntry) : defaultSlot(f.id);
   const cta = picking ? picking.label : editing ? 'Save changes' : `Add to ${dayName === 'Today' ? 'today' : dayName}`;
+  const base = baseOf(f), twin = twinOf(f);
+  const canOil = !picking && !!base.cook;          // whole foods you cook yourself; dishes already include their oil, meals add it as an ingredient
+  let oil = canOil ? oilKey(preset?.oil) : null;
+  if (opts.slot) slot = opts.slot;
   openSheet(editing ? 'Edit entry' : 'How much?', `
     <div class="food-head" id="aFood" data-id="${esc(f.id)}"><strong>${esc(f.name)}</strong><span>${esc([f.brand, perLine(f)].filter(Boolean).join(' · '))}</span><span class="ns-row" id="aNs">${nsBadge(f, true)}</span></div>
+    ${twin ? `<div class="seg2 st" id="aState" role="group" aria-label="Weighed raw or cooked">${[base, twin].sort((a, b) => a.state === 'cooked' ? 1 : b.state === 'cooked' ? -1 : 0).map(x => `<button type="button" data-st="${esc(x.name)}" aria-pressed="${x.name === base.name}">${x.state === 'dry' ? 'Dry weight' : x.state === 'raw' ? 'Raw weight' : 'Cooked'}</button>`).join('')}</div>
+    <p class="st-hint">Pick how it was when you measured it. Cooking changes the weight, so the numbers differ.</p>` : ''}
     <div class="stepper">
       <button id="aMinus" aria-label="Less">−</button>
       <input id="aQty" type="number" inputmode="decimal" step="any" min="0" value="${startQty}" aria-label="Amount">
@@ -663,6 +682,7 @@ function openAmount(f, preset, opts = {}) {
     <div class="chips" id="aUnits" role="group" aria-label="Unit">${units.map(u => `<button class="chip" data-u="${u.key}" aria-pressed="${u.key === unit}" title="${esc(u.long || u.label)}">${esc(u.key === 'serving' && f.servingLabel ? 'serving · ' + servLabel(f) : u.label)}</button>`).join('')}</div>
     <div class="result"><div><span class="num" id="aK">0</span><small>kcal</small></div><div class="pro"><span class="num" id="aP">0g</span><small>protein</small></div></div>
     <p class="fib-line" id="aF" hidden></p>
+    ${canOil ? `<div class="oil"><span class="oil-k">Cooked with oil or butter?</span><div class="chips" id="aOil" role="group" aria-label="Cooking oil">${Object.entries(OIL).map(([k, o]) => `<button class="chip" data-oil="${k}" aria-pressed="${k === (oil || 'none')}">${o.t}${o.k ? ` <small>+${o.k}</small>` : ''}</button>`).join('')}</div></div>` : ''}
     ${picking ? '' : slotChips(slot)}
     ${f.est ? '<p class="hint">Recipes and portions vary a lot, especially with oil. This is a typical estimate; tap "Numbers look wrong?" to set your own.</p>' : ''}
     ${f.kcal100 != null ? `<details class="hand" id="aHand"><summary>No scale? Estimate with your hand</summary>
@@ -673,12 +693,16 @@ function openAmount(f, preset, opts = {}) {
         <div><b>Thumb</b><span>About 1 tablespoon. Oil, butter, peanut butter. Use the tbsp unit.</span></div>
         <p class="hint">Use your own hand. It scales with your body, which keeps your portions consistent.</p>
       </div></details>` : ''}
+    ${/^(plate|bowl)$/.test(f.pieceLabel || '') && f.piece ? `<details class="hand" id="aPlate"><summary>Which ${f.pieceLabel} size?</summary>
+      <div class="plates">${['s', 'm', 'l'].map((k, i) => `<div><svg viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="${[18, 25, 30][i]}" class="pl"/><ellipse cx="32" cy="${33 - i}" rx="${[9, 15, 21][i]}" ry="${[5, 8, 12][i]}" class="fd"/></svg><b>${['Small', 'Regular', 'Large'][i]}</b><span>${PLATE_HINT[f.pieceLabel][k]}</span></div>`).join('')}</div>
+      <p class="hint">Regular is about ${Math.round(f.piece)} g. Small is about 60% of that, large about 1½ times.</p></details>` : ''}
     <p class="hint" id="aNote" hidden>Spoon sizes are approximate: about 15 g per tablespoon and 5 g per teaspoon. A heaping spoon is closer to 25 g.</p>
     <button class="btn" id="aAdd">${esc(cta)}</button>
     ${NOT_SAVED.includes(f.source) ? '' : '<button class="btn ghost" id="aFix">Numbers look wrong? Fix them</button>'}
     ${editing ? '<button class="btn ghost" id="aMove">Move to another day</button><button class="btn danger" id="aDel">Remove from log</button>' : ''}`);
   const upd = () => {
     const v = calc(f, parseFloat($('aQty').value), unit);
+    if (oil && v.kcal > 0) v.kcal += OIL[oil].k;
     animateNum($('aK'), v.kcal, undefined, 220); animateNum($('aP'), v.pro, n => fmtG(n) + 'g', 220);
     $('aF').hidden = v.fib == null || !(v.kcal > 0); if (v.fib != null) $('aF').textContent = `${fmtG(v.fib)}g fibre`;
     $('aNote').hidden = !['tbsp', 'tsp'].includes(unit);
@@ -700,6 +724,20 @@ function openAmount(f, preset, opts = {}) {
     upd();
   };
   upd(); enrichFood(f);
+  if ($('aState')) $('aState').onclick = e => {
+    const b = e.target.closest('[data-st]'); if (!b || b.dataset.st === base.name) return;
+    const to = BUILTIN_FOODS.find(x => x.name === b.dataset.st); if (!to) return;
+    haptic();
+    let q = parseFloat($('aQty').value) || 0, u = unit;
+    if (!unitsFor(to).some(x => x.key === u)) { const g = unitsFor(f).find(x => x.key === u)?.g; q = g ? Math.round(q * g) : 100; u = 'g'; }   // same amount, in grams
+    openAmount(to, { qty: q, unit: u, oil }, { ...opts, slot });
+  };
+  if ($('aOil')) $('aOil').onclick = e => {
+    const b = e.target.closest('[data-oil]'); if (!b) return;
+    oil = oilKey(b.dataset.oil); haptic();
+    [...$('aOil').children].forEach(c => c.setAttribute('aria-pressed', c.dataset.oil === (oil || 'none')));
+    upd();
+  };
   const fade = () => { const c = $('aUnits'); if (c) c.classList.toggle('more', c.scrollLeft + c.clientWidth < c.scrollWidth - 4); };
   $('aUnits').addEventListener('scroll', fade, { passive: true }); requestAnimationFrame(fade); setTimeout(fade, 400);
   if ($('aSlot')) $('aSlot').onclick = e => {
@@ -719,31 +757,32 @@ function openAmount(f, preset, opts = {}) {
   $('aAdd').onclick = () => {
     const q = parseFloat($('aQty').value);
     if (!(q > 0)) { toast('Enter how much you had.'); return; }
-    const v = calc(f, q, unit), detail = `${fmtQty(q)} ${unitWord(f, unit, q)}`;
+    const v = calc(f, q, unit), oilD = oil ? ` · ${OIL[oil].d}` : '', detail = `${fmtQty(q)} ${unitWord(f, unit, q)}${oilD}`;
+    if (oil) v.kcal += OIL[oil].k;
     rememberFood(f); pushRecent(f, q, unit); touchMeta(); renderSettings();
     if (picking) { pick = null; picking.onDone(f, q, unit, v); return; }
     if (editing) {
       const moved = editEntry && slotOf(editEntry) !== slot;
-      if (editEntry) { Object.assign(editEntry, { kcal: r1(v.kcal), pro: r1(v.pro), detail, food: f, qty: q, unit, slot }); setFib(editEntry, v.fib); }
+      if (editEntry) { Object.assign(editEntry, { kcal: r1(v.kcal), pro: r1(v.pro), detail, food: f, qty: q, unit, slot }); setFib(editEntry, v.fib); if (oil) editEntry.oil = oil; else delete editEntry.oil; }
       if (moved) { S.slotPref[f.id] = slot; touchMeta(); }      // moving a food teaches the app where it usually goes
       touchDay(day); renderTotals(); renderRows(); closeSheet();
       toast(moved ? `Moved to ${SLOTS.find(s => s[0] === slot)[1]}. It'll go there next time too.` : 'Entry updated'); return;
     }
     S.slotPref[f.id] = slot;
     // logging the same thing again in the same meal adds to the existing line
-    const same = entriesFor(day).find(x => x.food && x.food.id === f.id && x.unit === unit && slotOf(x) === slot);
+    const same = entriesFor(day).find(x => x.food && x.food.id === f.id && x.unit === unit && slotOf(x) === slot && (x.oil || null) === oil);   // a different oil choice gets its own line
     if (same) {
       const prev = { kcal: same.kcal, pro: same.pro, qty: same.qty, detail: same.detail }, prevFib = same.fib;
       const had = entryFib(same);
       same.qty = r1(same.qty + q); same.kcal = r1(same.kcal + v.kcal); same.pro = r1(same.pro + v.pro);
       setFib(same, had != null && v.fib != null ? had + v.fib : null);   // only known when both parts are known
-      same.detail = `${fmtQty(same.qty)} ${unitWord(f, unit, same.qty)}`;
+      same.detail = `${fmtQty(same.qty)} ${unitWord(f, unit, same.qty)}${oilD}`;
       touchDay(day); renderTotals(); renderRows(); haptic(); closeSheet();
       replay(document.querySelector(`.row[data-id="${CSS.escape(same.id)}"]`), 'row-bump');
       toast(`Now ${same.detail} · ${Math.round(same.kcal)} kcal`, { label: 'Undo', fn: () => { Object.assign(same, prev); setFib(same, prevFib); touchDay(day); renderTotals(); renderRows(); } });
       return;
     }
-    addEntry(f.name, v.kcal, v.pro, detail, { food: f, qty: q, unit, fib: v.fib }, slot);
+    addEntry(f.name, v.kcal, v.pro, detail, { food: f, qty: q, unit, fib: v.fib, oil }, slot);
     closeSheet(); toast(`Added ${Math.round(v.kcal)} kcal · ${fmtG(v.pro)}g protein`);
   };
 }
@@ -2220,7 +2259,7 @@ $('next').onclick = () => { if (day < todayIso()) { day = shift(day, 1); renderD
 $('rows').onclick = e => {
   const r = e.target.closest('.row[data-id]'); if (!r) return;
   const en = entriesFor(day).find(z => z.id === r.dataset.id); if (!en) return;
-  openAmount(entryFood(en), en.food ? { qty: en.qty, unit: en.unit } : { qty: 1, unit: 'serving' }, { editId: en.id });
+  openAmount(entryFood(en), en.food ? { qty: en.qty, unit: en.unit, oil: en.oil } : { qty: 1, unit: 'serving' }, { editId: en.id });
 };
 $('wSave').onclick = () => {
   const v = fromW(parseFloat($('wIn').value)), t = todayIso(), f = $('wForm');

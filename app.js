@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '48';
+const APP_V = '50';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -158,13 +158,15 @@ function entryFib(e) {
   if (e.fib != null) return e.fib;
   const f = e.food; if (!f || !(e.qty > 0)) return null;
   let src = null;
+  if (f.source === 'meal' && !hasFib(f)) return loggedMealFib(e);
   if (f.source === 'built-in') src = BUILTIN_FOODS.find(b => b.id === f.id && b.name === f.name);
   else if (!hasFib(f)) {
     /* The saved food may have been fixed since (Edit numbers re-saves calories rounded per serving and recalculates per 100 g),
        so compare what it gives for this entry's amount with what was logged, allowing for rounding (v47). */
     const s = S.foods.find(x => x.id === f.id);
     if (s && hasFib(s) && unitsFor(s).some(u => u.key === e.unit)) {
-      const v = calc(s, e.qty, e.unit), logged = e.kcal - (OIL[e.oil]?.k || 0);
+      // a meal ingredient has no logged calories of its own, so compare with what its own copy gives (v49)
+      const v = calc(s, e.qty, e.unit), logged = e.kcal != null ? e.kcal - (OIL[e.oil]?.k || 0) : calc(f, e.qty, e.unit).kcal;
       if (v.fib != null && Math.abs(v.kcal - logged) <= Math.max(3, logged * 0.03)) return v.fib;
     }
     return null;
@@ -173,10 +175,36 @@ function entryFib(e) {
   const v = calc(hasFib(f) ? f : { ...f, fib100: src.fib100, fibServ: src.fibServ }, e.qty, e.unit);
   return v.fib;
 }
+/* v49: a meal logged before its ingredients had fibre. Work it out from the saved meal as it is now, but only if the
+   meal still gives the same calories for that amount (so a meal changed since doesn't rewrite older days). */
+function loggedMealFib(e) {
+  const m = S.meals.find(x => 'meal-' + x.id === e.food.id); if (!m) return null;
+  const f = mealFood(m); if (!hasFib(f) || !unitsFor(f).some(u => u.key === e.unit)) return null;
+  const v = calc(f, e.qty, e.unit);
+  return v.fib != null && Math.abs(v.kcal - e.kcal) <= Math.max(3, e.kcal * 0.03) ? v.fib : null;
+}
+const itemFib = it => entryFib({ food: it.food, qty: it.qty, unit: it.unit });
+/* v50: a meal where only some ingredients have fibre data counts the ones that do, as an "at least" figure.
+   Worked out from the saved meal each time it's shown; nothing new is stored on meals or entries. */
+function mealPartFood(m) {
+  if (!m) return null;
+  const fibs = (m.items || []).map(itemFib), have = fibs.filter(x => x != null);
+  if (!have.length || have.length === fibs.length) return null;
+  const tot = have.reduce((a, b) => a + b, 0), f = mealFood(m);
+  f.fibServ = tot / Math.max(1, m.servings || 1); if (m.cookedG > 0) f.fib100 = tot / m.cookedG * 100;
+  return f;
+}
+const mealOf = f => f?.source === 'meal' ? S.meals.find(x => 'meal-' + x.id === f.id) || null : null;
+/* the known part of a logged meal's fibre, only while the meal still gives the same calories for that amount */
+function entryFibPart(e) {
+  const pf = mealPartFood(mealOf(e.food)); if (!pf || !(e.qty > 0) || !unitsFor(pf).some(u => u.key === e.unit)) return null;
+  const v = calc(pf, e.qty, e.unit);
+  return v.fib != null && Math.abs(v.kcal - e.kcal) <= Math.max(3, e.kcal * 0.03) ? v.fib : null;
+}
 function dayFib(d) {
-  const es = entriesFor(d); let g = 0, known = 0;
-  es.forEach(e => { const x = entryFib(e); if (x != null) { g += x; known++; } });
-  return { g, known, total: es.length };
+  const es = entriesFor(d); let g = 0, known = 0, part = 0;
+  es.forEach(e => { const x = entryFib(e); if (x != null) { g += x; known++; } else { const y = entryFibPart(e); if (y != null) { g += y; part++; } } });
+  return { g, known, part, total: es.length };
 }
 /* Nutri-Score: Open Food Facts' A–E grade for packaged foods. Only a–e are kept. */
 const nsOk = g => /^[a-e]$/.test(g || '');
@@ -512,6 +540,9 @@ function doRemoveEntry(id) {
   toast(`Removed ${gone.name}`, { label: 'Undo', fn: () => { (S.log[d] ||= []).splice(i, 0, gone); touchDay(d); renderTotals(); renderRows(); } });
 }
 const NOT_SAVED = ['built-in', 'meal', 'entry'];
+/* v50: Recent, meal ingredients and logged entries keep a copy of a food from when it was used. If you've fixed the saved
+   food since (fibre, Edit numbers), new logs use the saved one, and an old copy never overwrites it. */
+const freshFood = f => (f && !NOT_SAVED.includes(f.source) && S.foods.find(x => x.id === f.id)) || f;
 function rememberFood(f) {
   if (!NOT_SAVED.includes(f.source)) {
     const i = S.foods.findIndex(x => x.id === f.id);
@@ -520,6 +551,7 @@ function rememberFood(f) {
 }
 function pushRecent(f, qty, unit) {
   if (NOT_SAVED.includes(f.source) && f.source !== 'built-in') return;
+  f = freshFood(f);
   S.recent = [{ food: f, qty, unit }, ...S.recent.filter(r => r.food.id !== f.id)].slice(0, 12);
 }
 
@@ -596,6 +628,7 @@ function closeSheet() {
   if (onSheetClose) { try { onSheetClose(); } catch (e) {} onSheetClose = null; }
   if (!SH.open) return;
   SH.open = false; SH.drag = null;
+  safe(renderTotals);   // v50: changes made in a panel (fixing a food, saving a meal) show on Today right away
   sheetEl.style.pointerEvents = 'none'; scrimEl.style.pointerEvents = 'none';
   setY(sheetH(), true);
   clearTimeout(SH.hideTimer);
@@ -666,6 +699,7 @@ addEventListener('resize', () => { if (SH.open && !SH.drag) setY(0, false); });
 
 /* ---------- amount step (shared by every flow) ---------- */
 function openAmount(f, preset, opts = {}) {
+  if (!opts.editId) f = freshFood(f);
   const units = unitsFor(f);
   if (!units.length) { toast('This food has no calorie data. Try the label photo instead.'); return; }
   let unit = preset?.unit && units.some(u => u.key === preset.unit) ? preset.unit
@@ -714,7 +748,12 @@ function openAmount(f, preset, opts = {}) {
     const v = calc(f, parseFloat($('aQty').value), unit);
     if (oil && v.kcal > 0) v.kcal += OIL[oil].k;
     animateNum($('aK'), v.kcal, undefined, 220); animateNum($('aP'), v.pro, n => fmtG(n) + 'g', 220);
-    $('aF').hidden = v.fib == null || !(v.kcal > 0); if (v.fib != null) $('aF').textContent = `${fmtG(v.fib)}g fibre`;
+    let fibTxt = v.fib != null ? `${fmtG(v.fib)}g fibre` : null;
+    if (v.fib == null && v.kcal > 0) {      // v50: a meal with some ingredients missing fibre data
+      const pf = mealPartFood(mealOf(f)), pv = pf && calc(pf, parseFloat($('aQty').value), unit);
+      if (pv?.fib != null && Math.abs(pv.kcal - v.kcal) <= Math.max(3, pv.kcal * 0.03)) fibTxt = `at least ${fmtG(pv.fib)}g fibre (not every ingredient has fibre data)`;
+    }
+    $('aF').hidden = !fibTxt || !(v.kcal > 0); if (fibTxt) $('aF').textContent = fibTxt;
     $('aNote').hidden = !['tbsp', 'tsp'].includes(unit);
     if (HAND.includes(unit) && $('aHand') && !$('aHand').dataset.seen) {   // teaches the first couple of times, then stays tucked away
       $('aHand').dataset.seen = '1';
@@ -758,18 +797,19 @@ function openAmount(f, preset, opts = {}) {
   if ($('aDel')) $('aDel').onclick = () => { closeSheet(); removeEntry(editing); };
   if ($('aMove')) $('aMove').onclick = () => openMoveDay(editing);
   if ($('aFix')) $('aFix').onclick = () => {
-    const g = f.servingG || null;
+    const g = f.servingG || null, was = { preset: { qty: parseFloat($('aQty').value) || 1, unit, oil }, opts: { ...opts, slot } };   // v50: come back to the same amount
     const per = f.kcalServ != null ? { kcal: f.kcalServ, pro: f.proServ }
       : g ? { kcal: f.kcal100 * g / 100, pro: (f.pro100 || 0) * g / 100 } : { kcal: f.kcal100, pro: f.pro100 };
     openSheet('Fix the numbers', `<p class="hint">Enter what the label says for one serving. The app will use your numbers for this food from now on.</p><div id="labelOut"></div>`);
-    labelForm($('labelOut'), { kcal: Math.round(per.kcal), pro: r1(per.pro || 0), fib: fibPerServ(f, g), servingG: g || (f.kcalServ == null ? 100 : null) }, '', f.barcode || null, f.name, f.id);
+    labelForm($('labelOut'), { kcal: Math.round(per.kcal), pro: r1(per.pro || 0), fib: fibPerServ(f, g), servingG: g || (f.kcalServ == null ? 100 : null) }, '', f.barcode || null, f.name, f.id, was);
   };
   $('aAdd').onclick = () => {
     const q = parseFloat($('aQty').value);
     if (!(q > 0)) { toast('Enter how much you had.'); return; }
     const v = calc(f, q, unit), oilD = oil ? ` · ${OIL[oil].d}` : '', detail = `${fmtQty(q)} ${unitWord(f, unit, q)}${oilD}`;
     if (oil) v.kcal += OIL[oil].k;
-    rememberFood(f); pushRecent(f, q, unit); touchMeta(); renderSettings();
+    if (!(editing && S.foods.some(x => x.id === f.id && x !== f))) rememberFood(f);   // an entry's old copy never overwrites the saved food
+    pushRecent(f, q, unit); touchMeta(); renderSettings();
     if (picking) { pick = null; picking.onDone(f, q, unit, v); return; }
     if (editing) {
       const moved = editEntry && slotOf(editEntry) !== slot;
@@ -1021,7 +1061,7 @@ async function runOcr(file, barcode) {
   }
   labelForm(out, parseLabel(text), text, barcode);
 }
-function labelForm(out, p, text, barcode, name, keepId) {
+function labelForm(out, p, text, barcode, name, keepId, then) {
   out.insertAdjacentHTML('beforeend', `
     ${text ? '<p class="hint">Check these against the label and fix anything that looks off.</p>' : ''}
     <label>Food name<input id="lName" value="${esc(name || '')}" placeholder="e.g. Greek yogurt 0%"></label>
@@ -1044,7 +1084,8 @@ function labelForm(out, p, text, barcode, name, keepId) {
     if (g > 0) { f.servingG = g; f.servingLabel = g + ' g'; f.kcal100 = k / g * 100; f.pro100 = pr / g * 100; if (f.fibServ != null) f.fib100 = fb / g * 100; }
     const old = keepId && S.foods.find(x => x.id === keepId); if (old && nsOk(old.nutri)) f.nutri = old.nutri;   // keep the grade when fixing numbers
     rememberFood(f); touchMeta(); renderSettings();
-    openAmount(f, { qty: 1, unit: 'serving' });
+    const back = then && unitsFor(f).some(u => u.key === then.preset.unit) ? then.preset : { qty: 1, unit: 'serving' };
+    openAmount(f, back, then?.opts || {});
   };
 }
 
@@ -1128,7 +1169,7 @@ function mealFood(m) {
     f.kcal100 = (m.totalK ?? m.kcal * n) / m.cookedG * 100; f.pro100 = (m.totalP ?? m.pro * n) / m.cookedG * 100;
   }
   // fibre only when every ingredient has it (worked out from the saved ingredients, nothing new is stored)
-  const fibs = (m.items || []).map(it => entryFib({ food: it.food, qty: it.qty, unit: it.unit }));
+  const fibs = (m.items || []).map(itemFib);
   if (fibs.length && fibs.every(x => x != null)) {
     const tot = fibs.reduce((a, b) => a + b, 0);
     f.fibServ = tot / n; if (m.cookedG > 0) f.fib100 = tot / m.cookedG * 100;
@@ -2057,11 +2098,13 @@ function renderNudge() {
 function renderNut() {
   const box = $('nutBox'), es = entriesFor(day); box.hidden = !es.length; if (!es.length) return;
   const f = dayFib(day), g = Math.round(f.g);
-  $('nutSum').textContent = f.known ? `${f.known < f.total ? 'at least ' : ''}${g}g fibre` : 'no fibre data';
+  const any = f.known || f.part, pm = f.part > 1 ? `${f.part} meals` : 'a meal';
+  $('nutSum').textContent = any ? `${f.known < f.total ? 'at least ' : ''}${g}g fibre` : 'no fibre data';
   const cover = f.known === f.total ? `From all ${f.total} food${f.total > 1 ? 's' : ''} logged.`
+    : f.part ? `${f.known ? `From ${f.known} of ${f.total} foods, plus` : 'From'} the ingredients that have fibre data in ${pm}. Some ingredients don't have it yet, so the real total is higher.`
     : f.known ? `From ${f.known} of ${f.total} foods. The other ${f.total - f.known} ${f.total - f.known > 1 ? "don't" : "doesn't"} have fibre data, so the real total is higher.`
     : "None of these foods have fibre data yet. Scanned packaged foods and the built-in whole foods usually do.";
-  $('nutBody').innerHTML = `<div class="nut-row"><span>Fibre</span><b>${f.known ? (f.known < f.total ? '≥ ' : '') + g + 'g' : '–'}</b></div>
+  $('nutBody').innerHTML = `<div class="nut-row"><span>Fibre</span><b>${any ? (f.known < f.total ? '≥ ' : '') + g + 'g' : '–'}</b></div>
     <div class="prog"><i style="width:${Math.round(Math.min(1, f.g / FIB_HI) * 100)}%"></i></div>
     <p class="hint">Most adults do well with about ${FIB_LO}–${FIB_HI}g a day. Fibre comes from vegetables, fruit, beans, oats and whole grains, and it helps keep you full. ${cover}</p>
     ${missingFibHtml(es)}`;
@@ -2072,8 +2115,16 @@ function missingFib(es) {
   es.forEach(e => {
     if (entryFib(e) != null) return;
     const f = e.food, saved = f && S.foods.find(x => x.id === f.id);
-    if (saved) fix.set(saved.id, saved);
-    else other.set((f?.id || 'q') + e.name, `${e.name}${!f ? ' (quick add)' : f.source === 'meal' ? ' (meal: add fibre to its ingredients)' : ''}`);
+    if (saved) { fix.set(saved.id, saved); return; }
+    const m = f?.source === 'meal' && S.meals.find(x => 'meal-' + x.id === f.id);
+    if (m && m.items?.length) {   // v49: name the ingredients that hold the meal back, with the same one-tap fix
+      const gaps = m.items.filter(it => itemFib(it) == null);
+      gaps.forEach(it => { const s2 = S.foods.find(x => x.id === it.food.id);
+        if (s2 && !hasFib(s2)) fix.set(s2.id, s2); else other.set('mi' + it.food.id, `${it.food.name} (in ${m.name})`); });
+      if (gaps.length) return;
+      other.set((f?.id || 'q') + e.name, `${e.name} (the meal has changed since this was logged)`); return;
+    }
+    other.set((f?.id || 'q') + e.name, `${e.name}${!f ? ' (quick add)' : f.source === 'meal' ? ' (meal: add fibre to its ingredients)' : ''}`);
   });
   return { fix: [...fix.values()], other: [...other.values()] };
 }
@@ -2106,7 +2157,7 @@ function openAddFibre(id) {
 
 /* Trends fibre card: hidden until a day in the range has fibre data */
 function renderFibChart(days) {
-  const vals = days.map(d => { const f = dayFib(d); return f.known ? f.g : null; }), have = vals.filter(v => v != null);
+  const vals = days.map(d => { const f = dayFib(d); return f.known || f.part ? f.g : null; }), have = vals.filter(v => v != null);
   $('fibCard').hidden = !have.length; if (!have.length) return;
   let known = 0, total = 0; days.forEach(d => { const f = dayFib(d); known += f.known; total += f.total; });
   $('tFibAvg').textContent = `avg ${Math.round(have.reduce((a, b) => a + b, 0) / have.length)}g`;
@@ -2138,7 +2189,7 @@ const GUIDE = [
   ['The Today screen', `
     <p>The left ring is calories, with a small mark where your range starts. The right ring is protein.</p>
     <p>Below the rings: how your day is going, a <b>protein nudge</b> if protein falls behind your calories, <b>What fits</b> (foods from your own list that fit what's left) and <b>This week</b> (calories banked or over across the week).</p>
-    <p><b>More nutrients</b>, under your food list, shows fibre. It only counts foods that have fibre data, so it says "at least" when some don't. Foods missing it are listed there; tap one to add the number from its label.</p>`],
+    <p><b>More nutrients</b>, under your food list, shows fibre. It only counts foods that have fibre data, so it says "at least" when some don't. A meal counts the ingredients that have it. Foods missing it are listed there; tap one to add the number from its label.</p>`],
   ['Weigh-ins and waist', `
     <p>Pick <b>Every morning</b>, <b>Once a week</b> or <b>No scale</b> in You → Weigh-ins. Weigh after the bathroom, before food or water.</p>
     <p>Daily weight jumps around by a few pounds from water, salt and carbs. The <b>7-day average</b> is the number that matters.</p>
@@ -2332,7 +2383,7 @@ function fitsCandidates() {
   const seen = new Set(), out = [];
   const add = (f, qty, unit) => { if (!f || seen.has(f.id)) return; const v = calc(f, qty, unit); if (!(v.kcal >= 20)) return; seen.add(f.id); out.push({ f, qty, unit, kcal: v.kcal, pro: v.pro }); };
   S.meals.forEach(m => add(mealFood(m), 1, 'serving'));
-  S.recent.forEach(r => add(r.food, r.qty, r.unit));
+  S.recent.forEach(r => add(freshFood(r.food), r.qty, r.unit));
   S.foods.forEach(f => { const us = unitsFor(f), u = us.find(x => x.key === 'serving') || us.find(x => x.key === 'piece') || us.find(x => x.key === 'g'); if (u) add(f, u.key === 'g' ? 100 : 1, u.key); });
   return out;
 }

@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '59';
+const APP_V = '61';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -132,7 +132,55 @@ const OIL = { none: { k: 0, t: 'None' }, little: { k: 40, t: 'A little', d: 'a l
 const oilKey = k => OIL[k] && k !== 'none' ? k : null;
 /* the built-in food behind an entry's saved copy (older copies don't have the newer twin/cook fields) */
 const baseOf = f => (f && f.source === 'built-in' && BUILTIN_FOODS.find(b => b.id === f.id && b.name === f.name)) || f;
-const twinOf = f => { const b = baseOf(f); return b?.twin ? BUILTIN_FOODS.find(x => x.name === b.twin) || null : null; };
+const twinOf = f => {
+  if (f?.cookOf) return S.foods.find(x => x.id === f.cookOf) || null;          // v61: cooked version of a package -> the package
+  const pp = pkgPair(f); if (pp) return cookedOf(f, pp);                          // v61: a package -> its cooked version
+  const b = baseOf(f); return b?.twin ? BUILTIN_FOODS.find(x => x.name === b.twin) || null : null;
+};
+/* v61: Raw / Cooked for your own packaged foods. Package labels for meat, fish, rice, pasta and oats give the raw or dry
+   food. Kan weighs his food after cooking, and cooked meat weighs less (it loses water) while the calories stay, so the
+   label undercounts by about a quarter for ground chicken. A saved or scanned food whose name matches one of the built-in
+   raw/cooked pairs gets the same switch: Raw weight (or Dry weight) is the package as it is, and Cooked scales every number
+   per 100 g by how much that pair changes when cooked (ground chicken 140 -> 180 kcal, so x1.29; white rice 365 -> 130,
+   so x0.36). Rice, pasta and oats must also have dry-food numbers (closer to the dry food than the cooked one), so a
+   package that's already cooked (ready rice) never gets it. Cooked versions are made when needed, never saved as foods. */
+const PKG_PAIRS = [
+  [/\b(ground|minced) chicken\b|\bchicken,? (ground|mince)/, 'Ground chicken, extra lean (raw)'],
+  [/\b(ground|minced) beef\b|\bbeef,? (ground|mince)/, 'Ground beef, extra lean (raw)'],
+  [/\bchicken breasts?\b/, 'Chicken breast (raw)'],
+  [/\bbasa\b|\bswai\b|\bpangasius\b/, 'Basa / swai fillet (raw)'],
+  [/\bsalmon\b/, 'Salmon, Atlantic (raw)'],
+  [/\bbrown rice\b/, 'Brown rice (dry)'],
+  [/\brice\b/, 'White rice (dry)'],
+  [/\b(pasta|spaghetti|spaghettini|penne|macaroni|fusilli|linguine|rigatoni|rotini|fettuccine|farfalle|orzo)\b/, 'Pasta (dry)'],
+  [/\boats\b|\boatmeal\b|\bporridge\b/, 'Oats, rolled (dry)'],
+];
+const PKG_NOT = /\b(cooked|roasted|grilled|smoked|canned|tinned|deli|sliced|nuggets?|breaded|fried|strips|cakes?|crackers?|crisps?|crispy|chips|cereal|milk|flour|bran|bars?|sauce|soup|pudding|salad|bowl|drink|granola|cookies?|vinegar|wine|oil|jerky|sushi|dinner|meal|kit)\b/;
+function pkgPair(f) {
+  if (!f || NOT_SAVED.includes(f.source) || f.source === 'cooked' || f.cookOf || !(f.kcal100 > 0)) return null;
+  const nm = String(f.name || '').toLowerCase();
+  if (PKG_NOT.test(nm)) return null;
+  const hit = PKG_PAIRS.find(([re]) => re.test(nm)); if (!hit) return null;
+  const raw = BUILTIN_FOODS.find(x => x.name === hit[1]), cooked = raw && BUILTIN_FOODS.find(x => x.name === raw.twin);
+  if (!cooked) return null;
+  if (raw.state === 'dry' && Math.abs(f.kcal100 - raw.kcal100) >= Math.abs(f.kcal100 - cooked.kcal100)) return null;   // already cooked
+  return { raw, cooked };
+}
+function cookedOf(p, pp = pkgPair(p)) {
+  if (!pp) return null;
+  const k = pp.cooked.kcal100 / pp.raw.kcal100;
+  const c = { id: p.id + '~cooked', cookOf: p.id, name: `${p.name} (cooked)`, source: 'cooked', state: 'cooked', kcal100: p.kcal100 * k, pro100: (p.pro100 || 0) * k };
+  if (p.brand) c.brand = p.brand;
+  if (pp.cooked.cook) c.cook = true;
+  if (pp.cooked.cup) c.cup = pp.cooked.cup;
+  const f100 = p.fib100 != null ? p.fib100 : p.fibServ != null && p.servingG ? p.fibServ / p.servingG * 100 : null;
+  if (f100 != null) c.fib100 = f100 * k;
+  if (nsOk(p.nutri)) c.nutri = p.nutri;
+  return c;
+}
+const stateOf = x => x.state || pkgPair(x)?.raw.state || 'raw';
+/* the last time you logged this package, was it cooked? Then open it that way again */
+const lastCooked = id => S.recent.find(r => r.food && (r.food.id === id || r.food.cookOf === id))?.food.cookOf === id;
 function unitsFor(f) {
   const u = [];
   if (f.kcalServ != null || f.servingG) u.push({ key: 'serving', label: 'serving', long: f.servingLabel ? `serving (${f.servingLabel})` : 'serving', g: f.servingG || null });
@@ -179,7 +227,7 @@ function entryFib(e) {
   else if (!hasFib(f)) {
     /* The saved food may have been fixed since (Edit numbers re-saves calories rounded per serving and recalculates per 100 g),
        so compare what it gives for this entry's amount with what was logged, allowing for rounding (v47). */
-    const s = S.foods.find(x => x.id === f.id);
+    const s = f.cookOf ? (p => p && cookedOf(p))(S.foods.find(x => x.id === f.cookOf)) : S.foods.find(x => x.id === f.id);   // v61: cooked -> its package
     if (s && hasFib(s) && unitsFor(s).some(u => u.key === e.unit)) {
       // a meal ingredient has no logged calories of its own, so compare with what its own copy gives (v49)
       const v = calc(s, e.qty, e.unit), logged = e.kcal != null ? e.kcal - (OIL[e.oil]?.k || 0) : calc(f, e.qty, e.unit).kcal;
@@ -556,10 +604,13 @@ function doRemoveEntry(id) {
   touchDay(d); renderTotals(); renderRows();
   toast(`Removed ${gone.name}`, { label: 'Undo', fn: () => { (S.log[d] ||= []).splice(i, 0, gone); touchDay(d); renderTotals(); renderRows(); } });
 }
-const NOT_SAVED = ['built-in', 'meal', 'entry'];
+const NOT_SAVED = ['built-in', 'meal', 'entry', 'cooked'];
 /* v50: Recent, meal ingredients and logged entries keep a copy of a food from when it was used. If you've fixed the saved
    food since (fibre, Edit numbers), new logs use the saved one, and an old copy never overwrites it. */
-const freshFood = f => (f && !NOT_SAVED.includes(f.source) && S.foods.find(x => x.id === f.id)) || f;
+const freshFood = f => {
+  if (f?.cookOf) { const p = S.foods.find(x => x.id === f.cookOf); return (p && cookedOf(p)) || f; }   // v61: rebuilt from the saved package
+  return (f && !NOT_SAVED.includes(f.source) && S.foods.find(x => x.id === f.id)) || f;
+};
 function rememberFood(f) {
   if (!NOT_SAVED.includes(f.source)) {
     const i = S.foods.findIndex(x => x.id === f.id);
@@ -567,7 +618,7 @@ function rememberFood(f) {
   }
 }
 function pushRecent(f, qty, unit) {
-  if (NOT_SAVED.includes(f.source) && f.source !== 'built-in') return;
+  if (NOT_SAVED.includes(f.source) && f.source !== 'built-in' && f.source !== 'cooked') return;
   f = freshFood(f);
   S.recent = [{ food: f, qty, unit }, ...S.recent.filter(r => r.food.id !== f.id)].slice(0, 12);
 }
@@ -735,6 +786,10 @@ addEventListener('resize', () => { if (SH.open && !SH.drag) setY(0, false); });
 /* ---------- amount step (shared by every flow) ---------- */
 function openAmount(f, preset, opts = {}) {
   if (!opts.editId) f = freshFood(f);
+  if (!opts.editId && !opts.asIs && !pick && lastCooked(f.id) && pkgPair(f)) {        // v61: you logged it cooked last time
+    f = cookedOf(f);
+    if (preset?.unit && !unitsFor(f).some(u => u.key === preset.unit)) preset = { ...preset, qty: 100, unit: 'g' };
+  }
   const units = unitsFor(f);
   if (!units.length) { toast('This food has no calorie data. Try the label photo instead.'); return; }
   let unit = preset?.unit && units.some(u => u.key === preset.unit) ? preset.unit
@@ -746,13 +801,13 @@ function openAmount(f, preset, opts = {}) {
   let slot = editEntry ? slotOf(editEntry) : defaultSlot(f.id);
   const cta = picking ? picking.label : editing ? 'Save changes' : `Add to ${dayName === 'Today' ? 'today' : dayName}`;
   const base = baseOf(f), twin = twinOf(f);
-  const canOil = !picking && !!base.cook;          // whole foods you cook yourself; dishes already include their oil, meals add it as an ingredient
+  const canOil = !picking && !!(base.cook || pkgPair(f)?.raw.cook);          // whole foods you cook yourself; dishes already include their oil, meals add it as an ingredient
   let oil = canOil ? oilKey(preset?.oil) : null;
   if (opts.slot) slot = opts.slot;
   openSheet(editing ? 'Edit entry' : 'How much?', `
     <div class="food-head" id="aFood" data-id="${esc(f.id)}"><strong>${esc(f.name)}</strong><span>${esc([f.brand, perLine(f)].filter(Boolean).join(' · '))}</span><span class="ns-row" id="aNs">${nsBadge(f, true)}</span></div>
-    ${twin ? `<div class="seg2 st" id="aState" role="group" aria-label="Weighed raw or cooked">${[base, twin].sort((a, b) => a.state === 'cooked' ? 1 : b.state === 'cooked' ? -1 : 0).map(x => `<button type="button" data-st="${esc(x.name)}" aria-pressed="${x.name === base.name}">${x.state === 'dry' ? 'Dry weight' : x.state === 'raw' ? 'Raw weight' : 'Cooked'}</button>`).join('')}</div>
-    <p class="st-hint">Pick how it was when you measured it. Cooking changes the weight, so the numbers differ.</p>` : ''}
+    ${twin ? `<div class="seg2 st" id="aState" role="group" aria-label="Weighed raw or cooked">${[base, twin].sort((a, b) => stateOf(a) === 'cooked' ? 1 : stateOf(b) === 'cooked' ? -1 : 0).map(x => `<button type="button" data-st="${esc(x.name)}" aria-pressed="${x.name === base.name}">${stateOf(x) === 'dry' ? 'Dry weight' : stateOf(x) === 'raw' ? 'Raw weight' : 'Cooked'}</button>`).join('')}</div>
+    <p class="st-hint">Pick how it was when you measured it. Cooking changes the weight, so the numbers differ.${f.cookOf || pkgPair(f) ? ' Cooked is worked out from the package.' : ''}</p>` : ''}
     <div class="stepper">
       <button id="aMinus" aria-label="Less">−</button>
       <input id="aQty" type="number" inputmode="decimal" step="any" min="0" value="${startQty}" aria-label="Amount">
@@ -807,14 +862,14 @@ function openAmount(f, preset, opts = {}) {
     if (unit !== 'g' && parseFloat($('aQty').value) >= 10) $('aQty').value = 1;
     upd();
   };
-  upd(); enrichFood(f);
+  upd(); enrichFood(f); recheckServing(f, editing);
   if ($('aState')) $('aState').onclick = e => {
     const b = e.target.closest('[data-st]'); if (!b || b.dataset.st === base.name) return;
-    const to = BUILTIN_FOODS.find(x => x.name === b.dataset.st); if (!to) return;
+    const to = [base, twin].find(x => x.name === b.dataset.st); if (!to) return;
     haptic();
     let q = parseFloat($('aQty').value) || 0, u = unit;
     if (!unitsFor(to).some(x => x.key === u)) { const g = unitsFor(f).find(x => x.key === u)?.g; q = g ? Math.round(q * g) : 100; u = 'g'; }   // same amount, in grams
-    openAmount(to, { qty: q, unit: u, oil }, { ...opts, slot });
+    openAmount(to, { qty: q, unit: u, oil }, { ...opts, slot, asIs: true });
   };
   if ($('aOil')) $('aOil').onclick = e => {
     const b = e.target.closest('[data-oil]'); if (!b) return;
@@ -824,6 +879,11 @@ function openAmount(f, preset, opts = {}) {
   };
   const fade = () => { const c = $('aUnits'); if (c) c.classList.toggle('more', c.scrollLeft + c.clientWidth < c.scrollWidth - 4); };
   $('aUnits').addEventListener('scroll', fade, { passive: true }); requestAnimationFrame(fade); setTimeout(fade, 400);
+  requestAnimationFrame(() => {      // v61: the chosen unit is always in view (5 tbsp hiding off the edge read as 5 servings)
+    const c = $('aUnits'), b = c?.querySelector('[aria-pressed="true"]'); if (!b) return;
+    const cr = c.getBoundingClientRect(), br = b.getBoundingClientRect();
+    if (br.right > cr.right - 24 || br.left < cr.left) { c.scrollLeft += br.left - cr.left - 16; fade(); }
+  });
   if ($('aSlot')) $('aSlot').onclick = e => {
     const b = e.target.closest('[data-s]'); if (!b) return;
     slot = b.dataset.s; haptic();
@@ -884,7 +944,41 @@ function offToFood(p, code) {
   if (sq > 0) { f.servingG = sq; f.servingLabel = p.serving_size || sq + ' g'; }
   if (f.kcal100 == null && n['energy-kcal_serving'] != null) { f.kcalServ = +n['energy-kcal_serving']; f.proServ = +(n['proteins_serving'] || 0); }
   offExtras(f, p);
+  fixServingSwap(f, n, sq);
+  if (f.kcal100 > 900) {          // impossible (pure oil is about 884): a label rounded up on a tiny serving, e.g. 5 kcal on 0.5 g = 1,000
+    if (sq > 0 && f.kcalServ == null) { f.kcalServ = f.kcal100 * sq / 100; f.proServ = (f.pro100 || 0) * sq / 100; }
+    f.kcal100 = MAX_KCAL100;
+  }
   return (f.kcal100 != null || f.kcalServ != null) ? f : null;
+}
+/* v60: Open Food Facts sometimes has a label's per-serving numbers typed into its "per 100 g" fields. Kan's Chosen Foods
+   avocado oil spray (0815074022915) says 5 kcal and 0.5 g fat "per 100 g" with a 0.5 g serving, so one serving came out
+   as 0.025 kcal and showed 0. Either of two signs is enough:
+   1. The packaging's own per-serving calories don't match the per-100 g number scaled to the serving (beyond rounding).
+   2. No usable per-serving calories, but the "per 100 g" fat + carbs + protein weigh about one serving (as copied from the
+      label), the serving is small (30 g or less), and read per 100 g they'd come to under 1 kcal a serving.
+   Then the label's serving numbers are used for "serving", and per 100 g is worked out from them, held to the most a food
+   can have (pure oil, about 884 kcal per 100 g), because labels round tiny servings up (5 kcal on 0.5 g would be 1,000). */
+const MAX_KCAL100 = 884;
+const offNum = v => v == null || v === '' || !isFinite(+v) ? null : +v;
+function fixServingSwap(f, n, sq) {
+  if (!(sq > 0) || f.kcal100 == null) return false;
+  const scaled = f.kcal100 * sq / 100;
+  let ks = offNum(n['energy-kcal_serving']);
+  if (ks == null && offNum(n['energy_serving']) != null) ks = n['energy_serving'] / 4.184;
+  let kS, pS, fS;
+  if (ks != null && ks >= 1 && Math.abs(ks - scaled) > Math.max(2, ks * 0.5)) {
+    kS = ks; pS = offNum(n['proteins_serving']) ?? 0; fS = offNum(n['fiber_serving']);
+  } else {
+    const mass = ['fat_100g', 'carbohydrates_100g', 'proteins_100g'].reduce((s, k) => s + (offNum(n[k]) || 0), 0);
+    if (!(sq <= 30 && f.kcal100 >= 1 && scaled < 1 && mass > 0 && Math.abs(mass - sq) <= sq * 0.25)) return false;
+    kS = f.kcal100; pS = f.pro100 || 0; fS = offNum(n['fiber_100g']);
+  }
+  f.kcalServ = kS; f.proServ = pS;
+  f.kcal100 = Math.min(kS / sq * 100, MAX_KCAL100); f.pro100 = Math.min(pS / sq * 100, 100);
+  delete f.fib100; delete f.fibServ;
+  if (fS != null && fS >= 0) { f.fibServ = fS; f.fib100 = Math.min(fS / sq * 100, 100); }
+  return true;
 }
 /* fibre and Nutri-Score, when Open Food Facts has them */
 function offExtras(f, p) {
@@ -911,6 +1005,35 @@ async function enrichFood(f) {
     touchMeta(); renderTotals();
     if (SH.open && $('sheetTitle').textContent === 'How much?' && $('aFood')?.dataset.id === f.id) { $('aNs').innerHTML = nsBadge(f, true); $('aQty').dispatchEvent(new Event('input')); }
   } catch (e) { /* offline or blocked: try again next visit */ }
+}
+/* v60: a food scanned before the fix above may still hold the swapped numbers (0 kcal a serving). The first time it's opened,
+   ask Open Food Facts once; if the corrected reading has per-serving numbers, update the saved food. Foods fixed by hand
+   (source 'label') are never touched, and entries already logged keep the numbers they were logged with. */
+const servTried = new Set();
+const looksSwapped = f => !!f?.barcode && f.source === 'scan' && f.kcalServ == null && f.servingG > 0 && f.servingG <= 30 && f.kcal100 >= 1 && f.kcal100 * f.servingG / 100 < 1;
+async function recheckServing(f, editing) {
+  if (!looksSwapped(f) || servTried.has(f.id) || !navigator.onLine) return;
+  servTried.add(f.id);
+  try {
+    const res = await fetch(`${OFF}/api/v2/product/${f.barcode}.json?fields=${OFF_FIELDS}`);
+    if (!res.ok) return;
+    const j = await res.json(); if (j.status !== 1 || !j.product) return;
+    const g = offToFood(j.product, f.barcode); if (!g || g.kcalServ == null) return;
+    const saved = S.foods.find(x => x.id === f.id);
+    (editing ? [saved] : [...new Set([f, saved])]).forEach(t => {
+      if (!t || t.source !== 'scan') return;
+      ['kcal100', 'pro100', 'kcalServ', 'proServ'].forEach(k => { t[k] = g[k]; });
+      delete t.fib100; delete t.fibServ;
+      if (g.fib100 != null) t.fib100 = g.fib100;
+      if (g.fibServ != null) t.fibServ = g.fibServ;
+    });
+    touchMeta(); renderTotals();
+    if (!editing && SH.open && $('sheetTitle').textContent === 'How much?' && $('aFood')?.dataset.id === f.id) {
+      $('aFood').children[1].textContent = [f.brand, perLine(f)].filter(Boolean).join(' · ');
+      $('aQty').dispatchEvent(new Event('input'));
+    }
+    toast(`Fixed: ${Math.round(g.kcalServ)} kcal per serving`);
+  } catch (e) { /* offline or blocked: try again next time the app starts */ }
 }
 async function lookupBarcode(code) {
   code = String(code).replace(/\D/g, '');
@@ -2168,7 +2291,7 @@ function missingFib(es) {
   const fix = new Map(), other = new Map();
   es.forEach(e => {
     if (entryFib(e) != null) return;
-    const f = e.food, saved = f && S.foods.find(x => x.id === f.id);
+    const f = e.food, saved = f && S.foods.find(x => x.id === (f.cookOf || f.id));   // v61: a cooked entry's fix is its package
     if (saved) { fix.set(saved.id, saved); return; }
     const m = f?.source === 'meal' && S.meals.find(x => 'meal-' + x.id === f.id);
     if (m && m.items?.length) {   // v49: name the ingredients that hold the meal back, with the same one-tap fix
@@ -2233,7 +2356,7 @@ const GUIDE = [
     <p><b>Snap label</b> reads a Nutrition Facts photo on your phone. Check the numbers it found before saving.</p>
     <p><b>Search</b> covers whole foods, Nigerian and Canadian dishes, your saved foods, and packaged foods online. Nothing fits? Use <b>Enter a food by hand</b>, or <b>Quick add</b> for just calories and protein (good for samples or a meal out).</p>
     <p>On <b>How much?</b> pick an amount in pieces, servings, grams, cups or spoons. No scale? Use your hand: a <b>palm</b> of meat (about 100 g), a <b>fist</b> of rice or pasta (about a cup), a <b>cupped hand</b> of snacks, a <b>thumb</b> of oil or peanut butter. Dishes come in <b>small, regular and large</b> plates or bowls, with a picture guide.</p>
-    <p>Staples like chicken, rice and pasta have a <b>Raw weight / Cooked</b> switch: pick how it was when you measured it. Food you cook yourself asks <b>Cooked with oil or butter?</b> Oil is the most common hidden source of calories.</p>
+    <p>Staples like chicken, rice and pasta have a <b>Raw weight / Cooked</b> switch: pick how it was when you measured it. Your own packs of chicken, beef, fish, rice, pasta and oats get it too: the package numbers are for raw or dry food, and Cooked works out what they come to after cooking (it opens cooked next time if that's how you logged it last). Food you cook yourself asks <b>Cooked with oil or butter?</b> Oil is the most common hidden source of calories.</p>
     <p>Packaged foods may show a <b>Nutri-Score</b> letter from A (most nutritious) to E (least).</p>
     <p>Food is grouped into Breakfast, Lunch, Dinner and Snacks, and the app learns where you usually put each food. <b>Tap any entry</b> to change the amount, move it to another meal or day, or remove it (with Undo). <b>Copy from yesterday</b> repeats a whole day or one meal.</p>`],
   ['My meals', `

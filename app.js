@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '56';
+const APP_V = '59';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -1551,6 +1551,17 @@ function dayTotals(d) {
   const es = S.log[d]; if (!es || !es.length) return null;
   return { kcal: es.reduce((a, e) => a + e.kcal, 0), pro: es.reduce((a, e) => a + e.pro, 0) };
 }
+/* v59: the weekly rate comes from the trend line (each weigh-in's 7-day average), not the raw dots, and only once the
+   weigh-ins used span a week. Kan's first few days (210.0 to 212.6) were read as +1.7 lb/week from the raw dots, which set off
+   "not moving toward your goal". The fit looks back at least 14 days so the 7-day view has enough to go on. */
+const RATE_MIN_SPAN = 7, RATE_MIN_DAYS = 14;
+function trendPts(pts, arr) { return pts.map(p => ({ date: p.date, lb: avgBetween(arr, shift(p.date, -6), p.date) })); }
+function trendRate(to, days) {
+  const arr = weightsArr(), from = shift(to, -(Math.max(days, RATE_MIN_DAYS) - 1));
+  const pts = arr.filter(w => w.date >= from && w.date <= to);
+  if (pts.length < 3 || daysBetween(pts[0].date, pts[pts.length - 1].date) < RATE_MIN_SPAN) return null;
+  return slopePerWeek(trendPts(pts, arr));
+}
 function slopePerWeek(pts) {          // least-squares fit of weight vs day
   if (pts.length < 3) return null;
   const xs = pts.map(p => (parseIso(p.date) - parseIso(pts[0].date)) / 864e5), ys = pts.map(p => p.lb);
@@ -1664,7 +1675,7 @@ function renderTrends() {
   const days = Array.from({ length: range }, (_, i) => shift(from, i));
   const arr = weightsArr(), inR = arr.filter(w => w.date >= from && w.date <= to);
   // weight
-  const rate = slopePerWeek(inR);
+  const rate = trendRate(to, range);
   const now = avgBetween(arr, shift(to, -6), to);
   $('tRate').textContent = rate == null ? '–' : (rate > 0 ? '+' : rate < 0 ? '−' : '') + fW(Math.abs(rate));
   $('tNow').textContent = now ? fW(now) : '–';
@@ -2246,7 +2257,7 @@ const GUIDE = [
     <p><b>Your real burn</b> works out how many calories you actually burn from what you eat and how your weight moves. It takes about two weeks of logging and weighing in, then it can suggest better targets.</p>
     <p>Charts for calories, protein and fibre: tap a bar to open that day. <b>See calendar by month</b> under Calories opens your History. Plus consistency stats and <b>milestones</b> with a little celebration.</p>`],
   ['Your settings', `
-    <p>In <b>You</b>: your name, goal (Cutting, Maintaining or Building) with suggested targets, weigh-in frequency, lb or kg, four app colours, Light or Dark, your saved foods, and a backup file you can keep in iCloud Drive.</p>
+    <p>In <b>You</b>: your name, goal (Cutting, Maintaining or Building) with suggested targets, weigh-in frequency, lb or kg, eight app colours (Cobalt, Ember, Teal, Violet, Rose, Gold, Graphite, Sky), Light or Dark, your saved foods, and a backup file you can keep in iCloud Drive.</p>
     <p>Your age, height and sex are only used to suggest targets. They're never saved.</p>`],
   ['What to expect', `
     <p><b>First week:</b> your weight will bounce around. That's water, not fat. Keep logging and weighing.</p>
@@ -2595,8 +2606,7 @@ function renderWeightHistory() {
   svg += `<g id="whCur" style="opacity:0"><line x1="0" x2="0" y1="${T0}" y2="${H - B}" stroke="var(--ink)" stroke-opacity=".35" stroke-width="1.5"/><circle id="whCurD" cx="0" cy="0" r="5.5" fill="var(--ink)" stroke="var(--surface)" stroke-width="2"/></g>`;
   svg += `<rect x="${L}" y="0" width="${W - L - R}" height="${H}" fill="transparent"/></svg>`;
   // the range in numbers
-  const lb = all.filter(w => w.date >= from).map(w => ({ date: w.date, lb: w.lb }));
-  const rate = slopePerWeek(lb), ch = pn.avg - p0.avg, low = WH.pts.reduce((a, p) => p.lb < a.lb ? p : a), Gd = G != null ? pn.avg - G : null;
+  const rate = WH.pts.length >= 3 && daysBetween(p0.date, pn.date) >= RATE_MIN_SPAN ? slopePerWeek(WH.pts.map(p => ({ date: p.date, lb: p.avg }))) : null, ch = pn.avg - p0.avg, low = WH.pts.reduce((a, p) => p.lb < a.lb ? p : a), Gd = G != null ? pn.avg - G : null;
   const tile = (v, k, cls) => `<div><span class="v${cls ? ' ' + cls : ''}">${v}</span><span class="k">${k}</span></div>`;
   const stats = tile(signed(ch, n => n.toFixed(1)), `trend change, ${wU()}`, goodness(fromW(ch))) + tile(rate == null ? '–' : signed(rate, n => n.toFixed(1)), `${wU()} a week`, rate == null ? '' : goodness(fromW(rate)))
     + tile(low.lb.toFixed(1), `lowest, ${esc(parseIso(low.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }))}`) + tile(Gd == null ? '–' : Math.abs(Gd).toFixed(1), Gd == null ? 'to goal' : mode() === 'maintain' ? `${wU()} from goal` : `${wU()} to goal`);

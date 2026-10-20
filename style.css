@@ -674,11 +674,11 @@ details.shut>:not(summary){opacity:0;transform:translateY(-4px);transition:opaci
 .hc em{font-style:normal;font-size:10.5px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap;letter-spacing:-.02em;min-height:12px;line-height:1.15}
 .hc s{width:5px;height:5px;border-radius:50%;margin-top:auto}
 .hc s.on{background:var(--protein)}
-.hc.ok{background:var(--protein-soft)} .hc.ok em{color:var(--protein)}
-.hc.over{background:var(--warn-soft)} .hc.over em{color:var(--warn)}
-.hc.under{background:var(--accent-soft)} .hc.under em{color:var(--accent)}
-.hc.miss{background:none;box-shadow:inset 0 0 0 1.5px var(--warn)} .hc.miss em,.hc.miss i{color:var(--warn)}
-.hc.now{box-shadow:inset 0 0 0 2px var(--ink)} .hc.now i{color:var(--ink)}
+.hc.ok{background:color-mix(in srgb,var(--protein) 13%,var(--raised))} .hc.ok em{color:var(--protein)}
+.hc.over{background:color-mix(in srgb,var(--warn) 14%,var(--raised))} .hc.over em{color:var(--warn)}
+.hc.under em{color:var(--ink)}
+.hc.miss{background:none;outline:1.5px dashed color-mix(in srgb,var(--muted) 55%,transparent);outline-offset:-1.5px} .hc.miss em,.hc.miss i{color:var(--muted)}
+.hc.now{background:color-mix(in srgb,var(--accent) 10%,var(--raised));box-shadow:inset 0 0 0 2px var(--accent)} .hc.now i,.hc.now em{color:var(--accent)}
 .hc.ahead,.hc.pre{opacity:.4}
 .hc.out{background:none}
 .hc:not(:disabled):active{transform:scale(.92)}
@@ -689,8 +689,8 @@ details.shut>:not(summary){opacity:0;transform:translateY(-4px);transition:opaci
 .hs-leg{display:flex;flex-wrap:wrap;gap:6px 12px;font-size:12px;color:var(--muted);font-weight:600}
 .hs-leg span{display:flex;align-items:center;gap:5px}
 .hs-leg i{width:12px;height:12px;border-radius:4px}
-.hs-leg .ok{background:var(--protein-soft);box-shadow:inset 0 0 0 1.5px var(--protein)} .hs-leg .over{background:var(--warn-soft);box-shadow:inset 0 0 0 1.5px var(--warn)}
-.hs-leg .under{background:var(--accent-soft);box-shadow:inset 0 0 0 1.5px var(--accent)} .hs-leg .miss{box-shadow:inset 0 0 0 1.5px var(--warn)}
+.hs-leg .ok{background:color-mix(in srgb,var(--protein) 22%,var(--raised))} .hs-leg .over{background:color-mix(in srgb,var(--warn) 24%,var(--raised))}
+.hs-leg .under{background:var(--raised);box-shadow:inset 0 0 0 1px var(--line)} .hs-leg .miss{outline:1.5px dashed color-mix(in srgb,var(--muted) 55%,transparent);outline-offset:-1.5px}
 .hs-leg .dot{width:6px;height:6px;border-radius:50%;background:var(--protein);margin:0 3px}
 .hs-h{margin:6px 0 0;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
 .hs-months{display:flex;flex-direction:column;gap:6px}

@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '54';
+const APP_V = '55';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -353,6 +353,7 @@ function avgBetween(arr, from, to) {
 function renderWeights() {
   const t = todayIso(), arr = weightsArr(), sc = scale(), f = $('wForm');
   safe(renderWaist); safe(renderEstBanner);     // a new weigh-in ends the estimate reminder right away
+  $('wHist').hidden = arr.length < 2;            // v55: full weight history
   $('wTitle').textContent = sc === 'weekly' ? 'Weekly weigh-in' : sc === 'none' ? 'Weight' : 'Morning weigh-in';
   const noneMode = sc === 'none' && f.dataset.editing !== '1';
   $('noScale').hidden = !noneMode;
@@ -685,6 +686,7 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape' && SH.open) c
 /* finger tracking */
 function dragStart(y, t, target) {
   if (!SH.open || WIDE_Q.matches) return;
+  if (target && target.closest && target.closest('.wh-chart')) return;   // v55: dragging along the weight chart reads it, it doesn't move the panel
   SH.drag = { y0: y, startY: SH.y, mode: null, inBody: sheetBody.contains(target), samples: [[y, t]] };
 }
 function dragMove(y, t, e) {
@@ -1696,6 +1698,7 @@ function renderTrends() {
   }
   renderBurn(); renderMilestones(); safe(renderCheckin);
   $('tWeightChart').innerHTML = weightChart(from, to);
+  $('tWHist').hidden = arr.length < 2; $('tCalHist').hidden = !firstLogDay();   // v55
   $('viewTrends').classList.toggle('anim', chartAnim); chartAnim = false;
   // calories + protein
   const tots = days.map(dayTotals), logged = tots.filter(Boolean);
@@ -2229,17 +2232,19 @@ const GUIDE = [
   ['The Today screen', `
     <p>The left ring is calories, with a small mark where your range starts. The right ring is protein.</p>
     <p>Below the rings: how your day is going, a <b>protein nudge</b> if protein falls behind your calories, <b>What fits</b> (foods from your own list that fit what's left) and <b>This week</b> (calories banked or over across the week, and how much you can eat today and stay on budget). Only days you logged count; days with nothing logged are named underneath so you know they're left out.</p>
+    <p>Open This week and tap <b>See past weeks and months</b> for your <b>History</b>: a calendar of each month with every day's calories (green in range, orange over, blue under), what each week banked, and every month's averages. Swipe it for other months, and tap a day to open it.</p>
     <p><b>More nutrients</b>, under your food list, shows fibre. It only counts foods that have fibre data, so it says "at least" when some don't. A meal counts the ingredients that have it. Foods missing it are listed there; tap one to add the number from its label.</p>`],
   ['Weigh-ins and waist', `
     <p>Pick <b>Every morning</b>, <b>Once a week</b> or <b>No scale</b> in You → Weigh-ins. Weigh after the bathroom, before food or water.</p>
     <p>Daily weight jumps around by a few pounds from water, salt and carbs. The <b>7-day average</b> is the number that matters.</p>
     <p>Don't know your weight and no scale? In setup (or in Goal suggestions) tap <b>Don't know your weight? Estimate it</b>. It's a rough guess from your clothing sizes (a formula built from 507 measured adults), used only for your starting targets. After two weeks the app asks for one real weigh-in, at a pharmacy, gym or a friend's place.</p>
+    <p>Tap the weight chart, or <b>See full weight history</b>, to see every weigh-in back to your first: 1 month to all time, your goal line, monthly averages, and drag along the chart to read any day.</p>
     <p>Measure your <b>waist</b> at the belly button, relaxed, every two weeks. A shrinking waist is one of the clearest signs of fat loss, and it works without a scale.</p>`],
   ['Trends', `
     <p><b>Weight trend</b> shows how fast you're losing or gaining each week, and the date you'd reach your goal. It appears after about a week of weigh-ins.</p>
     <p>The <b>weekly check-in</b> sums up last week every Monday: average calories and protein, weight change, and a one-line verdict.</p>
     <p><b>Your real burn</b> works out how many calories you actually burn from what you eat and how your weight moves. It takes about two weeks of logging and weighing in, then it can suggest better targets.</p>
-    <p>Charts for calories, protein and fibre: tap a bar to open that day. Plus consistency stats and <b>milestones</b> with a little celebration.</p>`],
+    <p>Charts for calories, protein and fibre: tap a bar to open that day. <b>See calendar by month</b> under Calories opens your History. Plus consistency stats and <b>milestones</b> with a little celebration.</p>`],
   ['Your settings', `
     <p>In <b>You</b>: your name, goal (Cutting, Maintaining or Building) with suggested targets, weigh-in frequency, lb or kg, four app colours, Light or Dark, your saved foods, and a backup file you can keep in iCloud Drive.</p>
     <p>Your age, height and sex are only used to suggest targets. They're never saved.</p>`],
@@ -2436,9 +2441,190 @@ function renderWeek() {
     const n = cls === 'now' ? 'today' : tt ? kc(tt.kcal) : cls === 'miss' ? 'none' : '';
     return `<span class="wkc ${cls}" title="${esc(d.toLocaleDateString(undefined, { weekday: 'long' }))}"><i>${esc(d.toLocaleDateString(undefined, { weekday: 'narrow' }))}</i><b></b><em>${n}</em></span>`; }).join('');
   const m = miss.length ? `<p class="wk-s wk-m" id="wkMiss">${esc(names.join(', '))} not logged, so ${miss.length > 1 ? 'they’re' : 'it’s'} not counted.</p>` : '';
-  el.innerHTML = `<details class="wkd" id="wkD"${wkOpen() ? ' open' : ''}><summary><span class="wk-k">${w.current ? 'This week' : 'That week'}</span><span class="wk-v ${good ? 'ok' : 'hi'}">${v}</span><svg class="wk-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg><span class="wk-line" id="wkLine"><span>${line}</span>${warn}</span></summary><div class="wk-body"><div class="wk-days" id="wkDays">${cells}</div><p class="wk-s">${esc(s)}</p>${m}</div></details>`;
+  el.innerHTML = `<details class="wkd" id="wkD"${wkOpen() ? ' open' : ''}><summary><span class="wk-k">${w.current ? 'This week' : 'That week'}</span><span class="wk-v ${good ? 'ok' : 'hi'}">${v}</span><svg class="wk-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg><span class="wk-line" id="wkLine"><span>${line}</span>${warn}</span></summary><div class="wk-body"><div class="wk-days" id="wkDays">${cells}</div><p class="wk-s">${esc(s)}</p>${m}<button class="wk-more" id="wkMore" type="button">See past weeks and months${CHEV_R}</button></div></details>`;
+  $('wkMore').onclick = () => openHistory(ym(day));   // v55
   $('wkD').addEventListener('toggle', e => { wkOpen(e.target.open); if (e.target.open && typeof haptic === 'function') try { haptic(); } catch (x) {} });
 }
+
+/* =================== v55: HISTORY (calendar by month) AND FULL WEIGHT HISTORY ===================
+   Two pages (panels) that only read what's already saved. Nothing new is stored: the month and range being looked at
+   live in memory. History opens from This week ("See past weeks and months") and Trends → Calories; the weight page
+   opens by tapping a weight chart (Today or Trends) or "See full weight history". */
+const ym = d => d.slice(0, 7);
+const monthName = (m, short) => parseIso(m + '-01').toLocaleDateString(undefined, short ? { month: 'short', year: 'numeric' } : { month: 'long', year: 'numeric' });
+const addMonth = (m, n) => { const d = parseIso(m + '-01'); d.setMonth(d.getMonth() + n); return iso(d).slice(0, 7); };
+function monthDays(m) { const out = []; for (let x = m + '-01'; ym(x) === m; x = shift(x, 1)) out.push(x); return out; }
+function firstLogDay() { return Object.keys(S.log).filter(k => S.log[k] && S.log[k].length).sort()[0] || null; }
+function historyStart() { const a = [firstLogDay(), weightsArr()[0]?.date].filter(Boolean).sort()[0]; return ym(a && a < todayIso() ? a : todayIso()); }
+const signed = (n, f = kc) => (n > 0 ? '+' : n < 0 ? '−' : '') + f(Math.abs(n));
+/* a day's colour, same as the Trends calorie bars: over the range, in it, or under it */
+function dayClass(x, tt, t, first) {
+  if (x > t) return 'ahead';
+  if (x === t) return 'now';
+  if (tt) return tt.kcal > S.targets.calHi ? 'over' : tt.kcal >= S.targets.calLo ? 'ok' : 'under';
+  return first && x >= first ? 'miss' : 'pre';
+}
+/* a month's numbers, from finished days only (today is still in progress) */
+function monthStats(m) {
+  const T = S.targets, t = todayIso(), first = firstLogDay(), days = monthDays(m).filter(x => x < t);
+  const tots = days.map(dayTotals).filter(Boolean), n = tots.length, avg = k => n ? tots.reduce((a, x) => a + x[k], 0) / n : null;
+  const ws = weightsArr().filter(w => ym(w.date) === m).map(w => w.lb);
+  return { m, n, kcal: avg('kcal'), pro: avg('pro'), inRange: tots.filter(x => x.kcal >= T.calLo && x.kcal <= T.calHi).length,
+    proHit: tots.filter(x => x.pro >= T.protein).length, miss: days.filter(x => first && x >= first && !dayTotals(x)).length,
+    wavg: ws.length ? ws.reduce((a, b) => a + b, 0) / ws.length : null, weighs: ws.length, wlo: ws.length ? Math.min(...ws) : null, whi: ws.length ? Math.max(...ws) : null };
+}
+const monthList = () => { const out = [], s = historyStart(); for (let m = ym(todayIso()); m >= s; m = addMonth(m, -1)) out.push(m); return out; };
+/* laptop: these two panels get a wider window. The class comes off when the panel closes (after it has faded) or is replaced. */
+let wideTok = 0;
+function wideSheet() {
+  const tok = ++wideTok; sheetEl.classList.add('wide');
+  return () => queueMicrotask(() => { if (wideTok !== tok) return; if (SH.open) sheetEl.classList.remove('wide');
+    else setTimeout(() => { if (wideTok === tok && !SH.open) sheetEl.classList.remove('wide'); }, 380); });
+}
+const CHEV_L = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>', CHEV_R = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>';
+
+/* ---- History: a calendar for one month, with each week's bank, and every month listed underneath ---- */
+const HS = { m: null };
+function openHistory(m) {
+  HS.m = m && m >= historyStart() && m <= ym(todayIso()) ? m : ym(todayIso());
+  openSheet('History', '<div class="hs" id="hsWrap"></div>', wideSheet());
+  renderHistory();
+  sheetBody.onclick = e => {
+    const d = e.target.closest('[data-hd]'), mm = e.target.closest('[data-hm]'), nav = e.target.closest('[data-hn]');
+    if (d && !d.disabled) { if (HS.swiped) return; closeSheet(); day = d.dataset.hd; showTab('today'); renderAll(); return; }
+    if (mm) { HS.m = mm.dataset.hm; haptic(); renderHistory(); sheetBody.scrollTo({ top: 0, behavior: REDUCED ? 'auto' : 'smooth' }); return; }
+    if (nav && !nav.disabled) historyMove(+nav.dataset.hn);
+  };
+}
+function historyMove(n) {
+  const m = addMonth(HS.m, n); if (m < historyStart() || m > ym(todayIso())) return;
+  HS.m = m; haptic(); renderHistory(n);
+}
+function historyCal(m) {
+  const T = S.targets, t = todayIso(), first = firstLogDay(), days = monthDays(m), last = days[days.length - 1];
+  let h = ['M', 'T', 'W', 'T', 'F', 'S', 'S'].map(x => `<span class="hs-dh" aria-hidden="true">${x}</span>`).join('') + '<span class="hs-dh hs-dw" aria-hidden="true">Week</span>';
+  for (let w = weekStart(days[0]); w <= last; w = shift(w, 7)) {
+    for (let i = 0; i < 7; i++) {
+      const x = shift(w, i); if (ym(x) !== m) { h += '<span class="hc out"></span>'; continue; }
+      const tt = dayTotals(x), c = dayClass(x, tt, t, first), pro = tt && tt.pro >= T.protein, dt = parseIso(x);
+      const say = `${dt.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}: ${tt ? `${kc(tt.kcal)} kcal, ${Math.round(tt.pro)}g protein` : c === 'miss' ? 'not logged' : 'nothing logged'}`;
+      h += `<button class="hc ${c}" data-hd="${x}"${c === 'ahead' ? ' disabled' : ''} aria-label="${esc(say)}"><i>${dt.getDate()}</i><em>${tt ? kc(tt.kcal) : c === 'miss' ? '–' : ''}</em><s${pro ? ' class="on"' : ''}></s></button>`;
+    }
+    const st = w < t ? weekStatus(w) : null;   // the week's finished, logged days, measured like This week
+    h += st ? `<span class="hw ${st.bank >= 0 ? 'ok' : 'hi'}" title="${st.bank >= 0 ? (st.m === 'gain' ? 'Above your minimum' : 'Banked') : (st.m === 'gain' ? 'Short' : 'Over')} that week">${signed(st.bank)}</span>` : '<span class="hw"></span>';
+  }
+  return h;
+}
+function renderHistory(dir) {
+  const box = $('hsWrap'); if (!box) return;
+  const m = HS.m, s = monthStats(m), prev = monthStats(addMonth(m, -1)), T = S.targets, cur = m === ym(todayIso());
+  const wch = s.wavg != null && prev.wavg != null ? s.wavg - prev.wavg : null;
+  const tile = (v, k, id) => `<div${id ? ` id="${id}"` : ''}><span class="v">${v}</span><span class="k">${k}</span></div>`;
+  const note = s.n ? `${s.n} day${s.n > 1 ? 's' : ''} logged${s.miss ? `, ${s.miss} not logged` : ''}${cur ? ' so far (today isn’t counted until it’s over)' : ''}. Protein target hit on ${s.proHit} of them.`
+    : cur ? 'Nothing logged yet this month (today isn’t counted until it’s over).' : 'Nothing logged this month.';
+  const rows = monthList().map(x => { const a = monthStats(x), b = monthStats(addMonth(x, -1)), d = a.wavg != null && b.wavg != null ? a.wavg - b.wavg : null;
+    const sub = a.n ? `${a.n} day${a.n > 1 ? 's' : ''} · avg ${kc(a.kcal)} kcal · ${Math.round(a.pro)}g protein · ${a.inRange} in range` : 'No food logged';
+    const right = a.wavg != null ? `<span class="r"><b>${fW(a.wavg)}</b><small class="${d == null ? '' : goodness(d)}">${d == null ? `avg ${wU()}` : `${signed(d, fW)} ${wU()}`}</small></span>` : '<span class="r"></span>';
+    return `<button class="hm" data-hm="${x}"${x === m ? ' aria-current="true"' : ''}><b>${esc(monthName(x))}</b>${right}<small>${esc(sub)}</small></button>`; }).join('');
+  box.innerHTML = `<div class="hs-nav"><button type="button" data-hn="-1" aria-label="Earlier month"${m <= historyStart() ? ' disabled' : ''}>${CHEV_L}</button><b id="hsMonth">${esc(monthName(m))}</b><button type="button" data-hn="1" aria-label="Later month"${cur ? ' disabled' : ''}>${CHEV_R}</button></div>`
+    + `<div class="hs-sum" id="hsSum">${tile(s.kcal != null ? kc(s.kcal) : '–', 'avg kcal')}${tile(s.pro != null ? Math.round(s.pro) + '<small>g</small>' : '–', 'avg protein')}${tile(s.n ? `${s.inRange}<small>/${s.n}</small>` : '–', 'days in range')}${tile(s.wavg != null ? fW(s.wavg) : '–', wch != null ? `avg ${wU()}, <span class="${goodness(wch)}">${signed(wch, fW)}</span>` : `avg ${wU()}`)}</div>`
+    + `<p class="hint" id="hsNote">${esc(note)}</p>`
+    + `<div class="hs-cal" id="hsCal" role="group" aria-label="${esc(monthName(m))}">${historyCal(m)}</div>`
+    + `<div class="hs-leg"><span><i class="ok"></i>In range</span><span><i class="over"></i>Over</span><span><i class="under"></i>Under</span><span><i class="miss"></i>Not logged</span><span><i class="dot"></i>Protein hit</span></div>`
+    + `<p class="hint">Tap a day to open it. <b>Week</b> is what that week banked (green) or went over (orange) against ${kc(mode() === 'gain' ? T.calLo : T.calHi)} a day, counting only days you logged, like This week. Swipe the calendar for other months.</p>`
+    + `<h3 class="hs-h">By month</h3><div class="hs-months" id="hsMonths">${rows}</div>`;
+  if (dir && !REDUCED) { const c = $('hsCal'); c.style.setProperty('--dx', dir > 0 ? '24px' : '-24px'); replay(c, 'hs-in'); }
+  // swipe the calendar left or right for the next or previous month
+  const cal = $('hsCal'); let x0 = null, y0 = 0;
+  cal.addEventListener('pointerdown', e => { x0 = e.clientX; y0 = e.clientY; HS.swiped = false; });
+  cal.addEventListener('pointerup', e => { if (x0 == null) return; const dx = e.clientX - x0, dy = e.clientY - y0; x0 = null;
+    if (Math.abs(dx) > 50 && Math.abs(dx) > 2 * Math.abs(dy)) { HS.swiped = true; setTimeout(() => { HS.swiped = false; }, 350); historyMove(dx < 0 ? 1 : -1); } });
+  cal.addEventListener('pointercancel', () => { x0 = null; });
+}
+
+/* ---- Full weight history: every weigh-in, the trend line, the goal, drag to read any day, and monthly averages ---- */
+const WH_R = [['1m', '1M', 30], ['3m', '3M', 91], ['6m', '6M', 182], ['1y', '1Y', 365], ['all', 'All', 0]];
+const WH = { r: '3m', pts: null };
+function openWeightHistory() {
+  openSheet('Weight history', `<div class="chips wh-r" id="whRange" role="group" aria-label="Range">${WH_R.map(([k, l]) => `<button class="chip" data-wr="${k}" aria-pressed="${k === WH.r}">${l}</button>`).join('')}</div><div class="wh" id="whWrap"></div>`, wideSheet());
+  renderWeightHistory();
+  sheetBody.onclick = e => { const b = e.target.closest('[data-wr]'); if (!b || b.dataset.wr === WH.r) return;
+    WH.r = b.dataset.wr; [...$('whRange').children].forEach(c => c.setAttribute('aria-pressed', c === b)); haptic(); renderWeightHistory(); };
+}
+function whRead(i) {
+  const p = WH.pts && WH.pts[i]; if (!p) return;
+  $('whRead').innerHTML = `<span class="dt">${esc(parseIso(p.date).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }))}${i === WH.pts.length - 1 ? ' · latest' : ''}</span><span class="n">${p.lb.toFixed(1)}<small>${wU()}</small></span><span class="tr">trend ${p.avg.toFixed(1)}</span>`;
+  const cur = $('whCur'); if (cur) { cur.setAttribute('transform', `translate(${p.x.toFixed(1)},0)`); $('whCurD').setAttribute('cy', p.y.toFixed(1)); cur.style.opacity = 1; }
+  WH.i = i;
+}
+function renderWeightHistory() {
+  const box = $('whWrap'); if (!box) return;
+  const t = todayIso(), all = weightsArr().map(w => ({ date: w.date, lb: toW(w.lb) }));
+  const r = WH_R.find(x => x[0] === WH.r), from = r[2] ? shift(t, -(r[2] - 1)) : (all[0] ? all[0].date : t);
+  const pts = all.filter(w => w.date >= from);
+  if (pts.length < 2) {
+    WH.pts = null;
+    box.innerHTML = `<p class="empty" id="whEmpty">${all.length < 2 ? 'Two or more weigh-ins will draw your full history here.' : 'Fewer than two weigh-ins in this range. Try a longer one.'}</p>`;
+    return;
+  }
+  const W = Math.max(280, Math.round(box.clientWidth || sheetBody.clientWidth - 36)), H = Math.round(Math.min(260, Math.max(190, W * 0.5))), L = 34, R = 10, T0 = 12, B = 24;
+  const G = S.targets.goal ? toW(S.targets.goal) : null, vals = pts.map(p => p.lb);
+  const withG = G != null && G >= Math.min(...vals) - 3 && G <= Math.max(...vals) + 3;
+  const lo = Math.floor(Math.min(...vals, ...(withG ? [G] : [])) - 1), hi = Math.ceil(Math.max(...vals, ...(withG ? [G] : [])) + 1);
+  const t0 = parseIso(from).getTime(), t1 = Math.max(parseIso(t).getTime(), t0 + 864e5);
+  const X = s => L + (parseIso(s).getTime() - t0) / (t1 - t0) * (W - L - R), Y = v => T0 + (hi - v) / (hi - lo) * (H - T0 - B);
+  WH.pts = pts.map(p => { const avg = avgBetween(all, shift(p.date, -6), p.date); return { ...p, avg, x: X(p.date), y: Y(p.lb), ya: Y(avg) }; });
+  const line = WH.pts.map(p => `${p.x.toFixed(1)},${p.ya.toFixed(1)}`).join(' ');
+  const txt = 'font-size="11" fill="var(--muted)" font-family="Barlow, system-ui, sans-serif"';
+  let svg = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Weight from ${esc(shortDate(from))} to today"><defs><linearGradient id="whg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--accent)" stop-opacity=".2"/><stop offset="1" stop-color="var(--accent)" stop-opacity="0"/></linearGradient></defs>`;
+  niceTicks(lo, hi).forEach(v => { svg += `<line x1="${L}" x2="${W - R}" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--line)"/><text x="${L - 6}" y="${Y(v) + 4}" text-anchor="end" ${txt}>${v}</text>`; });
+  // month starts along the bottom (labels skipped where they'd crowd)
+  let lastX = -99; const mk = [];
+  for (let m = addMonth(ym(from), 1); m <= ym(t); m = addMonth(m, 1)) mk.push(m);
+  if (r[2] && r[2] <= 30) mk.length = 0;
+  mk.forEach(m => { const x = X(m + '-01'); svg += `<line x1="${x.toFixed(1)}" x2="${x.toFixed(1)}" y1="${T0}" y2="${H - B}" stroke="var(--line)" stroke-dasharray="2 3"/>`;
+    if (x - lastX >= 30 && x > L + 26 && x < W - R - 30) { const d = parseIso(m + '-01'); svg += `<text x="${x.toFixed(1)}" y="${H - 6}" text-anchor="middle" ${txt}>${esc(d.toLocaleDateString(undefined, d.getMonth() === 0 ? { month: 'short', year: '2-digit' } : { month: 'short' }))}</text>`; lastX = x; } });
+  if (!mk.length) svg += `<text x="${L}" y="${H - 6}" ${txt}>${esc(parseIso(from).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }))}</text>`;
+  svg += `<text x="${W - R}" y="${H - 6}" text-anchor="end" ${txt}>Today</text>`;
+  if (withG) svg += `<line x1="${L}" x2="${W - R}" y1="${Y(G)}" y2="${Y(G)}" stroke="var(--protein)" stroke-width="1.5" stroke-dasharray="5 4"/><text x="${L + 4}" y="${Y(G) - 5}" font-size="11" fill="var(--protein)" font-family="Barlow, system-ui, sans-serif">Goal ${fWs(S.targets.goal)}</text>`;
+  const p0 = WH.pts[0], pn = WH.pts[WH.pts.length - 1];
+  svg += `<polygon points="${p0.x.toFixed(1)},${H - B} ${line} ${pn.x.toFixed(1)},${H - B}" fill="url(#whg)"/>`;
+  const rd = WH.pts.length > 120 ? 2 : 3;
+  WH.pts.forEach(p => { svg += `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${rd}" fill="var(--muted)" opacity=".5"/>`; });
+  svg += `<polyline class="draw" pathLength="1" points="${line}" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>`;
+  svg += `<g id="whCur" style="opacity:0"><line x1="0" x2="0" y1="${T0}" y2="${H - B}" stroke="var(--ink)" stroke-opacity=".35" stroke-width="1.5"/><circle id="whCurD" cx="0" cy="0" r="5.5" fill="var(--ink)" stroke="var(--surface)" stroke-width="2"/></g>`;
+  svg += `<rect x="${L}" y="0" width="${W - L - R}" height="${H}" fill="transparent"/></svg>`;
+  // the range in numbers
+  const lb = all.filter(w => w.date >= from).map(w => ({ date: w.date, lb: w.lb }));
+  const rate = slopePerWeek(lb), ch = pn.avg - p0.avg, low = WH.pts.reduce((a, p) => p.lb < a.lb ? p : a), Gd = G != null ? pn.avg - G : null;
+  const tile = (v, k, cls) => `<div><span class="v${cls ? ' ' + cls : ''}">${v}</span><span class="k">${k}</span></div>`;
+  const stats = tile(signed(ch, n => n.toFixed(1)), `trend change, ${wU()}`, goodness(fromW(ch))) + tile(rate == null ? '–' : signed(rate, n => n.toFixed(1)), `${wU()} a week`, rate == null ? '' : goodness(fromW(rate)))
+    + tile(low.lb.toFixed(1), `lowest, ${esc(parseIso(low.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }))}`) + tile(Gd == null ? '–' : Math.abs(Gd).toFixed(1), Gd == null ? 'to goal' : mode() === 'maintain' ? `${wU()} from goal` : `${wU()} to goal`);
+  // months, newest first
+  const months = []; all.forEach(w => { const m = ym(w.date), x = months[months.length - 1]; if (x && x.m === m) x.v.push(w.lb); else months.push({ m, v: [w.lb] }); });
+  const mrows = months.map((x, i) => { const a = x.v.reduce((s, v) => s + v, 0) / x.v.length, b = i ? months[i - 1].v.reduce((s, v) => s + v, 0) / months[i - 1].v.length : null, d = b == null ? null : a - b;
+    return `<div class="whm"><b>${esc(monthName(x.m))}</b><span class="r"><b>${a.toFixed(1)}</b><small class="${d == null ? '' : goodness(fromW(d))}">${d == null ? `avg ${wU()}` : `${signed(d, n => n.toFixed(1))} ${wU()}`}</small></span><small>${x.v.length} weigh-in${x.v.length > 1 ? 's' : ''} · ${Math.min(...x.v).toFixed(1)}–${Math.max(...x.v).toFixed(1)}</small></div>`; }).reverse().join('');
+  box.innerHTML = `<div class="wh-read" id="whRead" aria-live="polite"></div><div class="wh-chart" id="whChart">${svg}</div>`
+    + `<p class="hint">Dots are weigh-ins; the line is your 7-day average${withG ? ' and the dashed line your goal' : ''}. Drag along the chart to read any day.</p>`
+    + `<div class="hs-sum wh-stats" id="whStats">${stats}</div>`
+    + `<h3 class="hs-h">By month</h3><div class="hs-months" id="whMonths">${mrows}</div>`;
+  whRead(WH.pts.length - 1);
+  // drag (or tap) along the chart to read the nearest weigh-in; arrow keys step through them
+  const svgEl = $('whChart').querySelector('svg'), at = e => { const b = svgEl.getBoundingClientRect(), x = (e.clientX - b.left) * W / b.width;
+    let k = 0; WH.pts.forEach((p, j) => { if (Math.abs(p.x - x) < Math.abs(WH.pts[k].x - x)) k = j; }); if (k !== WH.i) { whRead(k); } };
+  let down = false;
+  svgEl.addEventListener('pointerdown', e => { down = true; try { svgEl.setPointerCapture(e.pointerId); } catch (x) {} at(e); });
+  svgEl.addEventListener('pointermove', e => { if (down || e.pointerType === 'mouse') at(e); });
+  ['pointerup', 'pointercancel'].forEach(n => svgEl.addEventListener(n, () => { down = false; }));
+  svgEl.setAttribute('tabindex', '0');
+  svgEl.addEventListener('keydown', e => { if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { e.preventDefault(); whRead(Math.max(0, Math.min(WH.pts.length - 1, WH.i + (e.key === 'ArrowLeft' ? -1 : 1)))); } });
+}
+
+/* ways in: the weight charts (tap them), "See full weight history" and "See calendar by month" */
+const openWH = () => { if (weightsArr().length >= 2) openWeightHistory(); };
+$('chart').addEventListener('click', openWH); $('tWeightChart').addEventListener('click', openWH);
+$('wHist').onclick = openWH; $('tWHist').onclick = openWH;
+$('tCalHist').onclick = () => openHistory();
 
 /* What fits: picks from your own meals, recent and saved foods, most protein per calorie first */
 function fitsCandidates() {

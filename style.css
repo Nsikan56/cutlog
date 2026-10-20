@@ -649,6 +649,69 @@ details.shut>:not(summary){opacity:0;transform:translateY(-4px);transition:opaci
 .side-brand{display:none}
 .col-a,.col-b{display:contents}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+/* v55: History (calendar by month) and full weight history. Colours come from the theme tokens, so light and dark both work. */
+.wk-more{align-self:flex-start;display:flex;align-items:center;gap:4px;margin-top:2px;padding:8px 10px 8px 12px;border-radius:10px;background:rgba(255,255,255,.08);color:var(--hero-ink);font-size:13px;font-weight:700}
+.wk-more svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
+.wk-more:active{transform:scale(.96)}
+.more-link{align-self:flex-start}
+#chart,#tWeightChart{cursor:pointer}
+.hs,.wh{display:flex;flex-direction:column;gap:12px;min-width:0}
+.hs-nav{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.hs-nav b{font-family:var(--display);font-size:22px;font-weight:800;letter-spacing:.01em}
+.hs-nav button{width:40px;height:40px;border-radius:12px;background:var(--raised);border:1px solid var(--line);display:grid;place-items:center;color:var(--ink)}
+.hs-nav button:disabled{opacity:.3}
+.hs-nav svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
+.hs-sum{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
+.hs-sum>div{display:flex;flex-direction:column;gap:2px;padding:9px 8px;border-radius:12px;background:var(--raised);min-width:0}
+.hs-sum .v{font-family:var(--display);font-size:21px;font-weight:800;line-height:1.05;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hs-sum .v small{font-size:14px;font-weight:700;color:var(--muted)}
+.hs-sum .k{font-size:10.5px;color:var(--muted);font-weight:600;line-height:1.25}
+.hs .good,.wh .good{color:var(--protein)} .hs .bad,.wh .bad{color:var(--warn)}
+.hs-cal{display:grid;grid-template-columns:repeat(7,minmax(0,1fr)) minmax(0,1.4fr);gap:4px;touch-action:pan-y}
+.hs-dh{font-size:11px;font-weight:700;color:var(--muted);text-align:center}
+.hc{display:flex;flex-direction:column;align-items:center;gap:2px;min-height:50px;padding:6px 0 5px;border-radius:10px;background:var(--raised);min-width:0;overflow:hidden}
+.hc i{font-style:normal;font-size:12px;font-weight:700;color:var(--muted);line-height:1.1}
+.hc em{font-style:normal;font-size:10.5px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap;letter-spacing:-.02em;min-height:12px;line-height:1.15}
+.hc s{width:5px;height:5px;border-radius:50%;margin-top:auto}
+.hc s.on{background:var(--protein)}
+.hc.ok{background:var(--protein-soft)} .hc.ok em{color:var(--protein)}
+.hc.over{background:var(--warn-soft)} .hc.over em{color:var(--warn)}
+.hc.under{background:var(--accent-soft)} .hc.under em{color:var(--accent)}
+.hc.miss{background:none;box-shadow:inset 0 0 0 1.5px var(--warn)} .hc.miss em,.hc.miss i{color:var(--warn)}
+.hc.now{box-shadow:inset 0 0 0 2px var(--ink)} .hc.now i{color:var(--ink)}
+.hc.ahead,.hc.pre{opacity:.4}
+.hc.out{background:none}
+.hc:not(:disabled):active{transform:scale(.92)}
+.hw{display:flex;align-items:center;justify-content:center;min-width:0;overflow:hidden;font-family:var(--display);font-size:14px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap;letter-spacing:-.01em}
+.hw.ok{color:var(--protein)} .hw.hi{color:var(--warn)}
+.hs-cal.hs-in{animation:hsIn .32s var(--out)}
+@keyframes hsIn{from{opacity:0;transform:translateX(var(--dx,0))}}
+.hs-leg{display:flex;flex-wrap:wrap;gap:6px 12px;font-size:12px;color:var(--muted);font-weight:600}
+.hs-leg span{display:flex;align-items:center;gap:5px}
+.hs-leg i{width:12px;height:12px;border-radius:4px}
+.hs-leg .ok{background:var(--protein-soft);box-shadow:inset 0 0 0 1.5px var(--protein)} .hs-leg .over{background:var(--warn-soft);box-shadow:inset 0 0 0 1.5px var(--warn)}
+.hs-leg .under{background:var(--accent-soft);box-shadow:inset 0 0 0 1.5px var(--accent)} .hs-leg .miss{box-shadow:inset 0 0 0 1.5px var(--warn)}
+.hs-leg .dot{width:6px;height:6px;border-radius:50%;background:var(--protein);margin:0 3px}
+.hs-h{margin:6px 0 0;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.hs-months{display:flex;flex-direction:column;gap:6px}
+.hm,.whm{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 12px;align-items:center;width:100%;text-align:left;padding:11px 12px;border-radius:12px;background:var(--raised);color:var(--ink)}
+.hm>b,.whm>b{font-weight:700;font-size:15px}
+.hm>small,.whm>small{grid-column:1;font-size:12px;color:var(--muted);line-height:1.35}
+.hm .r,.whm .r{grid-column:2;grid-row:1/3;display:flex;flex-direction:column;align-items:flex-end;gap:1px;white-space:nowrap}
+.hm .r b,.whm .r b{font-family:var(--display);font-size:19px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1}
+.hm .r small,.whm .r small{font-size:12px;font-weight:600;color:var(--muted)}
+.hm .r small.good,.whm .r small.good{color:var(--protein)} .hm .r small.bad,.whm .r small.bad{color:var(--warn)}
+.hm[aria-current="true"]{box-shadow:inset 0 0 0 1.5px var(--accent)}
+.hm:active{transform:scale(.98)}
+.wh-r .chip{flex:1;padding:8px 0;text-align:center}
+.wh-read{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 10px;min-height:58px}
+.wh-read .dt{flex-basis:100%;font-size:12.5px;font-weight:600;color:var(--muted)}
+.wh-read .n{font-family:var(--display);font-size:34px;font-weight:800;line-height:1;font-variant-numeric:tabular-nums}
+.wh-read .n small{font-size:15px;font-weight:700;color:var(--muted);margin-left:3px}
+.wh-read .tr{font-size:14px;font-weight:700;color:var(--accent)}
+.wh-chart{touch-action:pan-y;cursor:crosshair;-webkit-user-select:none;user-select:none;margin:0 -2px}
+.wh-chart svg{display:block;width:100%;height:auto;outline:none}
+@media (max-width:359px){.hc em{font-size:9.5px}.hw{font-size:12px;letter-spacing:-.03em}.hs-sum .v{font-size:18px}}
 @media (min-width:980px){
   #scroller{padding:28px 32px 48px calc(var(--side) + 32px)}
   :root{--side:204px}
@@ -693,6 +756,7 @@ details.shut>:not(summary){opacity:0;transform:translateY(-4px);transition:opaci
   /* pop-ups become centered windows */
   .sheet{left:calc(50% + var(--side) / 2);top:50%;bottom:auto;right:auto;width:600px;margin-left:0;max-height:min(86vh,820px);
     border-radius:22px;box-shadow:0 24px 70px rgba(0,0,0,.35);padding-bottom:0}
+  .sheet.wide{width:760px}
   .grab{display:none}
   .sheet-head{touch-action:auto;cursor:default;padding-top:18px}
 

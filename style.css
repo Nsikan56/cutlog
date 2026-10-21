@@ -555,7 +555,9 @@ details.shut>:not(summary){opacity:0;transform:translateY(-4px);transition:opaci
 /* v67: More ideas panel */
 .mi-tabs button small{font-size:12px;font-weight:600;opacity:.65;margin-left:3px}
 .mi-late{margin:0;padding:9px 12px;border-radius:12px;background:var(--accent-soft);color:var(--ink);font-size:13px;font-weight:600}
-.mi-ch{margin-bottom:2px}
+#miWrap{display:flex;flex-direction:column;gap:12px}   /* v69: same spacing between rows as every other panel (tabs and chips were touching) */
+#miWrap>*{flex-shrink:0}
+.mi-ch{margin-bottom:0}
 .mi-note{margin-top:-4px}
 .wk{padding-top:10px;border-top:1px solid rgba(255,255,255,.1)}
 .wkd summary{display:grid;grid-template-columns:auto 1fr auto;gap:2px 8px;align-items:baseline;margin:-6px -8px;padding:6px 8px;border-radius:12px;transition:background .15s}

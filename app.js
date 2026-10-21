@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '63';
+const APP_V = '64';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -1561,7 +1561,7 @@ async function flush() {
   }
 }
 function startUser(user) {
-  Sync.user = user; setSync('syncing');
+  Sync.user = user; setSync('syncing'); setTimeout(quietVerifyCheck, 3000);   // v64: notice a confirmed email by itself
   const base = Sync.db.collection('users').doc(user.uid);
   let gotMeta = false, gotDays = false;
   const firstDone = () => {
@@ -1667,7 +1667,7 @@ function openAccount() {
     <button class="btn ghost" id="aReset">Forgot password</button>`);
   const err = m => { $('aErr').textContent = m; $('aErr').hidden = !m; };
   const creds = () => [$('aEmail').value.trim(), $('aPass').value];
-  const busy = on => ['aIn', 'aUp', 'aReset'].forEach(id => { $(id).disabled = on; });
+  const busy = on => ['aIn', 'aUp', 'aReset'].forEach(id => { if ($(id)) $(id).disabled = on; });   // v64: the panel may have closed already
   $('aIn').onclick = async () => { busy(true); err(''); try { await Sync.auth.signInWithEmailAndPassword(...creds()); closeSheet(); toast('Signed in. Syncing your log.'); } catch (e) { err(authError(e)); } busy(false); };
   $('aUp').onclick = async () => { busy(true); err(''); try { await Sync.auth.createUserWithEmailAndPassword(...creds()); closeSheet(); toast('Account created. Your log is backing up.');
     try { await Sync.auth.currentUser?.sendEmailVerification(); setTimeout(() => toast('Check your email to confirm your address.'), 2800); } catch (e) {} } catch (e) { err(authError(e)); } busy(false); };
@@ -1688,12 +1688,37 @@ function verifyButtons(ver) {
     catch (e) { toast(/too-many/.test(e?.code || '') ? 'Already sent. Check your inbox (and junk).' : 'Couldn’t send it. Try again later.'); }
   };
   $('aCheckVer').onclick = async () => {
-    try {
-      const u = Sync.auth.currentUser; await u.reload(); await u.getIdToken(true);      // fresh sign-in token that carries the confirmation
-      if (Sync.auth.currentUser.emailVerified) { toast('Email confirmed ✓'); openAccount(); } else toast('Not confirmed yet. Tap the link in the email first.');
-    } catch (e) { toast('Couldn’t check. Are you online?'); }
+    const b = $('aCheckVer'); if (b.disabled) return;
+    b.disabled = true; b.textContent = 'Checking…'; haptic();
+    const r = await checkVerified(8000);
+    if ($('aCheckVer')) { $('aCheckVer').disabled = false; $('aCheckVer').textContent = "I've confirmed it"; }
+    if (r === 'yes') { toast('Email confirmed ✓'); if (SH.open && $('sheetTitle').textContent === 'Cloud sync') openAccount(); }
+    else if (r === 'no') toast('Not confirmed yet. Tap the link in the email first.');
+    else if (r === 'slow') toast('Taking too long. Close and reopen Cut Log, it checks again by itself.');
+    else toast('Couldn’t check. Are you online?');
   };
 }
+/* v64: ask Firebase whether the email is confirmed. On Kan's iPhone the check never finished after he came back from
+   tapping the link in Safari (likely iOS stalling the home-screen app's storage, which Firebase waits on), so the button
+   seemed to do nothing. Now it gives up after a few seconds with a clear message, and the app also checks by itself on
+   launch and whenever it comes back to the screen. Returns 'yes', 'no', 'slow' or 'error'. */
+let verChecking = null, verSince = 0;
+function checkVerified(ms = 8000) {
+  const u = Sync.auth?.currentUser; if (!u) return Promise.resolve('error');
+  if (u.emailVerified) return Promise.resolve('yes');
+  if (!verChecking || Date.now() - verSince > 5000) { verSince = Date.now(); const mine = verChecking = (async () => {
+    await null;   // so 'mine' is set before anything below can finish
+    try { await u.reload(); const now = Sync.auth.currentUser || u; if (now.emailVerified) { try { await now.getIdToken(true); } catch (e) {} return 'yes'; } return 'no'; }
+    catch (e) { return 'error'; } finally { if (verChecking === mine) verChecking = null; }
+  })(); }   // a check stuck for over 5 s is replaced by a fresh one, not waited on again
+  return Promise.race([verChecking, new Promise(ok => setTimeout(() => ok('slow'), ms))]);
+}
+async function quietVerifyCheck() {
+  const u = Sync.auth?.currentUser; if (!u || u.emailVerified || document.hidden) return;
+  const r = await checkVerified(15000);
+  if (r === 'yes' && SH.open && $('sheetTitle').textContent === 'Cloud sync') { openAccount(); toast('Email confirmed ✓'); }
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden) setTimeout(quietVerifyCheck, 800); });
 
 /* =================== TRENDS =================== */
 let range = 30, tab = 'today', chartAnim = false;

@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '62';
+const APP_V = '63';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -135,7 +135,7 @@ const oilKey = k => OIL[k] && k !== 'none' ? k : null;
 /* the built-in food behind an entry's saved copy (older copies don't have the newer twin/cook fields) */
 const baseOf = f => (f && f.source === 'built-in' && BUILTIN_FOODS.find(b => b.id === f.id && b.name === f.name)) || f;
 const twinOf = f => {
-  if (f?.cookOf) return S.foods.find(x => x.id === f.cookOf) || null;          // v61: cooked version of a package -> the package
+  if (f?.cookOf) return S.foods.find(x => x.id === f.cookOf) || PKG_SEEN.get(f.cookOf) || null;   // v61: cooked -> the package (v63: even if not saved yet)
   const pp = pkgPair(f); if (pp) return cookedOf(f, pp);                          // v61: a package -> its cooked version
   const b = baseOf(f); return b?.twin ? BUILTIN_FOODS.find(x => x.name === b.twin) || null : null;
 };
@@ -168,8 +168,10 @@ function pkgPair(f) {
   if (raw.state === 'dry' && Math.abs(f.kcal100 - raw.kcal100) >= Math.abs(f.kcal100 - cooked.kcal100)) return null;   // already cooked
   return { raw, cooked };
 }
+const PKG_SEEN = new Map();   // v63: packs opened this session, so a just-scanned pack can be saved when it's logged as Cooked
 function cookedOf(p, pp = pkgPair(p)) {
   if (!pp) return null;
+  PKG_SEEN.set(p.id, p);
   const k = pp.cooked.kcal100 / pp.raw.kcal100;
   const c = { id: p.id + '~cooked', cookOf: p.id, name: `${p.name} (cooked)`, source: 'cooked', state: 'cooked', kcal100: p.kcal100 * k, pro100: (p.pro100 || 0) * k };
   if (p.brand) c.brand = p.brand;
@@ -906,6 +908,7 @@ function openAmount(f, preset, opts = {}) {
     const v = calc(f, q, unit), oilD = oil ? ` · ${OIL[oil].d}` : '', detail = `${fmtQty(q)} ${unitWord(f, unit, q)}${oilD}`;
     if (oil) v.kcal += OIL[oil].k;
     if (!(editing && S.foods.some(x => x.id === f.id && x !== f))) rememberFood(f);   // an entry's old copy never overwrites the saved food
+    if (f.cookOf && !S.foods.some(x => x.id === f.cookOf) && PKG_SEEN.has(f.cookOf)) rememberFood(PKG_SEEN.get(f.cookOf));   // v63: a new pack logged as Cooked is saved too
     pushRecent(f, q, unit); touchMeta(); renderSettings();
     if (picking) { pick = null; picking.onDone(f, q, unit, v); return; }
     if (editing) {
@@ -1642,12 +1645,15 @@ function openAccount() {
     return;
   }
   if (Sync.user) {
+    const ver = Sync.auth.currentUser?.emailVerified !== false;   // v63
     openSheet('Cloud sync', `<div class="acct"><span class="hint">Signed in as</span><strong>${esc(Sync.user.email)}</strong>
+      <span class="hint" id="aVer">${ver ? 'Email confirmed ✓' : 'Email not confirmed yet. Confirming it keeps anyone else from signing up with your address.'}</span>
       <span class="hint">${S.dirty.length ? `${S.dirty.length} change${S.dirty.length > 1 ? 's' : ''} waiting to upload.` : 'Everything is backed up.'}</span></div>
       <button class="btn" id="syncNow">Sync now</button>
       <button class="btn ghost" id="signOut">Sign out</button>
       <p class="hint">Signing out keeps your data on this phone. Sign in on your laptop with the same email to see everything there too.</p>`);
     $('syncNow').onclick = () => { flush(); toast('Syncing'); };
+    verifyButtons(ver);
     $('signOut').onclick = () => Sync.auth.signOut();
     return;
   }
@@ -1663,10 +1669,29 @@ function openAccount() {
   const creds = () => [$('aEmail').value.trim(), $('aPass').value];
   const busy = on => ['aIn', 'aUp', 'aReset'].forEach(id => { $(id).disabled = on; });
   $('aIn').onclick = async () => { busy(true); err(''); try { await Sync.auth.signInWithEmailAndPassword(...creds()); closeSheet(); toast('Signed in. Syncing your log.'); } catch (e) { err(authError(e)); } busy(false); };
-  $('aUp').onclick = async () => { busy(true); err(''); try { await Sync.auth.createUserWithEmailAndPassword(...creds()); closeSheet(); toast('Account created. Your log is backing up.'); } catch (e) { err(authError(e)); } busy(false); };
+  $('aUp').onclick = async () => { busy(true); err(''); try { await Sync.auth.createUserWithEmailAndPassword(...creds()); closeSheet(); toast('Account created. Your log is backing up.');
+    try { await Sync.auth.currentUser?.sendEmailVerification(); setTimeout(() => toast('Check your email to confirm your address.'), 2800); } catch (e) {} } catch (e) { err(authError(e)); } busy(false); };
   $('aReset').onclick = async () => {
     const em = $('aEmail').value.trim(); if (!em) { err('Type your email first.'); return; }
     try { await Sync.auth.sendPasswordResetEmail(em); err(''); toast('Reset email sent'); } catch (e) { err(authError(e)); }
+  };
+}
+
+/* v63: email confirmation, step 1. Nothing is blocked yet: the account panel shows whether the address is confirmed and can
+   send the link. Step 2 (only after Kan and his friends are confirmed) is a rules change he pastes into Firebase, adding
+   request.auth.token.email_verified == true to invited(), so a stranger can't sign up with an invited friend's address first. */
+function verifyButtons(ver) {
+  const box = $('aVer'); if (!box || ver) return;
+  box.closest('.acct').insertAdjacentHTML('afterend', `<button class="btn ghost" id="aSendVer">Send confirmation email</button><button class="btn ghost" id="aCheckVer">I've confirmed it</button>`);
+  $('aSendVer').onclick = async () => {
+    try { await Sync.auth.currentUser.sendEmailVerification(); toast('Sent. Open the link in the email.'); }
+    catch (e) { toast(/too-many/.test(e?.code || '') ? 'Already sent. Check your inbox (and junk).' : 'Couldn’t send it. Try again later.'); }
+  };
+  $('aCheckVer').onclick = async () => {
+    try {
+      const u = Sync.auth.currentUser; await u.reload(); await u.getIdToken(true);      // fresh sign-in token that carries the confirmation
+      if (Sync.auth.currentUser.emailVerified) { toast('Email confirmed ✓'); openAccount(); } else toast('Not confirmed yet. Tap the link in the email first.');
+    } catch (e) { toast('Couldn’t check. Are you online?'); }
   };
 }
 

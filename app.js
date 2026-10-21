@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '64';
+const APP_V = '65';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -836,7 +836,7 @@ function openAmount(f, preset, opts = {}) {
       <p class="hint">Regular is about ${Math.round(f.piece)} g. Small is about 60% of that, large about 1½ times.</p></details>` : ''}
     <p class="hint" id="aNote" hidden>Spoon sizes are approximate: about 15 g per tablespoon and 5 g per teaspoon. A heaping spoon is closer to 25 g.</p>
     <button class="btn" id="aAdd">${esc(cta)}</button>
-    ${NOT_SAVED.includes(f.source) ? '' : '<button class="btn ghost" id="aFix">Numbers look wrong? Fix them</button>'}
+    ${NOT_SAVED.includes(f.source) && !f.cookOf ? '' : '<button class="btn ghost" id="aFix">Numbers look wrong? Fix them</button>'}
     ${editing ? '<button class="btn ghost" id="aMove">Move to another day</button><button class="btn danger" id="aDel">Remove from log</button>' : ''}`);
   const upd = () => {
     const v = calc(f, parseFloat($('aQty').value), unit);
@@ -896,7 +896,15 @@ function openAmount(f, preset, opts = {}) {
   if ($('aDel')) $('aDel').onclick = () => { closeSheet(); removeEntry(editing); };
   if ($('aMove')) $('aMove').onclick = () => openMoveDay(editing);
   if ($('aFix')) $('aFix').onclick = () => {
-    const g = f.servingG || null, was = { preset: { qty: parseFloat($('aQty').value) || 1, unit, oil }, opts: { ...opts, slot } };   // v50: come back to the same amount
+    const was = { preset: { qty: parseFloat($('aQty').value) || 1, unit, oil }, opts: { ...opts, slot } };   // v50: come back to the same amount
+    if (f.cookOf) {     // v65: on the Cooked view, fix the pack's label numbers, then come back to Cooked
+      const pk = S.foods.find(x => x.id === f.cookOf) || PKG_SEEN.get(f.cookOf); if (!pk) return;
+      const pg = pk.servingG || null, pp = pk.kcalServ != null ? { kcal: pk.kcalServ, pro: pk.proServ } : pg ? { kcal: pk.kcal100 * pg / 100, pro: (pk.pro100 || 0) * pg / 100 } : { kcal: pk.kcal100, pro: pk.pro100 };
+      openSheet('Fix the numbers', `<p class="hint">Enter what the package label says for one serving (the raw or dry numbers). Cooked is worked out from them.</p><div id="labelOut"></div>`);
+      labelForm($('labelOut'), { kcal: Math.round(pp.kcal), pro: r1(pp.pro || 0), fib: fibPerServ(pk, pg), servingG: pg || (pk.kcalServ == null ? 100 : null) }, '', pk.barcode || null, pk.name, pk.id, { ...was, cooked: true });
+      return;
+    }
+    const g = f.servingG || null;
     const per = f.kcalServ != null ? { kcal: f.kcalServ, pro: f.proServ }
       : g ? { kcal: f.kcal100 * g / 100, pro: (f.pro100 || 0) * g / 100 } : { kcal: f.kcal100, pro: f.pro100 };
     openSheet('Fix the numbers', `<p class="hint">Enter what the label says for one serving. The app will use your numbers for this food from now on.</p><div id="labelOut"></div>`);
@@ -1038,6 +1046,7 @@ async function recheckServing(f, editing) {
       $('aQty').dispatchEvent(new Event('input'));
     }
     toast(`Fixed: ${Math.round(g.kcalServ)} kcal per serving`);
+    if (!editing) setTimeout(() => offerRecount(f.id), 2700);
   } catch (e) { /* offline or blocked: try again next time the app starts */ }
 }
 async function lookupBarcode(code) {
@@ -1245,10 +1254,13 @@ function labelForm(out, p, text, barcode, name, keepId, then) {
     if (barcode) f.barcode = barcode;
     if (fb >= 0 && fb < 100) f.fibServ = fb;
     if (g > 0) { f.servingG = g; f.servingLabel = g + ' g'; f.kcal100 = k / g * 100; f.pro100 = pr / g * 100; if (f.fibServ != null) f.fib100 = fb / g * 100; }
-    const old = keepId && S.foods.find(x => x.id === keepId); if (old && nsOk(old.nutri)) f.nutri = old.nutri;   // keep the grade when fixing numbers
+    const old = keepId && (S.foods.find(x => x.id === keepId) || PKG_SEEN.get(keepId)); if (old && nsOk(old.nutri)) f.nutri = old.nutri;   // keep the grade when fixing numbers
+    if (old?.brand) f.brand = old.brand;     // v65: and the brand
     rememberFood(f); touchMeta(); renderSettings();
-    const back = then && unitsFor(f).some(u => u.key === then.preset.unit) ? then.preset : { qty: 1, unit: 'serving' };
-    openAmount(f, back, then?.opts || {});
+    const to = then?.cooked ? (pkgPair(f) ? cookedOf(f) : f) : f;     // v65: fixed from the Cooked view -> back to Cooked
+    const back = then && unitsFor(to).some(u => u.key === then.preset.unit) ? then.preset : to.cookOf ? { qty: 100, unit: 'g' } : { qty: 1, unit: 'serving' };
+    openAmount(to, back, { ...(then?.opts || {}), asIs: true });
+    if (old) offerRecount(f.id, then?.opts?.editId);
   };
 }
 
@@ -1698,6 +1710,36 @@ function verifyButtons(ver) {
     else toast('Couldn’t check. Are you online?');
   };
 }
+/* v65: when a saved food's numbers are fixed (Fix them, Edit numbers, the v60 spray repair), entries already logged with it keep
+   the numbers they were logged with (v50 rule). This offers to recount them: "Recount 3 earlier logs?" -> Recount, with Undo.
+   Covers plain and cooked entries (cooked ones are recounted from the fixed pack), keeps each entry's amount, unit and oil.
+   Meals that use the food as an ingredient are left as they are. */
+function staleEntries(id, skip) {
+  const f = S.foods.find(x => x.id === id); if (!f) return [];
+  const out = [];
+  Object.entries(S.log).forEach(([d, es]) => es.forEach(e => {
+    if (!e.food || e.id === skip || !(e.qty > 0) || (e.food.id !== id && e.food.cookOf !== id)) return;
+    const base = e.food.cookOf ? (pkgPair(f) ? cookedOf(f) : null) : f;
+    if (!base || !unitsFor(base).some(u => u.key === e.unit)) return;
+    const v = calc(base, e.qty, e.unit), k = v.kcal + (OIL[e.oil]?.k || 0);
+    if (Math.abs(k - e.kcal) > Math.max(1, e.kcal * 0.02) || Math.abs(v.pro - e.pro) > 0.5) out.push({ d, e, base, k, v });
+  }));
+  return out;
+}
+function offerRecount(id, skip) {
+  const list = staleEntries(id, skip); if (!list.length) return;
+  const n = list.length, word = n === 1 ? 'log' : 'logs';
+  toast(`Recount ${n} earlier ${word}?`, { label: 'Recount', fn: () => {
+    const prev = list.map(({ e }) => ({ e, was: { kcal: e.kcal, pro: e.pro, food: e.food, fib: e.fib } }));
+    list.forEach(({ e, base, k, v }) => { e.kcal = r1(k); e.pro = r1(v.pro); e.food = { ...base }; setFib(e, v.fib); });
+    [...new Set(list.map(x => x.d))].forEach(d => touchDay(d)); renderTotals(); renderRows();
+    toast(`Recounted ${n} ${word}`, { label: 'Undo', fn: () => {
+      prev.forEach(({ e, was }) => { Object.assign(e, { kcal: was.kcal, pro: was.pro, food: was.food }); setFib(e, was.fib); });
+      [...new Set(list.map(x => x.d))].forEach(d => touchDay(d)); renderTotals(); renderRows();
+    } });
+  } }, { wait: true });
+}
+
 /* v64: ask Firebase whether the email is confirmed. On Kan's iPhone the check never finished after he came back from
    tapping the link in Safari (likely iOS stalling the home-screen app's storage, which Firebase waits on), so the button
    seemed to do nothing. Now it gives up after a few seconds with a clear message, and the app also checks by itself on
@@ -2409,6 +2451,7 @@ const GUIDE = [
     <p><b>Search</b> covers whole foods, Nigerian and Canadian dishes, your saved foods, and packaged foods online. Nothing fits? Use <b>Enter a food by hand</b>, or <b>Quick add</b> for just calories and protein (good for samples or a meal out).</p>
     <p>On <b>How much?</b> pick an amount in pieces, servings, grams, cups or spoons. No scale? Use your hand: a <b>palm</b> of meat (about 100 g), a <b>fist</b> of rice or pasta (about a cup), a <b>cupped hand</b> of snacks, a <b>thumb</b> of oil or peanut butter. Dishes come in <b>small, regular and large</b> plates or bowls, with a picture guide.</p>
     <p>Staples like chicken, rice and pasta have a <b>Raw weight / Cooked</b> switch: pick how it was when you measured it. Your own packs of chicken, beef, fish, rice, pasta and oats get it too: the package numbers are for raw or dry food, and Cooked works out what they come to after cooking (it opens cooked next time if that's how you logged it last). Food you cook yourself asks <b>Cooked with oil or butter?</b> Oil is the most common hidden source of calories.</p>
+    <p>If a food's numbers are wrong, tap <b>Numbers look wrong? Fix them</b> (it works on the Cooked view too, fixing the pack). Food you already logged keeps its old numbers until you tap <b>Recount</b> when Cut Log offers it, so past days never change by surprise.</p>
     <p>Packaged foods may show a <b>Nutri-Score</b> letter from A (most nutritious) to E (least).</p>
     <p>Food is grouped into Breakfast, Lunch, Dinner and Snacks, and the app learns where you usually put each food. <b>Tap any entry</b> to change the amount, move it to another meal or day, or remove it (with Undo). <b>Copy from yesterday</b> repeats a whole day or one meal.</p>`],
   ['My meals', `

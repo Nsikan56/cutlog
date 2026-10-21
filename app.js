@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '67';
+const APP_V = '68';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -2514,6 +2514,7 @@ const GUIDE = [
   ['Getting started', `
     <p>Put Cut Log on your home screen: in Safari, tap Share, then <b>Add to Home Screen</b>. It works offline and saves everything on your phone first.</p>
     <p>Your goal and daily targets (a calorie range and a protein target) are in <b>You → Goal</b>. Change them any time.</p>
+    <p>The <b>New to Cut Log?</b> banner on Today opens this guide; tap its ✕ to hide it. The guide is always here in You → Help.</p>
     <p>To back up and sync with a laptop, tap the pill at the top right and sign in. Syncing works once your email has been added to the invite list, so ask the person who shared the app. Until then, everything still works on your phone.</p>`],
   ['Logging food', `
     <p><b>Scan barcode</b> for packaged food. If it isn't in the free database, snap the label once and the app remembers that barcode next time.</p>
@@ -2531,7 +2532,7 @@ const GUIDE = [
     <p>If the app closes while you're building a meal, it keeps your progress. My meals shows <b>Finish your unsaved meal</b>.</p>`],
   ['The Today screen', `
     <p>The left ring is calories, with a small mark where your range starts. The right ring is protein. <b>Tap the rings</b> to switch between what you've eaten and what's <b>left</b> for the day; tap again to switch back.</p>
-    <p>Below the rings: how your day is going, a <b>protein nudge</b> if protein falls behind your calories, <b>What fits</b> (foods from your own list that fit what's left, plus <b>More ideas</b>: simple high-protein meals to make at home and McDonald's, Tim Hortons and Subway items that fit, lighter picks first in the evening) and <b>This week</b> (calories banked or over across the week, and how much you can eat today and stay on budget). Only days you logged count; days with nothing logged are named underneath so you know they're left out.</p>
+    <p>Below the rings: how your day is going, a <b>protein nudge</b> if protein falls behind your calories, <b>What fits</b> (foods from your own list that fit what's left, in a row you can swipe; its last tile is <b>More ideas</b>: simple high-protein meals to make at home and McDonald's, Tim Hortons and Subway items that fit, lighter picks first in the evening) and <b>This week</b> (calories banked or over across the week, and how much you can eat today and stay on budget). Only days you logged count; days with nothing logged are named underneath so you know they're left out.</p>
     <p>Open This week and tap <b>See past weeks and months</b> for your <b>History</b>: a calendar of each month with every day's calories (green in range, orange over, blue under), what each week banked, and every month's averages. Swipe it for other months, and tap a day to open it.</p>
     <p><b>More nutrients</b>, under your food list, shows fibre. It only counts foods that have fibre data, so it says "at least" when some don't. A meal counts the ingredients that have it. Foods missing it are listed there; tap one to add the number from its label.</p>`],
   ['Weigh-ins and waist', `
@@ -2560,7 +2561,7 @@ const GUIDE_KEY = 'cutlog.guide', GUIDE_DAYS = 7;
 function guideState() { try { return JSON.parse(localStorage.getItem(GUIDE_KEY)) || {}; } catch (e) { return {}; } }
 function setGuide(x) { try { localStorage.setItem(GUIDE_KEY, JSON.stringify({ ...guideState(), ...x })); } catch (e) {} }
 function openGuide() {
-  setGuide({ seen: 1 }); $('guideBanner').hidden = true;
+  setGuide({ seen: 1 }); $('guideBanner').hidden = true; $('guideWrap').hidden = true;
   openSheet('How to use Cut Log', `<p class="hint">Tap a topic to open it.</p>
     <div class="guide">${GUIDE.map(([t, h], i) => `<details class="guide-s"${i === 0 ? ' open' : ''}><summary>${t}</summary><div class="guide-b">${h}</div></details>`).join('')}</div>`);
 }
@@ -2571,9 +2572,12 @@ function renderGuideBanner() {
   if (!g.seen && !g.first && S.onboarded) setGuide({ first: Date.now() });
   const first = guideState().first;
   b.hidden = !!g.seen || !S.onboarded || day !== todayIso() || !first || Date.now() - first > GUIDE_DAYS * 864e5;
+  $('guideWrap').hidden = b.hidden;      // v68: the banner sits in a wrapper with its ✕
 }
 $('guideBtn').onclick = () => { haptic(); openGuide(); };
 $('guideBanner').onclick = () => { haptic(); openGuide(); };
+/* v68: ✕ hides the banner for good on this device, same as having opened the guide */
+$('guideX').onclick = () => { setGuide({ seen: 1 }); haptic(); renderGuideBanner(); toast('The guide stays in You → Help'); };
 
 /* =================== v45/v46: WEIGHT ESTIMATE WITHOUT A SCALE ===================
    A rough range from height and clothing sizes, only used to set starting targets: never saved as a weigh-in or a starting
@@ -2946,12 +2950,20 @@ function renderFits() {
   const cal = es.reduce((s, e) => s + e.kcal, 0), pro = es.reduce((s, e) => s + e.pro, 0), left = Math.round(T.calHi - cal);
   const on = day === todayIso() && es.length && left >= 150;
   fitPicks = on ? pickFits(left) : [];
-  const more = on && moreIdeas(left).count > 0;      // v67: ideas beyond your own foods
-  el.hidden = !fitPicks.length && !more; if (el.hidden) return;
+  const mi = on ? moreIdeas(left) : null, more = !!mi && mi.count > 0;      // v67: ideas beyond your own foods
+  el.hidden = !fitPicks.length && !more;
+  /* v68: while the picks show, they say what the "under your range, room for a snack" line said, so that line steps aside
+     (it still shows when you're in range, over, or haven't logged anything) */
+  $('status').hidden = !el.hidden && cal < T.calLo;
+  if (el.hidden) return;
   const proLeft = Math.max(0, Math.round(T.protein - pro));
+  const moreSub = mi && `${mi.count} that fit`;
+  /* v68: one swipeable row, full names, with More ideas as its last tile (was two cut-off tiles plus a separate button) */
   el.innerHTML = `<span class="fits-k">Fits the ${kc(left)} kcal${proLeft ? ` and ${proLeft}g protein` : ''} left</span>`
-    + (fitPicks.length ? `<div class="fits-row">${fitPicks.map((x, i) => `<button class="fit" data-fit="${i}"><b>${esc(x.f.name)}</b><small>${Math.round(x.kcal)} kcal · ${fmtG(x.pro)}g protein</small></button>`).join('')}</div>` : '')
-    + (more ? `<button class="fits-more" id="fitsMore" type="button">More ideas${CHEV_R}</button>` : '');
+    + `<div class="fits-row" id="fitsRow">${fitPicks.map((x, i) => `<button class="fit" data-fit="${i}"><b>${esc(x.f.name)}</b><small>${Math.round(x.kcal)} kcal · ${fmtG(x.pro)}g</small></button>`).join('')}`
+    + (more ? `<button class="fit fit-more" id="fitsMore" type="button"><b>More ideas${CHEV_R}</b><small>${esc(moreSub)}</small></button>` : '') + '</div>';
+  const row = $('fitsRow'), fade = () => row.classList.toggle('more', row.scrollLeft + row.clientWidth < row.scrollWidth - 4);
+  row.addEventListener('scroll', fade, { passive: true }); requestAnimationFrame(fade);
 }
 $('fits').onclick = e => {
   if (e.target.closest('#fitsMore')) { haptic(); openMoreIdeas(); return; }

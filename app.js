@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '61';
+const APP_V = '62';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -31,6 +31,8 @@ const shift = (s, n) => { const d = parseIso(s); d.setDate(d.getDate() + n); ret
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 const r1 = n => Math.round(n * 10) / 10;
+/* v62: protein in How much? keeps one decimal up to 30 g, so it matches the per-100 g line above it (22.6, not 23) */
+const fmtP = g => (g >= 9.95 && g < 29.95 ? String(r1(g)) : fmtG(g)) + 'g';
 const fmtG = g => { if (!(g > 0)) return '0'; if (g >= 9.95) return String(Math.round(g)); const v = Math.round(g * 10) / 10; return v === 0 ? '<0.1' : String(v); };
 const fmtQty = q => (Math.round(q * 100) / 100).toString();
 const icon = id => `<svg><use href="#${id}"/></svg>`;
@@ -837,8 +839,8 @@ function openAmount(f, preset, opts = {}) {
   const upd = () => {
     const v = calc(f, parseFloat($('aQty').value), unit);
     if (oil && v.kcal > 0) v.kcal += OIL[oil].k;
-    animateNum($('aK'), v.kcal, undefined, 220); animateNum($('aP'), v.pro, n => fmtG(n) + 'g', 220);
-    let fibTxt = v.fib != null ? `${fmtG(v.fib)}g fibre` : null;
+    animateNum($('aK'), v.kcal, undefined, 220); animateNum($('aP'), v.pro, fmtP, 220);
+    let fibTxt = v.fib != null && v.fib >= 0.05 ? `${fmtG(v.fib)}g fibre` : null;   // v62: no "0g fibre" on eggs, meat and fish
     if (v.fib == null && v.kcal > 0) {      // v50: a meal with some ingredients missing fibre data
       const pf = mealPartFood(mealOf(f)), pv = pf && calc(pf, parseFloat($('aQty').value), unit);
       if (pv?.fib != null && Math.abs(pv.kcal - v.kcal) <= Math.max(3, pv.kcal * 0.03)) fibTxt = `at least ${fmtG(pv.fib)}g fibre (not every ingredient has fibre data)`;

@@ -134,3 +134,50 @@ const STARTER_MEALS = [
   {name:"Protein bagel + cream cheese", kcal:310, pro:18},
   {name:"Protein shake (1 scoop, water)", kcal:120, pro:24},
 ];
+
+/* v67: More ideas. Canadian chain menu items, typed from each chain's own published Canadian nutrition data and checked
+   20 Oct 2026. Per serving (one item as sold). Not in search and never saved as a food; ids are append-only (ch0, ch1, ...)
+   like the other lists, because logged entries point at them. Fibre only where the chain gives it. */
+const CHAIN_INFO = {
+  "McDonald's": { src: "McDonald's Canada nutrition info", checked: '2026-10-20' },
+  'Tim Hortons': { src: 'Tim Hortons Canada menu data (with default toppings)', checked: '2026-10-20' },
+  'Subway': { src: 'Subway Canada nutrition guide', checked: '2026-10-20', note: '6-inch subs are on multigrain bread with veggies, no cheese or sauce. A footlong is 2 servings; cheddar adds about 45 kcal and 3 g protein per 6-inch.' },
+};
+const CHAIN_FOODS = [
+  ...[["Hamburger",240,12,2],["Cheeseburger",290,14,2],["McDouble",380,21,2],["Junior Chicken",380,12,2],["Big Mac",570,24,3],["Double Cheeseburger",420,24,2],
+    ["Quarter Pounder with Cheese",530,29,2],["Double Quarter Pounder with Cheese",750,47,3],["Egg McMuffin",290,16,2],["Chicken McMuffin",360,14,2],["Sausage 'N Egg McMuffin",440,20,2],
+    ["Bacon 'N Egg McMuffin",310,16,2],["Egg 'N Cheese McMuffin",280,14,2],["Breakfast Burrito",290,13,1],["Hash Browns",160,1,2],["McCrispy",520,29,2],["Grilled Chicken Sandwich",400,31,2],
+    ["Spicy Grilled Chicken Sandwich",380,31,2],["McChicken",480,16,3],["6 Chicken McNuggets",250,16,0],["10 Chicken McNuggets",410,26,0],["Chicken & Bacon McWrap (grilled)",480,33,2],
+    ["Sweet Chili McWrap (grilled)",460,30,2],["Creamy Chipotle Chicken McWrap (grilled)",550,31,3],["Caesar and Bacon McWrap (grilled)",490,32,2],["Spicy Buffalo Snack Wrap (grilled)",240,18,1],
+    ["Ranch Chicken Snack Wrap (grilled)",260,18,1],["Filet-O-Fish",400,14,1],["Fries, small",240,3,3],["Fries, medium",350,4,4],["Apple Slices",35,0,1],["1% milk, 250 ml",110,9,0],
+    ["Latte, 2%, medium",170,11,0],["Hotcakes (no syrup or butter)",350,8,3],["Poutine",870,21,5]].map(x => ["McDonald's", ...x]),
+  ...[["Grilled Chicken Caesar Wrap",471,34,2],["Grilled Buffalo Chicken Wrap",391,29,2],["Grilled Chipotle Cheddar Chicken Wrap",420,28,2],["Slow-Cooked Chicken Bacon Ranch Wrap",420,27,2],
+    ["Crispy Chicken Bacon Ranch Wrap",530,24,4],["Steak Classic Breakfast Wrap",450,24,3],["Bacon Farmer's Wrap",534,18,3],["Sausage Farmer's Wrap",655,20,3],["Protein Bagel (plain)",280,20,3],
+    ["Bagel BELT",565,27,7],["Chili, regular",310,19,4],["Chili, large",430,27,6],["Chicken Noodle Soup, regular",140,9,1],["Chicken Noodle Soup, large",190,10,2],["Turkey Bacon Club",500,27,3],
+    ["Tuscan Chicken Toasted Sandwich",530,30,4],["Montreal Smoked Meat Toasted Sandwich",610,28,4],["Southwest Beef & Cheddar Toasted Sandwich",530,25,5],["Ham & Cheddar Artisan Sandwich",520,25,3],
+    ["Greek Yogurt Parfait",252,8,3],["Plain Oatmeal, regular",161,6,4],["Latte, medium",140,10,0],["Bacon Maple Timwich",410,17,1]].map(x => ['Tim Hortons', ...x]),
+  ...[["Rotisserie-Style Chicken 6-inch",310,25],["Turkey Breast 6-inch",280,19],["Steak & Cheese 6-inch",360,24],["Sweet Onion Chicken Teriyaki 6-inch",360,23],["Black Forest Ham 6-inch",290,18],
+    ["Tuna 6-inch",440,19],["Veggie Delite 6-inch",210,10],["Italian B.M.T. 6-inch",410,20],["Rotisserie-Style Chicken Salad",150,20],["Grilled Chicken Salad",110,14],
+    ["Sweet Onion Chicken Teriyaki Salad",240,18],["Sweet Onion Chicken Teriyaki Rice Bowl",490,23],["Shawarma Chicken Rice Bowl",750,30],["Jerk-Spiced Chicken Rice Bowl",670,25]].map(x => ['Subway', ...x]),
+].map(([chain, item, k, p, fb], i) => { const f = { id: 'ch' + i, name: `${chain} ${item}`, item, chain, brand: chain, source: 'chain', kcalServ: k, proServ: p };
+  if (fb != null) f.fibServ = fb; return f; });
+
+/* v67: simple high-protein meals and snacks to make at home, built only from the built-in foods above (worked out when shown).
+   snack: a lighter pick for the evening (after about 7 pm, these come first). Keys are kept stable: logged entries point at them. */
+const HOME_IDEAS = [
+  { key: 'yogbowl', what: '1 cup Greek yogurt, ½ cup blueberries', name: 'Greek yogurt bowl', snack: true, items: [['Greek yogurt, plain 0%', 1, 'cup'], ['Blueberries', 0.5, 'cup']] },
+  { key: 'cottage', what: '1 cup cottage cheese, ½ cup blueberries', name: 'Cottage cheese and berries', snack: true, items: [['Cottage cheese, 2%', 1, 'cup'], ['Blueberries', 0.5, 'cup']] },
+  { key: 'whites', what: '6 egg whites, 1 cup spinach', name: 'Egg white and spinach scramble', snack: true, items: [['Egg white, large', 6, 'piece'], ['Spinach (raw)', 1, 'cup']] },
+  { key: 'tunatoast', what: '1 can tuna on a slice of whole wheat toast', name: 'Tuna on toast', snack: true, items: [['Tuna, canned in water (drained)', 1, 'piece'], ['Whole wheat bread', 1, 'piece']] },
+  { key: 'boiledeggs', what: '2 large eggs', name: 'Two boiled eggs', snack: true, items: [['Egg, large', 2, 'piece']] },
+  { key: 'milkshake', what: '1 cup 2% milk and a banana', name: 'Glass of milk and a banana', snack: true, items: [['Milk, 2%', 1, 'cup'], ['Banana', 1, 'piece']] },
+  { key: 'chickenrice', what: '150 g cooked chicken breast, 1 cup rice, 1 cup broccoli', name: 'Chicken rice bowl', items: [['Chicken breast (cooked)', 150, 'g'], ['White rice (cooked)', 1, 'cup'], ['Broccoli (raw)', 1, 'cup']] },
+  { key: 'eggstoast', what: '3 eggs on 2 slices of whole wheat toast', name: 'Eggs on toast', items: [['Egg, large', 3, 'piece'], ['Whole wheat bread', 2, 'piece']] },
+  { key: 'tunasand', what: '1 can tuna, 2 slices whole wheat bread, spinach', name: 'Tuna sandwich', items: [['Tuna, canned in water (drained)', 1, 'piece'], ['Whole wheat bread', 2, 'piece'], ['Spinach (raw)', 1, 'cup']] },
+  { key: 'salmon', what: '1 salmon fillet, 1 baked sweet potato, 1 cup broccoli', name: 'Salmon, sweet potato and broccoli', items: [['Salmon, cooked', 1, 'piece'], ['Sweet potato, baked', 1, 'piece'], ['Broccoli (raw)', 1, 'cup']] },
+  { key: 'groundchicken', what: '150 g cooked ground chicken, 1 cup rice, 1 cup mixed veg', name: 'Ground chicken, rice and veggies', items: [['Ground chicken, extra lean (cooked)', 150, 'g'], ['White rice (cooked)', 1, 'cup'], ['Mixed vegetables, frozen', 1, 'cup']] },
+  { key: 'basarice', what: '1 basa fillet, 1 cup brown rice, 1 cup mixed veg', name: 'Basa with brown rice', items: [['Basa / swai fillet (cooked)', 1, 'piece'], ['Brown rice (cooked)', 1, 'cup'], ['Mixed vegetables, frozen', 1, 'cup']] },
+  { key: 'steakpotato', what: '150 g steak, 1 boiled potato, 1 cup broccoli', name: 'Steak and potatoes', items: [['Steak, cooked', 150, 'g'], ['Potato, white (boiled)', 1, 'piece'], ['Broccoli (raw)', 1, 'cup']] },
+  { key: 'protoats', what: '40 g oats, 1 cup Greek yogurt, ½ cup milk, ½ cup blueberries', name: 'Yogurt overnight oats', items: [['Oats, rolled (dry)', 40, 'g'], ['Greek yogurt, plain 0%', 1, 'cup'], ['Milk, 2%', 0.5, 'cup'], ['Blueberries', 0.5, 'cup']] },
+  { key: 'beanseggs', what: '½ cup black beans, 2 eggs, 1 slice toast', name: 'Black beans and eggs', items: [['Black beans (cooked or canned, drained)', 0.5, 'cup'], ['Egg, large', 2, 'piece'], ['Whole wheat bread', 1, 'piece']] },
+];

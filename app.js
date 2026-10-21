@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '66';
+const APP_V = '67';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -624,7 +624,7 @@ function doRemoveEntry(id) {
   touchDay(d); renderTotals(); renderRows();
   toast(`Removed ${gone.name}`, { label: 'Undo', fn: () => { (S.log[d] ||= []).splice(i, 0, gone); touchDay(d); renderTotals(); renderRows(); } });
 }
-const NOT_SAVED = ['built-in', 'meal', 'entry', 'cooked'];
+const NOT_SAVED = ['built-in', 'meal', 'entry', 'cooked', 'chain', 'idea'];   // v67: chain menu items and home ideas are never saved as foods
 /* v50: Recent, meal ingredients and logged entries keep a copy of a food from when it was used. If you've fixed the saved
    food since (fibre, Edit numbers), new logs use the saved one, and an old copy never overwrites it. */
 const freshFood = f => {
@@ -638,7 +638,7 @@ function rememberFood(f) {
   }
 }
 function pushRecent(f, qty, unit) {
-  if (NOT_SAVED.includes(f.source) && f.source !== 'built-in' && f.source !== 'cooked') return;
+  if (NOT_SAVED.includes(f.source) && !['built-in', 'cooked', 'chain', 'idea'].includes(f.source)) return;
   f = freshFood(f);
   S.recent = [{ food: f, qty, unit }, ...S.recent.filter(r => r.food.id !== f.id)].slice(0, 12);
 }
@@ -852,7 +852,9 @@ function openAmount(f, preset, opts = {}) {
       <div class="plates">${['s', 'm', 'l'].map((k, i) => `<div><svg viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="${[18, 25, 30][i]}" class="pl"/><ellipse cx="32" cy="${33 - i}" rx="${[9, 15, 21][i]}" ry="${[5, 8, 12][i]}" class="fd"/></svg><b>${['Small', 'Regular', 'Large'][i]}</b><span>${PLATE_HINT[f.pieceLabel][k]}</span></div>`).join('')}</div>
       <p class="hint">Regular is about ${Math.round(f.piece)} g. Small is about 60% of that, large about 1½ times.</p></details>` : ''}
     <p class="hint" id="aNote" hidden>Spoon sizes are approximate: about 15 g per tablespoon and 5 g per teaspoon. A heaping spoon is closer to 25 g.</p>
+    ${moreNote(f)}
     <button class="btn" id="aAdd">${esc(cta)}</button>
+    ${f.source === 'idea' && !picking && !editing ? '<button class="btn ghost" id="aIdeaMeal">Save as one of my meals</button>' : ''}
     ${NOT_SAVED.includes(f.source) && !f.cookOf ? '' : '<button class="btn ghost" id="aFix">Numbers look wrong? Fix them</button>'}
     ${editing ? '<button class="btn ghost" id="aMove">Move to another day</button><button class="btn danger" id="aDel">Remove from log</button>' : ''}`);
   const upd = () => {
@@ -922,6 +924,7 @@ function openAmount(f, preset, opts = {}) {
   };
   if ($('aDel')) $('aDel').onclick = () => { closeSheet(); removeEntry(editing); };
   if ($('aMove')) $('aMove').onclick = () => openMoveDay(editing);
+  if ($('aIdeaMeal')) $('aIdeaMeal').onclick = () => saveIdeaMeal(f);
   if ($('aFix')) $('aFix').onclick = () => {
     const was = { preset: { qty: parseFloat($('aQty').value) || 1, unit, oil }, opts: { ...opts, slot } };   // v50: come back to the same amount
     if (f.cookOf) {     // v65: on the Cooked view, fix the pack's label numbers, then come back to Cooked
@@ -1316,7 +1319,7 @@ function togglePin(f) {
   if (!NOT_SAVED.includes(f.source) && !S.foods.some(x => x.id === id)) rememberFood(f);   // a pinned new scan is kept
   touchMeta(); haptic(); return isPinned(id);
 }
-const pinnedFoods = () => (S.pins || []).map(id => S.foods.find(f => f.id === id) || BUILTIN_FOODS.find(f => f.id === id)).filter(Boolean);
+const pinnedFoods = () => (S.pins || []).map(id => S.foods.find(f => f.id === id) || BUILTIN_FOODS.find(f => f.id === id) || CHAIN_FOODS.find(f => f.id === id) || ideaFoods().find(f => f.id === id)).filter(Boolean);
 /* v66: protein per 100 kcal, so the lean choice stands out (chicken breast about 19, oats about 3.5) */
 function proPer100(f) {
   const k = f.kcal100 != null ? f.kcal100 : f.kcalServ, p = f.kcal100 != null ? f.pro100 : f.proServ;
@@ -2528,7 +2531,7 @@ const GUIDE = [
     <p>If the app closes while you're building a meal, it keeps your progress. My meals shows <b>Finish your unsaved meal</b>.</p>`],
   ['The Today screen', `
     <p>The left ring is calories, with a small mark where your range starts. The right ring is protein. <b>Tap the rings</b> to switch between what you've eaten and what's <b>left</b> for the day; tap again to switch back.</p>
-    <p>Below the rings: how your day is going, a <b>protein nudge</b> if protein falls behind your calories, <b>What fits</b> (foods from your own list that fit what's left) and <b>This week</b> (calories banked or over across the week, and how much you can eat today and stay on budget). Only days you logged count; days with nothing logged are named underneath so you know they're left out.</p>
+    <p>Below the rings: how your day is going, a <b>protein nudge</b> if protein falls behind your calories, <b>What fits</b> (foods from your own list that fit what's left, plus <b>More ideas</b>: simple high-protein meals to make at home and McDonald's, Tim Hortons and Subway items that fit, lighter picks first in the evening) and <b>This week</b> (calories banked or over across the week, and how much you can eat today and stay on budget). Only days you logged count; days with nothing logged are named underneath so you know they're left out.</p>
     <p>Open This week and tap <b>See past weeks and months</b> for your <b>History</b>: a calendar of each month with every day's calories (green in range, orange over, blue under), what each week banked, and every month's averages. Swipe it for other months, and tap a day to open it.</p>
     <p><b>More nutrients</b>, under your food list, shows fibre. It only counts foods that have fibre data, so it says "at least" when some don't. A meal counts the ingredients that have it. Foods missing it are listed there; tap one to add the number from its label.</p>`],
   ['Weigh-ins and waist', `
@@ -2941,13 +2944,89 @@ let fitPicks = [];
 function renderFits() {
   const el = $('fits'), T = S.targets, es = entriesFor(day);
   const cal = es.reduce((s, e) => s + e.kcal, 0), pro = es.reduce((s, e) => s + e.pro, 0), left = Math.round(T.calHi - cal);
-  fitPicks = day === todayIso() && es.length && left >= 150 ? pickFits(left) : [];
-  el.hidden = !fitPicks.length; if (!fitPicks.length) return;
+  const on = day === todayIso() && es.length && left >= 150;
+  fitPicks = on ? pickFits(left) : [];
+  const more = on && moreIdeas(left).count > 0;      // v67: ideas beyond your own foods
+  el.hidden = !fitPicks.length && !more; if (el.hidden) return;
   const proLeft = Math.max(0, Math.round(T.protein - pro));
-  el.innerHTML = `<span class="fits-k">Fits the ${kc(left)} kcal${proLeft ? ` and ${proLeft}g protein` : ''} left</span>
-    <div class="fits-row">${fitPicks.map((x, i) => `<button class="fit" data-fit="${i}"><b>${esc(x.f.name)}</b><small>${Math.round(x.kcal)} kcal · ${fmtG(x.pro)}g protein</small></button>`).join('')}</div>`;
+  el.innerHTML = `<span class="fits-k">Fits the ${kc(left)} kcal${proLeft ? ` and ${proLeft}g protein` : ''} left</span>`
+    + (fitPicks.length ? `<div class="fits-row">${fitPicks.map((x, i) => `<button class="fit" data-fit="${i}"><b>${esc(x.f.name)}</b><small>${Math.round(x.kcal)} kcal · ${fmtG(x.pro)}g protein</small></button>`).join('')}</div>` : '')
+    + (more ? `<button class="fits-more" id="fitsMore" type="button">More ideas${CHEV_R}</button>` : '');
 }
-$('fits').onclick = e => { const b = e.target.closest('[data-fit]'); if (!b) return; const x = fitPicks[+b.dataset.fit]; if (x) { haptic(); openAmount(x.f, { qty: x.qty, unit: x.unit }); } };
+$('fits').onclick = e => {
+  if (e.target.closest('#fitsMore')) { haptic(); openMoreIdeas(); return; }
+  const b = e.target.closest('[data-fit]'); if (!b) return; const x = fitPicks[+b.dataset.fit]; if (x) { haptic(); openAmount(x.f, { qty: x.qty, unit: x.unit }); }
+};
+
+/* =================== v67: MORE IDEAS (beyond your own foods) ===================
+   From What fits: simple high-protein things to make at home (built from the built-in foods) and Canadian chain menu items,
+   only those that fit what's left today, most protein per calorie first. After about 7 pm lighter picks come first (Kan eats
+   his last meal by 7-8 pm). Nothing is saved until something is logged, and then only the entry (like a built-in food). */
+const IDEA_MIN_PRO = 10, IDEA_MIN_DENS = 4;   // only suggest things with real protein: 10 g or more, and 4 g or more per 100 kcal
+let ideaCache = null;
+function ideaFoods() {
+  if (ideaCache) return ideaCache;
+  return ideaCache = HOME_IDEAS.map(h => {
+    const items = h.items.map(([n, qty, unit]) => ({ food: BUILTIN_FOODS.find(b => b.name === n), qty, unit })).filter(it => it.food);
+    const v = items.map(it => calc(it.food, it.qty, it.unit)), k = v.reduce((a, x) => a + x.kcal, 0), p = v.reduce((a, x) => a + x.pro, 0);
+    const f = { id: 'idea-' + h.key, name: h.name, source: 'idea', kcalServ: Math.round(k), proServ: r1(p), snack: !!h.snack, what: h.what, items };
+    if (v.every(x => x.fib != null)) f.fibServ = r1(v.reduce((a, x) => a + x.fib, 0));
+    return f;
+  });
+}
+const lateNow = () => { const h = new Date().getHours(); return h >= 19 || h < 4; };
+const ideaWhat = f => f.what || (ideaFoods().find(x => x.id === f.id) || {}).what || '';
+function moreIdeas(left) {
+  const late = lateNow(), light = f => f.source === 'idea' ? f.snack : f.kcalServ <= 350;   // home ideas are tagged; chain items by size
+  const rank = list => list.filter(f => f.kcalServ <= left && f.proServ >= IDEA_MIN_PRO && f.proServ / f.kcalServ * 100 >= IDEA_MIN_DENS)
+    .sort((a, b) => (late ? light(b) - light(a) : 0) || b.proServ / b.kcalServ - a.proServ / a.kcalServ || b.proServ - a.proServ);
+  const home = rank(ideaFoods()), out = rank(CHAIN_FOODS);
+  return { home, out, late, count: home.length + out.length };
+}
+const MI = { tab: 'home', chain: 'all' };
+function openMoreIdeas() {
+  openSheet('More ideas', '<div id="miWrap"></div>');
+  renderMoreIdeas();
+  sheetBody.onclick = e => {
+    const t = e.target.closest('[data-mt]'), c = e.target.closest('[data-mc]'), it = e.target.closest('[data-mi]');
+    if (t) { MI.tab = t.dataset.mt; haptic(); renderMoreIdeas(); return; }
+    if (c) { MI.chain = c.dataset.mc; haptic(); renderMoreIdeas(); return; }
+    if (it) { const f = [...ideaFoods(), ...CHAIN_FOODS].find(x => x.id === it.dataset.mi); if (f) openAmount(f, { qty: 1, unit: 'serving' }); }
+  };
+}
+function renderMoreIdeas() {
+  const box = $('miWrap'); if (!box) return;
+  const T = S.targets, es = entriesFor(todayIso()), left = Math.round(T.calHi - es.reduce((s, e) => s + e.kcal, 0));
+  const proLeft = Math.max(0, Math.round(T.protein - es.reduce((s, e) => s + e.pro, 0)));
+  const m = moreIdeas(left), chains = Object.keys(CHAIN_INFO);
+  if (MI.chain !== 'all' && !chains.includes(MI.chain)) MI.chain = 'all';
+  const row = (f, sub) => `<button class="item" data-mi="${esc(f.id)}"><span class="nm">${esc(f.item || f.name)}<small>${esc(sub)}</small>${ppBadge(f)}</span><span class="meta">${kc(f.kcalServ)} kcal · ${fmtG(f.proServ)}g</span></button>`;
+  let list;
+  if (MI.tab === 'home') {
+    list = m.home.length ? m.home.map(f => row(f, ideaWhat(f))).join('') : '<p class="empty">Nothing from the home ideas fits what’s left today.</p>';
+  } else {
+    const out = m.out.filter(f => MI.chain === 'all' || f.chain === MI.chain);
+    list = `<div class="chips mi-ch" id="miChains" role="group" aria-label="Restaurant">${['all', ...chains].map(c => `<button class="chip" data-mc="${esc(c)}" aria-pressed="${c === MI.chain}">${c === 'all' ? 'All' : esc(c)}</button>`).join('')}</div>`
+      + (out.length ? `<div class="list" id="miOut">${out.map(f => row(f, MI.chain === 'all' ? f.chain : '')).join('')}</div>` : '<p class="empty">Nothing here fits what’s left today.</p>')
+      + `<p class="hint">Numbers come from each chain’s own Canadian nutrition info, checked ${esc(parseIso(CHAIN_INFO["McDonald's"].checked).toLocaleDateString(undefined, { month: 'short', year: 'numeric' }))}. Sauces and changes to an order add calories.${MI.chain === 'Subway' || MI.chain === 'all' ? ' ' + esc(CHAIN_INFO.Subway.note) : ''}</p>`;
+  }
+  box.innerHTML = `<p class="hint mi-left" id="miLeft">Fits the ${kc(left)} kcal${proLeft ? ` and ${proLeft}g protein` : ''} you have left today, most protein per calorie first. Only picks with real protein (${IDEA_MIN_PRO}g or more, and ${IDEA_MIN_DENS}g per 100 kcal).</p>`
+    + (m.late ? '<p class="mi-late" id="miLate">It’s evening, so lighter high-protein snacks come first.</p>' : '')
+    + `<div class="seg2 mi-tabs" id="miTabs" role="group" aria-label="Where"><button type="button" data-mt="home" aria-pressed="${MI.tab === 'home'}">Make at home <small>${m.home.length}</small></button><button type="button" data-mt="out" aria-pressed="${MI.tab === 'out'}">Eating out <small>${m.out.length}</small></button></div>`
+    + (MI.tab === 'home' ? `<div class="list" id="miHome">${list}</div><p class="hint">Made from Cut Log’s built-in foods. Tap one to log it, or save it as one of your meals and change it to suit you.</p>` : list);
+}
+/* How much? for a home idea or a chain item: what's in it, or where the numbers come from */
+function moreNote(f) {
+  if (f.source === 'idea' && ideaWhat(f)) return `<p class="hint mi-note" id="aIdea">${esc(ideaWhat(f))}.</p>`;
+  if (f.source === 'chain' && CHAIN_INFO[f.chain]) return `<p class="hint mi-note" id="aChain">From ${esc(CHAIN_INFO[f.chain].src)}, checked ${esc(parseIso(CHAIN_INFO[f.chain].checked).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }))}.${f.chain === 'Subway' ? ' ' + esc(CHAIN_INFO.Subway.note) : ''}</p>`;
+  return '';
+}
+function saveIdeaMeal(f) {
+  if (S.meals.some(m => m.name === f.name)) { toast('Already in My meals'); return; }
+  const m = { id: uid(), name: f.name, servings: 1, items: f.items.map(it => ({ food: { ...it.food }, qty: it.qty, unit: it.unit })) };
+  const t = mealTotals(m); m.kcal = Math.round(t.kcal); m.pro = Math.round(t.pro);   // like Save meal, without touching a meal you're building
+  S.meals.push(m); touchMeta(); haptic(); toast('Saved to My meals');
+}
 
 /* Weekly check-in: last full week (Monday to Sunday) */
 function lastWeek() {

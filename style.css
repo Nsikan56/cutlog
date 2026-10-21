@@ -545,6 +545,14 @@ details.shut>:not(summary){opacity:0;transform:translateY(-4px);transition:opaci
 .fit b{font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .fit small{font-size:12px;color:var(--hero-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .fit:active{transform:scale(.96)}
+.fits-more{align-self:flex-start;display:flex;align-items:center;gap:4px;padding:7px 10px 7px 12px;border-radius:10px;background:rgba(255,255,255,.08);color:var(--hero-ink);font-size:13px;font-weight:700}
+.fits-more svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
+.fits-more:active{transform:scale(.96)}
+/* v67: More ideas panel */
+.mi-tabs button small{font-size:12px;font-weight:600;opacity:.65;margin-left:3px}
+.mi-late{margin:0;padding:9px 12px;border-radius:12px;background:var(--accent-soft);color:var(--ink);font-size:13px;font-weight:600}
+.mi-ch{margin-bottom:2px}
+.mi-note{margin-top:-4px}
 .wk{padding-top:10px;border-top:1px solid rgba(255,255,255,.1)}
 .wkd summary{display:grid;grid-template-columns:auto 1fr auto;gap:2px 8px;align-items:baseline;margin:-6px -8px;padding:6px 8px;border-radius:12px;transition:background .15s}
 .wkd summary::after{display:none}

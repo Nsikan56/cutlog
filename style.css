@@ -725,6 +725,22 @@ details.shut>:not(summary){opacity:0;transform:translateY(-4px);transition:opaci
 .wh-chart{touch-action:pan-y;cursor:crosshair;-webkit-user-select:none;user-select:none;margin:0 -2px}
 .wh-chart svg{display:block;width:100%;height:auto;outline:none}
 @media (max-width:359px){.hc em{font-size:9.5px}.hw{font-size:12px;letter-spacing:-.03em}.hs-sum .v{font-size:18px}}
+/* v66: pinned foods, protein per 100 kcal, usual amounts, Add always in reach, rings flip eaten/left */
+.food-head{position:relative}
+.food-head strong{padding-right:40px}
+.pin{position:absolute;top:8px;right:8px;width:36px;height:36px;border-radius:50%;font-size:20px;line-height:36px;text-align:center;color:var(--muted);opacity:.45;transition:transform .15s,opacity .15s,color .15s}
+.pin[aria-pressed="true"]{color:var(--accent);opacity:1}
+.pin:active{transform:scale(.85)}
+.pin-dot{font-style:normal;color:var(--accent);margin-right:5px;font-size:13px}
+.item .pp{display:block;margin-top:2px;font-size:12px;font-weight:500;color:var(--muted)}
+.item .pp.hi{color:var(--protein);font-weight:600}
+.chips.usual{align-items:center}
+.usual-k{flex:none;font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-right:2px}
+.chips.usual .chip{padding:7px 12px;font-size:13px}
+.sheet-body>#aAdd{position:sticky;bottom:0;z-index:3;box-shadow:0 -14px 16px 2px var(--surface),0 26px 0 2px var(--surface)}
+.rings{cursor:pointer;-webkit-tap-highlight-color:transparent;border-radius:16px}
+.rings:focus-visible{outline:2px solid var(--hero-muted);outline-offset:4px}
+
 @media (min-width:980px){
   #scroller{padding:28px 32px 48px calc(var(--side) + 32px)}
   :root{--side:204px}

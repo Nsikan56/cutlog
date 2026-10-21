@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '65';
+const APP_V = '66';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -313,19 +313,35 @@ function renderDay() {
     : parseIso(day).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
   $('next').disabled = day >= t;
 }
+/* v66: tap the rings to switch between what you've eaten and what's left (remembered on this phone only) */
+let ringLeft = (() => { try { return localStorage.getItem('cutlog.ringLeft') === '1'; } catch (e) { return false; } })();
+function renderRingNums(cal, pro, T) {
+  if (!ringLeft) {
+    animateNum($('calNum'), cal); $('calU').textContent = 'kcal';
+    animateNum($('proNum'), pro); $('proU').textContent = 'g protein'; return;
+  }
+  const kl = T.calHi - cal, pl = T.protein - pro;
+  animateNum($('calNum'), Math.abs(kl)); $('calU').textContent = kl >= 0 ? 'kcal left' : 'kcal over';
+  animateNum($('proNum'), Math.max(0, pl)); $('proU').textContent = pl > 0 ? 'g left' : 'target hit';
+}
+$('rings').onclick = () => {
+  ringLeft = !ringLeft; haptic();
+  try { localStorage.setItem('cutlog.ringLeft', ringLeft ? '1' : '0'); } catch (e) {}
+  renderTotals(); replay($('rings'), 'swap-in');
+};
+$('rings').onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('rings').click(); } };
 function renderTotals() {
   const T = S.targets, es = entriesFor(day);
   const cal = Math.round(es.reduce((a, e) => a + e.kcal, 0));
   const pro = Math.round(es.reduce((a, e) => a + e.pro, 0));
-  animateNum($('calNum'), cal);
+  renderRingNums(cal, pro, T);
   setArc($('calArc'), cal / T.calHi);
   $('calRing').classList.toggle('over', cal > T.calHi);
   const tick = $('calTick'), tl = 1.2;   // short mark where the range starts
   tick.style.strokeDasharray = `${tl} ${RING_C}`; tick.style.strokeDashoffset = -(RING_C * T.calLo / T.calHi) + tl / 2;
   $('calSub').textContent = `of ${T.calLo.toLocaleString()}–${T.calHi.toLocaleString()}`;
-  animateNum($('proNum'), pro);
   setArc($('proArc'), pro / T.protein);
-  $('proSub').textContent = pro >= T.protein ? `${T.protein}g target hit` : `${T.protein - pro}g to go`;
+  $('proSub').textContent = ringLeft ? `of ${T.protein}g protein` : pro >= T.protein ? `${T.protein}g target hit` : `${T.protein - pro}g to go`;
   const st = $('status'), before = st.textContent; st.className = 'status';
   queueMicrotask(() => { if (st.textContent !== before) replay(st, 'fade-in'); });
   if (!es.length) st.textContent = 'Scan, snap or search what you eat and the rings fill up.';
@@ -809,7 +825,7 @@ function openAmount(f, preset, opts = {}) {
   let oil = canOil ? oilKey(preset?.oil) : null;
   if (opts.slot) slot = opts.slot;
   openSheet(editing ? 'Edit entry' : 'How much?', `
-    <div class="food-head" id="aFood" data-id="${esc(f.id)}"><strong>${esc(f.name)}</strong><span>${esc([f.brand, perLine(f)].filter(Boolean).join(' · '))}</span><span class="ns-row" id="aNs">${nsBadge(f, true)}</span></div>
+    <div class="food-head" id="aFood" data-id="${esc(f.id)}"><button type="button" class="pin" id="aPin" aria-pressed="${isPinned(f.cookOf || f.id)}" aria-label="Pin this food">★</button><strong>${esc(f.name)}</strong><span>${esc([f.brand, perLine(f)].filter(Boolean).join(' · '))}</span><span class="ns-row" id="aNs">${nsBadge(f, true)}</span></div>
     ${twin ? `<div class="seg2 st" id="aState" role="group" aria-label="Weighed raw or cooked">${[base, twin].sort((a, b) => stateOf(a) === 'cooked' ? 1 : stateOf(b) === 'cooked' ? -1 : 0).map(x => `<button type="button" data-st="${esc(x.name)}" aria-pressed="${x.name === base.name}">${stateOf(x) === 'dry' ? 'Dry weight' : stateOf(x) === 'raw' ? 'Raw weight' : 'Cooked'}</button>`).join('')}</div>
     <p class="st-hint">Pick how it was when you measured it. Cooking changes the weight, so the numbers differ.${f.cookOf || pkgPair(f) ? ' Cooked is worked out from the package.' : ''}</p>` : ''}
     <div class="stepper">
@@ -817,6 +833,7 @@ function openAmount(f, preset, opts = {}) {
       <input id="aQty" type="number" inputmode="decimal" step="any" min="0" value="${startQty}" aria-label="Amount">
       <button id="aPlus" aria-label="More">+</button>
     </div>
+    ${usualHtml(f, startQty, unit)}
     <div class="chips" id="aUnits" role="group" aria-label="Unit">${units.map(u => `<button class="chip" data-u="${u.key}" aria-pressed="${u.key === unit}" title="${esc(u.long || u.label)}">${esc(u.key === 'serving' && f.servingLabel ? 'serving · ' + servLabel(f) : u.label)}</button>`).join('')}</div>
     <div class="result"><div><span class="num" id="aK">0</span><small>kcal</small></div><div class="pro"><span class="num" id="aP">0g</span><small>protein</small></div></div>
     <p class="fib-line" id="aF" hidden></p>
@@ -867,6 +884,16 @@ function openAmount(f, preset, opts = {}) {
     upd();
   };
   upd(); enrichFood(f); recheckServing(f, editing);
+  $('aPin').onclick = () => { const on = togglePin(f); $('aPin').setAttribute('aria-pressed', on); toast(on ? 'Pinned. It sits at the top of search.' : 'Unpinned'); };
+  if ($('aUsual')) $('aUsual').onclick = e => {      // v66: one tap for an amount you usually have
+    const b = e.target.closest('[data-q]'); if (!b) return;
+    unit = b.dataset.u; $('aQty').value = b.dataset.q; haptic();
+    [...$('aUnits').children].forEach(c => c.setAttribute('aria-pressed', c.dataset.u === unit));
+    [...$('aUsual').querySelectorAll('[data-q]')].forEach(c => c.setAttribute('aria-pressed', c === b));
+    $('aUnits').querySelector('[aria-pressed="true"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    upd();
+  };
+  $('aQty').addEventListener('input', () => $('aUsual')?.querySelectorAll('[data-q]').forEach(c => c.setAttribute('aria-pressed', c.dataset.q === $('aQty').value && c.dataset.u === unit)));
   if ($('aState')) $('aState').onclick = e => {
     const b = e.target.closest('[data-st]'); if (!b || b.dataset.st === base.name) return;
     const to = [base, twin].find(x => x.name === b.dataset.st); if (!to) return;
@@ -1264,9 +1291,43 @@ function labelForm(out, p, text, barcode, name, keepId, then) {
   };
 }
 
+/* v66: the amounts you usually log for this food (from the last 90 days), most frequent first, up to 3 */
+function usualAmounts(f) {
+  const id = f.id, keys = unitsFor(f).map(u => u.key), seen = new Map(), since = shift(todayIso(), -90);
+  Object.keys(S.log).filter(d => d >= since).sort().forEach(d => S.log[d].forEach(e => {
+    if (!e.food || e.food.id !== id || !(e.qty > 0) || !keys.includes(e.unit)) return;
+    const k = `${r1(e.qty)}|${e.unit}`, x = seen.get(k) || { qty: r1(e.qty), unit: e.unit, n: 0, at: '' };
+    x.n++; x.at = d; seen.set(k, x);
+  }));
+  return [...seen.values()].sort((a, b) => b.n - a.n || (a.at < b.at ? 1 : -1)).slice(0, 3);
+}
+function usualHtml(f, q, u) {
+  const list = usualAmounts(f); if (!list.length) return '';
+  return `<div class="chips usual" id="aUsual" role="group" aria-label="Your usual amounts"><span class="usual-k">Usual</span>${list.map(x =>
+    `<button type="button" class="chip" data-q="${fmtQty(x.qty)}" data-u="${x.unit}" aria-pressed="${fmtQty(x.qty) === String(q) && x.unit === u}">${fmtQty(x.qty)} ${esc(unitWord(f, x.unit, x.qty))}</button>`).join('')}</div>`;
+}
+
 /* ---------- search ---------- */
+/* v66: pinned foods (S.pins: food ids, saved or built-in; synced in settings, created on the first pin) */
+const isPinned = id => !!S.pins?.includes(id);
+function togglePin(f) {
+  const id = f.cookOf || f.id; S.pins ||= [];
+  if (isPinned(id)) S.pins = S.pins.filter(x => x !== id); else S.pins.unshift(id);
+  if (!NOT_SAVED.includes(f.source) && !S.foods.some(x => x.id === id)) rememberFood(f);   // a pinned new scan is kept
+  touchMeta(); haptic(); return isPinned(id);
+}
+const pinnedFoods = () => (S.pins || []).map(id => S.foods.find(f => f.id === id) || BUILTIN_FOODS.find(f => f.id === id)).filter(Boolean);
+/* v66: protein per 100 kcal, so the lean choice stands out (chicken breast about 19, oats about 3.5) */
+function proPer100(f) {
+  const k = f.kcal100 != null ? f.kcal100 : f.kcalServ, p = f.kcal100 != null ? f.pro100 : f.proServ;
+  return k > 0 && p != null ? p / k * 100 : null;
+}
+function ppBadge(f) {
+  const v = proPer100(f); if (v == null || v < 1) return '';
+  return `<span class="pp${v >= 8 ? ' hi' : ''}" title="grams of protein per 100 kcal">${v >= 10 ? Math.round(v) : r1(v)}g protein / 100 kcal</span>`;
+}
 function listHtml(items) {
-  return items.map((it, i) => `<button class="item" data-i="${i}"><span class="nm">${esc(it.f.name)}${it.f.brand ? `<small>${esc(it.f.brand)}</small>` : ''}</span>
+  return items.map((it, i) => `<button class="item" data-i="${i}"><span class="nm">${isPinned(it.f.cookOf || it.f.id) ? '<i class="pin-dot" aria-label="Pinned">★</i>' : ''}${esc(it.f.name)}${it.f.brand ? `<small>${esc(it.f.brand)}</small>` : ''}${ppBadge(it.f)}</span>
     ${nsBadge(it.f)}<span class="meta">${esc(it.meta || (it.f.kcal100 != null ? Math.round(it.f.kcal100) + ' kcal/100g' : Math.round(it.f.kcalServ) + ' kcal/serv'))}</span></button>`).join('');
 }
 function openSearch() {
@@ -1282,8 +1343,14 @@ function openSearch() {
   const show = () => {
     const q = $('q').value.trim().toLowerCase();
     if (!q) {
-      items = S.recent.map(r => ({ f: r.food, preset: r, meta: `last: ${fmtQty(r.qty)} ${unitWord(r.food, r.unit, r.qty)}` }));
-      if (items.length) $('results').innerHTML = '<h3>Recent</h3>' + listHtml(items);
+      const pins = pinnedFoods(), pinIds = new Set(pins.map(f => f.id));
+      const lastOf = id => S.recent.find(r => (r.food.cookOf || r.food.id) === id);
+      const pItems = pins.map(f => { const r = lastOf(f.id); return r ? { f: r.food.cookOf ? r.food : f, preset: r, meta: `last: ${fmtQty(r.qty)} ${unitWord(r.food, r.unit, r.qty)}` } : { f }; });
+      const rItems = S.recent.filter(r => !pinIds.has(r.food.cookOf || r.food.id)).map(r => ({ f: r.food, preset: r, meta: `last: ${fmtQty(r.qty)} ${unitWord(r.food, r.unit, r.qty)}` }));
+      items = [...pItems, ...rItems];
+      const ph = pItems.length ? '<h3>Pinned</h3>' + listHtml(pItems) : '';
+      const rh = rItems.length ? '<h3>Recent</h3>' + listHtml(rItems).replace(/data-i="(\d+)"/g, (m, i) => `data-i="${+i + pItems.length}"`) : '';
+      if (items.length) $('results').innerHTML = ph + rh;
       else { items = BUILTIN_FOODS.slice(0, 10).map(f => ({ f })); $('results').innerHTML = '<h3>Common foods</h3>' + listHtml(items); }
       $('online').hidden = true;
     } else {
@@ -1292,7 +1359,7 @@ function openSearch() {
       // best matches first: name starts with it, then a word starts with it, then anywhere. Saved foods lead within each group.
       const rank = f => { const n = f.name.toLowerCase(); return n.startsWith(q) ? 0 : n.split(/[^a-z0-9%]+/).some(w => w.startsWith(words[0])) ? 1 : n.includes(words[0]) ? 2 : 3; };
       items = [...S.foods.filter(match), ...BUILTIN_FOODS.filter(match)].map((f, i) => ({ f, r: rank(f), i }))
-        .sort((a, b) => a.r - b.r || a.i - b.i).slice(0, 30).map(x => ({ f: x.f }));
+        .sort((a, b) => (isPinned(b.f.id) - isPinned(a.f.id)) || a.r - b.r || a.i - b.i).slice(0, 30).map(x => ({ f: x.f }));   // v66: pinned first
       $('results').innerHTML = items.length ? listHtml(items) : '<p class="empty">No match in your foods. Try searching online.</p>';
       $('online').hidden = false;
     }
@@ -1517,7 +1584,7 @@ function renderSync() {
   b.className = 'sync ' + cls; $('syncText').textContent = txt; renderAcct();
 }
 function dayDoc(d) { return { entries: S.log[d] || [], weight: S.weights[d] ?? null, waist: S.waist?.[d] ?? null, updatedAt: S.stamps.days[d] || Date.now() }; }
-function metaDoc() { return { targets: S.targets, meals: S.meals, foods: S.foods, recent: S.recent, theme: S.theme || 'cobalt', slotPref: S.slotPref || {}, name: S.name || '', scale: S.scale || 'daily', units: S.units || 'imperial', startWeight: S.startWeight ?? null, milestones: S.milestones || {}, msInit: !!S.msInit, updatedAt: S.stamps.meta || Date.now() }; }
+function metaDoc() { return { targets: S.targets, meals: S.meals, foods: S.foods, recent: S.recent, theme: S.theme || 'cobalt', slotPref: S.slotPref || {}, name: S.name || '', scale: S.scale || 'daily', units: S.units || 'imperial', startWeight: S.startWeight ?? null, milestones: S.milestones || {}, msInit: !!S.msInit, pins: S.pins || [], updatedAt: S.stamps.meta || Date.now() }; }
 function applyDay(id, data) {
   if (data.entries && data.entries.length) S.log[id] = data.entries; else delete S.log[id];
   if (data.weight != null) S.weights[id] = data.weight; else delete S.weights[id];
@@ -1526,7 +1593,7 @@ function applyDay(id, data) {
   S.dirty = S.dirty.filter(k => k !== 'd:' + id);
 }
 function applyMeta(data) {
-  ['targets', 'meals', 'foods', 'recent', 'theme', 'slotPref', 'name', 'scale', 'units', 'startWeight', 'milestones', 'msInit'].forEach(k => { if (data[k] !== undefined) S[k] = data[k]; });
+  ['targets', 'meals', 'foods', 'recent', 'theme', 'slotPref', 'name', 'scale', 'units', 'startWeight', 'milestones', 'msInit', 'pins'].forEach(k => { if (data[k] !== undefined) S[k] = data[k]; });
   S.onboarded = true; delete S.metaUnsynced;   // this account was already set up somewhere
   S.targets = Object.assign({ mode: 'lose' }, S.targets); S.milestones ||= {};
   applyTheme(); if (typeof hideOnboarding === 'function') hideOnboarding();
@@ -2451,6 +2518,7 @@ const GUIDE = [
     <p><b>Search</b> covers whole foods, Nigerian and Canadian dishes, your saved foods, and packaged foods online. Nothing fits? Use <b>Enter a food by hand</b>, or <b>Quick add</b> for just calories and protein (good for samples or a meal out).</p>
     <p>On <b>How much?</b> pick an amount in pieces, servings, grams, cups or spoons. No scale? Use your hand: a <b>palm</b> of meat (about 100 g), a <b>fist</b> of rice or pasta (about a cup), a <b>cupped hand</b> of snacks, a <b>thumb</b> of oil or peanut butter. Dishes come in <b>small, regular and large</b> plates or bowls, with a picture guide.</p>
     <p>Staples like chicken, rice and pasta have a <b>Raw weight / Cooked</b> switch: pick how it was when you measured it. Your own packs of chicken, beef, fish, rice, pasta and oats get it too: the package numbers are for raw or dry food, and Cooked works out what they come to after cooking (it opens cooked next time if that's how you logged it last). Food you cook yourself asks <b>Cooked with oil or butter?</b> Oil is the most common hidden source of calories.</p>
+    <p>Tap the <b>★</b> on a food to pin it: pinned foods sit at the top of search. Under the amount, <b>Usual</b> shows the amounts you log most, one tap each. Search results show <b>protein per 100 kcal</b>; green means a lean, high-protein choice.</p>
     <p>If a food's numbers are wrong, tap <b>Numbers look wrong? Fix them</b> (it works on the Cooked view too, fixing the pack). Food you already logged keeps its old numbers until you tap <b>Recount</b> when Cut Log offers it, so past days never change by surprise.</p>
     <p>Packaged foods may show a <b>Nutri-Score</b> letter from A (most nutritious) to E (least).</p>
     <p>Food is grouped into Breakfast, Lunch, Dinner and Snacks, and the app learns where you usually put each food. <b>Tap any entry</b> to change the amount, move it to another meal or day, or remove it (with Undo). <b>Copy from yesterday</b> repeats a whole day or one meal.</p>`],
@@ -2459,7 +2527,7 @@ const GUIDE = [
     <p>Cooking a big pot? Weigh the whole pot once it's cooked (without the pot) and enter the <b>cooked weight</b>. Then log whatever you dish out by grams or by hand portion.</p>
     <p>If the app closes while you're building a meal, it keeps your progress. My meals shows <b>Finish your unsaved meal</b>.</p>`],
   ['The Today screen', `
-    <p>The left ring is calories, with a small mark where your range starts. The right ring is protein.</p>
+    <p>The left ring is calories, with a small mark where your range starts. The right ring is protein. <b>Tap the rings</b> to switch between what you've eaten and what's <b>left</b> for the day; tap again to switch back.</p>
     <p>Below the rings: how your day is going, a <b>protein nudge</b> if protein falls behind your calories, <b>What fits</b> (foods from your own list that fit what's left) and <b>This week</b> (calories banked or over across the week, and how much you can eat today and stay on budget). Only days you logged count; days with nothing logged are named underneath so you know they're left out.</p>
     <p>Open This week and tap <b>See past weeks and months</b> for your <b>History</b>: a calendar of each month with every day's calories (green in range, orange over, blue under), what each week banked, and every month's averages. Swipe it for other months, and tap a day to open it.</p>
     <p><b>More nutrients</b>, under your food list, shows fibre. It only counts foods that have fibre data, so it says "at least" when some don't. A meal counts the ingredients that have it. Foods missing it are listed there; tap one to add the number from its label.</p>`],

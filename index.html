@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>Cut Log</title>
-<meta name="app-v" content="65">
+<meta name="app-v" content="66">
 <!-- v63: only lets the page load code and data from the places Cut Log really uses (Firebase, the scanner and label reader, Open Food Facts, Google fonts). If the theme script just below changes, its sha256 here must change too (test AY checks). -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-cxglE2uldCp/ybpBoYGJlEJKfTyNB39uAaDq3zqChpA=' https://cdn.jsdelivr.net https://fastly.jsdelivr.net https://www.gstatic.com 'wasm-unsafe-eval'; worker-src 'self' blob: https://cdn.jsdelivr.net https://fastly.jsdelivr.net; connect-src 'self' https://world.openfoodfacts.org https://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com https://cdn.jsdelivr.net https://fastly.jsdelivr.net https://www.gstatic.com data: blob:; img-src 'self' data: blob:; media-src 'self' blob: mediastream:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; frame-src https://cutlog-5ab4e.firebaseapp.com; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
 <script>/* apply Light/Dark before the page draws, so it never flashes the wrong colors */
@@ -21,7 +21,7 @@ try { var cla = localStorage.getItem('cutlog.appearance'); if (cla === 'light' |
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Barlow:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="style.css?v=65">
+<link rel="stylesheet" href="style.css?v=66">
 </head>
 <body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -58,14 +58,14 @@ try { var cla = localStorage.getItem('cutlog.appearance'); if (cla === 'light' |
       <span id="dayLabel">Today</span>
       <button class="nav" id="next" aria-label="Next day"><svg><use href="#i-chev-r"/></svg></button>
     </div>
-    <div class="rings">
+    <div class="rings" id="rings" role="button" tabindex="0" aria-label="Tap to switch between eaten and left">
       <div class="ring" id="calRing">
         <svg viewBox="0 0 120 120" aria-hidden="true">
           <circle cx="60" cy="60" r="52" class="track"/>
           <circle cx="60" cy="60" r="52" class="fill" id="calArc"/>
           <circle cx="60" cy="60" r="52" class="tick" id="calTick"/>
         </svg>
-        <div class="ring-c"><span class="ring-n" id="calNum">0</span><span class="ring-u">kcal</span></div>
+        <div class="ring-c"><span class="ring-n" id="calNum">0</span><span class="ring-u" id="calU">kcal</span></div>
         <span class="ring-l" id="calSub">of 2,100–2,400</span>
       </div>
       <div class="ring pro">
@@ -73,7 +73,7 @@ try { var cla = localStorage.getItem('cutlog.appearance'); if (cla === 'light' |
           <circle cx="60" cy="60" r="52" class="track"/>
           <circle cx="60" cy="60" r="52" class="fill" id="proArc"/>
         </svg>
-        <div class="ring-c"><span class="ring-n" id="proNum">0</span><span class="ring-u">g protein</span></div>
+        <div class="ring-c"><span class="ring-n" id="proNum">0</span><span class="ring-u" id="proU">g protein</span></div>
         <span class="ring-l" id="proSub">of 180g</span>
       </div>
     </div>
@@ -350,8 +350,8 @@ try { var cla = localStorage.getItem('cutlog.appearance'); if (cla === 'light' |
 <div class="toast" id="toast" role="status" hidden></div>
 <input type="file" id="photoIn" accept="image/*" capture="environment" hidden>
 
-<script src="firebase-config.js?v=65"></script>
-<script src="foods.js?v=65"></script>
-<script src="app.js?v=65"></script>
+<script src="firebase-config.js?v=66"></script>
+<script src="foods.js?v=66"></script>
+<script src="app.js?v=66"></script>
 </body>
 </html>

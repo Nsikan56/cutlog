@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '69';
+const APP_V = '70';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -704,6 +704,7 @@ function openSheet(title, html, cleanup) {
   sheetBody.innerHTML = html;
   if (swapping) { replay(sheetBody, 'swap-in'); replay($('sheetTitle'), 'swap-in'); glideSheet(h0); }
   sheetBody.scrollTop = 0;
+  watchAdd();
   onSheetClose = cleanup || null;
   sheetEl.style.pointerEvents = ''; scrimEl.style.pointerEvents = '';
   if (!SH.open) {
@@ -714,6 +715,27 @@ function openSheet(title, html, cleanup) {
     sheetEl.getBoundingClientRect();          // commit the start position before animating in
     requestAnimationFrame(() => setY(0, true));
   } else if (SH.y !== 0) setY(0, true);
+}
+/* v70: How much?'s Add / Save changes button sticks to the bottom of a long panel (v66), with a panel-coloured shadow so
+   rows scrolling under it don't show through. That shadow is only drawn while the button is actually stuck (.stuck);
+   otherwise it smudged the meal chips above it and covered the top of the button below (Kan: Move to another day). */
+let addRO = null;
+function stickAdd() {
+  const add = $('aAdd');
+  if (!add || !add.isConnected || !sheetBody.contains(add)) { if (addRO) { addRO.disconnect(); addRO = null; } return; }
+  let p = add.previousElementSibling;
+  while (p && !p.getClientRects().length) p = p.previousElementSibling;     // skip hidden rows (spoon note)
+  const stuck = !!p && add.getBoundingClientRect().top < p.getBoundingClientRect().bottom + 11;   // 12 px gap when in its own place
+  if (add.classList.contains('stuck') !== stuck) add.classList.toggle('stuck', stuck);
+}
+function watchAdd() {
+  if (addRO) { addRO.disconnect(); addRO = null; }
+  if (!sheetBody._stickWatch) { sheetBody._stickWatch = true; sheetBody.addEventListener('scroll', stickAdd, { passive: true }); }
+  if (!$('aAdd') || !sheetBody.contains($('aAdd'))) return;
+  if (typeof ResizeObserver !== 'undefined') {
+    addRO = new ResizeObserver(stickAdd); addRO.observe(sheetBody); [...sheetBody.children].forEach(c => addRO.observe(c));
+  }
+  stickAdd(); requestAnimationFrame(stickAdd);
 }
 /* v54: when one screen in the panel replaces another, the panel glides to its new height instead of jumping */
 function glideSheet(h0) {

@@ -757,7 +757,8 @@ details.shut>:not(summary){opacity:0;transform:translateY(-4px);transition:opaci
 .chips.usual{align-items:center}
 .usual-k{flex:none;font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-right:2px}
 .chips.usual .chip{padding:7px 12px;font-size:13px}
-.sheet-body>#aAdd{position:sticky;bottom:0;z-index:3;box-shadow:0 -14px 16px 2px var(--surface),0 26px 0 2px var(--surface)}
+.sheet-body>#aAdd{position:sticky;bottom:0;z-index:3}
+.sheet-body>#aAdd.stuck{box-shadow:0 -14px 16px 2px var(--surface),0 26px 0 2px var(--surface)}
 .rings{cursor:pointer;-webkit-tap-highlight-color:transparent;border-radius:16px}
 .rings:focus-visible{outline:2px solid var(--hero-muted);outline-offset:4px}
 

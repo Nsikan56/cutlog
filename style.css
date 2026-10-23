@@ -773,6 +773,11 @@ details.shut>:not(summary){opacity:0;transform:translateY(-4px);transition:opaci
 .pl-done .mg-t{color:var(--protein);font-weight:700}
 .pl-log{margin-top:6px}
 .pl-target{margin-top:-6px;font-weight:600}
+/* v74: choose and lock meals */
+.pl-acts{display:flex;justify-content:space-between;gap:12px;margin-top:2px}
+.pl-lock{color:var(--ink);background:var(--raised);border:1px solid var(--line)}
+.pl-empty .mg-h{padding-bottom:0}
+.pl-empty .linkbtn{font-family:var(--body);text-transform:none;letter-spacing:0;font-size:13px}
 .pl-tag{font-style:normal;font-size:11px;font-weight:700;color:var(--accent);background:var(--accent-soft);padding:1px 7px;border-radius:999px;margin-left:6px;vertical-align:1px}
 
 @media (min-width:980px){

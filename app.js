@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '73';
+const APP_V = '74';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -1356,7 +1356,7 @@ function listHtml(items) {
     ${nsBadge(it.f)}<span class="meta">${esc(it.meta || (it.f.kcal100 != null ? Math.round(it.f.kcal100) + ' kcal/100g' : Math.round(it.f.kcalServ) + ' kcal/serv'))}</span></button>`).join('');
 }
 function openSearch() {
-  openSheet(pick ? 'Add an ingredient' : 'Search foods', `
+  openSheet(pick ? (pick.title || 'Add an ingredient') : 'Search foods', `
     ${pick ? '<button class="btn ghost" id="pickScan">Scan a barcode instead</button>' : ''}
     <input id="q" type="search" placeholder="Sweet potato, eggs, yogurt…" aria-label="Search foods" autocomplete="off">
     <div class="list" id="results"></div>
@@ -2577,7 +2577,7 @@ const GUIDE = [
   ['The Today screen', `
     <p>The left ring is calories, with a small mark where your range starts. The right ring is protein. <b>Tap the rings</b> to switch between what you've eaten and what's <b>left</b> for the day; tap again to switch back.</p>
     <p>Below the rings: how your day is going, a <b>protein nudge</b> if protein falls behind your calories, <b>What fits</b> (foods from your own list that fit what's left, in a row you can swipe; its last tile is <b>More ideas</b>: simple high-protein meals to make at home and McDonald's, Tim Hortons and Subway items that fit, lighter picks first in the evening) and <b>This week</b> (calories banked or over across the week, and how much you can eat today and stay on budget). Only days you logged count; days with nothing logged are named underneath so you know they're left out.</p>
-    <p><b>Plan my day</b>, under the logging buttons, builds a day of meals from what you actually eat (your saved meals and the foods you've logged in the last 4 weeks, at your usual amounts) plus a rotating home idea or two, aiming for your calorie range and protein target. <b>Today</b> plans the meals still ahead (nothing after 8 pm); <b>Tomorrow</b> plans a whole day. Log a meal with one tap, or tap a food to change its amount first. Ate something else? It offers to <b>re-plan the rest</b>. <b>Shuffle</b> gives another version and avoids repeating your last few plans. It shows up once you've logged a few days.</p>
+    <p><b>Plan my day</b>, under the logging buttons, builds a day of meals from what you actually eat (your saved meals and the foods you've logged in the last 4 weeks, at your usual amounts) plus a rotating home idea or two, aiming for your calorie range and protein target. <b>Today</b> plans the meals still ahead (nothing after 8 pm); <b>Tomorrow</b> plans a whole day. Log a meal with one tap, or tap a food to change its amount first. Ate something else? It offers to <b>re-plan the rest</b>. Already made tomorrow's breakfast? <b>Choose breakfast</b> and pick it (your meals, usual foods, home ideas or any food); it's <b>locked</b> in and the rest of the day is planned around it. Lock any planned meal you like the same way. <b>Shuffle</b> changes only what isn't locked and avoids repeating your last few plans. Change your targets and the plan re-plans itself to match. It shows up once you've logged a few days.</p>
     <p>Open This week and tap <b>See past weeks and months</b> for your <b>History</b>: a calendar of each month with every day's calories (green in range, orange over, blue under), what each week banked, and every month's averages. Swipe it for other months, and tap a day to open it.</p>
     <p><b>More nutrients</b>, under your food list, shows fibre. It only counts foods that have fibre data, so it says "at least" when some don't. A meal counts the ingredients that have it. Foods missing it are listed there; tap one to add the number from its label.</p>`],
   ['Weigh-ins and waist', `
@@ -3168,9 +3168,11 @@ function buildPlan(cands, slots, base, T, recent, avoidSig, minPer = 1) {
   const fresh = () => { const it = []; slots.forEach(s => { const pool = pools[s]; if (!pool.length) return; const n = lo(s) + Math.floor(Math.random() * (3 - lo(s)));
     for (let i = 0; i < n; i++) { const c = pickW(pool); if (it.some(x => x.c.key === c.key)) continue; it.push({ c, s: rnd(c.scales), slot: s }); } }); return it; };
   const sig = it => it.map(x => `${x.slot}:${x.c.key}:${x.s}`).sort().join('|');
+  /* v74: a breakfast, lunch or dinner left empty is a clear miss (the food picked for it may already be in another meal) */
+  const scoreOf = it => planScore(it, base, T, recent, cands.pairs).sc + slots.filter(s => lo(s) > 0 && pools[s].length && !it.some(x => x.slot === s)).length * 250;
   const found = new Map();
   for (let trial = 0; trial < 160; trial++) {
-    let cur = fresh(), best = planScore(cur, base, T, recent, cands.pairs).sc;
+    let cur = fresh(), best = scoreOf(cur);
     for (let step = 0; step < 50; step++) {
       const nx = cur.slice(), mv = Math.random(), s = rnd(slots), pool = pools[s]; if (!pool.length) continue;
       const inS = nx.map((x, i) => [x, i]).filter(([x]) => x.slot === s);
@@ -3179,7 +3181,7 @@ function buildPlan(cands, slots, base, T, recent, avoidSig, minPer = 1) {
       else if (mv < 0.85 && inS.length < 2) { const c = rnd(pool); if (nx.some(x => x.c.key === c.key)) continue; nx.push({ c, s: rnd(c.scales), slot: s }); }
       else if (inS.length > lo(s)) { const [, i] = rnd(inS); nx.splice(i, 1); }
       else continue;
-      const v = planScore(nx, base, T, recent, cands.pairs).sc; if (v <= best) { best = v; cur = nx; }
+      const v = scoreOf(nx); if (v <= best) { best = v; cur = nx; }
     }
     const g = sig(cur); if (!found.has(g)) found.set(g, { items: cur, sc: best });
   }
@@ -3189,61 +3191,107 @@ function buildPlan(cands, slots, base, T, recent, avoidSig, minPer = 1) {
   const [g, x] = rnd(top);
   return { sig: g, items: x.items };
 }
-/* the state of a day's plan: meals already eaten, meals still ahead, and the plan for those */
+/* the state of a day's plan: meals already eaten, meals still ahead (avail), and the ones the planner fills by itself (open:
+   the meals you usually eat). v74: you can choose and lock any meal still ahead. */
 function planCtx(d) {
   const t = todayIso(), T = S.targets, isToday = d === t, es = isToday ? entriesFor(d) : [];
   const cands = planCandidates(), h = nowH();
   const done = isToday ? SLOTS.map(s => s[0]).filter(s => es.some(e => slotOf(e) === s)) : [];
-  const open = cands.slots.filter(s => !done.includes(s) && (!isToday || h < SLOT_END[s]));
+  const avail = SLOTS.map(s => s[0]).filter(s => !done.includes(s) && (!isToday || h < SLOT_END[s]));
+  const open = cands.slots.filter(s => avail.includes(s));
   const base = { kcal: es.reduce((a, e) => a + e.kcal, 0), pro: es.reduce((a, e) => a + e.pro, 0) };
-  return { d, isToday, T, es, cands, done, open, base, closed: isToday && h >= PLAN_END_H };
+  return { d, isToday, T, es, cands, done, avail, open, base, closed: isToday && h >= PLAN_END_H };
 }
+const planTk = T => `${T.calLo}|${T.calHi}|${T.protein}`;     // v74: the targets a plan was built for
+/* builds (or rebuilds) a day's plan. Locked meals stay exactly as they are; everything else is planned around them. */
 function makePlan(ctx, avoid) {
-  const st = planStore(), recent = st.recent || [];
-  const r = ctx.open.length ? buildPlan(ctx.cands, ctx.open, ctx.base, ctx.T, recent, avoid, ctx.base.kcal >= ctx.T.calLo - 300 ? 0 : 1) : null;
-  const items = r ? r.items.map(x => ({ slot: x.slot, food: x.c.food, qty: x.c.at[x.s].q, unit: x.c.unit, oil: x.c.oil, idea: x.c.idea })) : [];
+  const st = planStore(), recent = st.recent || [], old = st.plans?.[ctx.d];
+  const locked = (old?.items || []).filter(x => x.lock && ctx.avail.includes(x.slot)), lockedSlots = new Set(locked.map(x => x.slot));
+  const base = locked.reduce((a, x) => { const v = planVal(x); return { kcal: a.kcal + v.kcal, pro: a.pro + v.pro }; }, { ...ctx.base });
+  const slots = ctx.open.filter(s => !lockedSlots.has(s));
+  const r = slots.length ? buildPlan(ctx.cands, slots, base, ctx.T, recent, avoid, base.kcal >= ctx.T.calLo - 300 ? 0 : 1) : null;
+  const items = [...locked, ...(r ? r.items.map(x => ({ slot: x.slot, food: x.c.food, qty: x.c.at[x.s].q, unit: x.c.unit, oil: x.c.oil, idea: x.c.idea })) : [])];
   st.plans = Object.fromEntries(Object.entries(st.plans || {}).filter(([k]) => k >= shift(todayIso(), -1)));
-  st.plans[ctx.d] = { items, sig: r?.sig || '', at: Date.now() };
-  st.recent = [...items.map(x => x.food.id), ...recent.filter(k => !items.some(x => x.food.id === k))].slice(0, 24);
+  st.plans[ctx.d] = { items, sig: r?.sig || '', at: Date.now(), tk: planTk(ctx.T) };
+  st.recent = [...items.filter(x => !x.lock).map(x => x.food.id), ...recent.filter(k => !items.some(x => x.food.id === k))].slice(0, 24);
   planSave(st); return st.plans[ctx.d];
 }
+function planEdit(d, fn) { const st = planStore(), p = st.plans?.[d]; if (!p) return null; fn(p); p.at = Date.now(); planSave(st); return p; }
 const planVal = it => { const v = calc(it.food, it.qty, it.unit); return { kcal: v.kcal + (OIL[it.oil]?.k || 0), pro: v.pro, fib: v.fib }; };
 function planReady() { const c = planCandidates(); return c.days >= 3 && c.list.filter(x => !x.idea).length >= 4; }
 function renderPlanBtn() {
   const b = $('planBtn'); if (!b) return;
   b.hidden = day !== todayIso() || !planReady(); if (b.hidden) return;
-  const T = S.targets, p = planStore().plans?.[todayIso()], ctx = p ? planCtx(todayIso()) : null;
-  const next = ctx && !ctx.closed ? SLOTS.map(s => s[0]).find(s => ctx.open.includes(s) && p.items.some(x => x.slot === s)) : null;
+  const p = planStore().plans?.[todayIso()], ctx = p ? planCtx(todayIso()) : null;
+  const next = ctx && !ctx.closed ? SLOTS.map(s => s[0]).find(s => ctx.avail.includes(s) && p.items.some(x => x.slot === s)) : null;
   if (next) { const its = p.items.filter(x => x.slot === next), v = its.reduce((a, x) => { const y = planVal(x); return { kcal: a.kcal + y.kcal, pro: a.pro + y.pro }; }, { kcal: 0, pro: 0 });
     $('planSub').textContent = `Next: ${slotLabel(next)} · ${kc(v.kcal)} kcal · ${fmtG(v.pro)}g`; }
   else $('planSub').textContent = 'Meals from what you eat, to hit your targets';
 }
-const PL = { tab: 'today' };
+const PL = { tab: 'today', rebuilt: false };
 function openPlan(tab) {
   PL.tab = tab || (nowH() >= PLAN_END_H ? 'tomorrow' : 'today');
   openSheet('Plan my day', '<div id="plWrap"></div>');
   renderPlan();
   sheetBody.onclick = e => {
     const t = e.target.closest('[data-pt]'), lg = e.target.closest('[data-pl]'), it = e.target.closest('[data-pi]');
+    const ch = e.target.closest('[data-pc]'), lk = e.target.closest('[data-pk]'), rm = e.target.closest('[data-px]');
     if (t && !t.disabled) { PL.tab = t.dataset.pt; haptic(); renderPlan(); return; }
     if (e.target.closest('#plShuffle') || e.target.closest('#plRedo')) { haptic(); const d = planDay(); makePlan(planCtx(d), planStore().plans?.[d]?.sig); renderPlan(); replay($('plWrap'), 'fade-in'); return; }
     if (lg) { logPlanSlot(lg.dataset.pl); return; }
+    if (ch) { haptic(); openPlanPick(ch.dataset.pc); return; }
+    if (lk) { haptic(); const s = lk.dataset.pk, d = planDay(); let on;
+      planEdit(d, p => { const its = p.items.filter(x => x.slot === s); on = !its.every(x => x.lock); its.forEach(x => { x.lock = on; }); });
+      renderPlan(); toast(on ? `${slotLabel(s)} locked. Shuffle won’t change it.` : `${slotLabel(s)} unlocked`); return; }
+    if (rm) { haptic(); const d = planDay(), i = +rm.dataset.px; let gone;
+      planEdit(d, p => { gone = p.items.splice(i, 1)[0]; });
+      makePlan(planCtx(d)); renderPlan(); if (gone) toast(`Took ${gone.food.name} out. The rest is re-planned.`); return; }
     if (it && PL.tab === 'today') { const p = planStore().plans?.[todayIso()], x = p?.items[+it.dataset.pi]; if (x) openAmount(x.food, { qty: x.qty, unit: x.unit, oil: x.oil }, { slot: x.slot }); }
   };
 }
 const planDay = () => PL.tab === 'today' ? todayIso() : shift(todayIso(), 1);
+/* v74: choose what goes in a meal: your saved meals, your usual foods, home ideas, or any food through search.
+   The choice is locked in, and the meals that aren't locked are re-planned around it. */
+function openPlanPick(s) {
+  const d = planDay(), label = slotLabel(s).toLowerCase(), c = planCandidates();
+  const meals = S.meals.map(mealFood), own = c.list.filter(x => !x.idea && x.food.source !== 'meal').sort((a, b) => (b.slots.includes(s) - a.slots.includes(s)) || b.freq - a.freq);
+  const ideas = c.list.filter(x => x.idea).sort((a, b) => b.slots.includes(s) - a.slots.includes(s));
+  const locked = (planStore().plans?.[d]?.items || []).some(x => x.slot === s && x.lock);
+  const PK = [];
+  const row = (f, qty, unit, sub) => { PK.push({ f, qty, unit }); const v = calc(f, qty, unit); return `<button class="item" data-pk2="${PK.length - 1}"><span class="nm">${esc(f.name)}<small>${esc(sub)}</small></span><span class="meta">${kc(v.kcal)} kcal · ${fmtG(v.pro)}g</span></button>`; };
+  openSheet(`Choose ${label}`, `<p class="hint">${locked ? `It’s added to your ${label}.` : `It replaces what’s planned for ${label}.`} Your choice is locked in, and the rest of the day is re-planned around it.</p>
+    ${meals.length ? `<h3>Your meals</h3><div class="list">${meals.map(f => row(f, 1, 'serving', '1 serving')).join('')}</div>` : ''}
+    ${own.length ? `<h3>Your usual foods</h3><div class="list">${own.map(x => row(x.food, x.qty, x.unit, `${fmtQty(x.qty)} ${unitWord(x.food, x.unit, x.qty)}`)).join('')}</div>` : ''}
+    ${ideas.length ? `<h3>Home ideas</h3><div class="list">${ideas.map(x => row(x.food, 1, 'serving', ideaWhat(x.food))).join('')}</div>` : ''}
+    <button class="btn ghost" id="plSearch">Search all foods</button>
+    <button class="btn ghost" id="plBack">Back to the plan</button>`);
+  const put = (f, q, u) => {
+    const st = planStore(); if (!st.plans?.[d]) makePlan(planCtx(d));
+    planEdit(d, p => { const keep = p.items.filter(x => x.slot === s && x.lock); p.items = [...p.items.filter(x => x.slot !== s), ...keep, { slot: s, food: f, qty: q, unit: u, oil: null, idea: f.source === 'idea', lock: true }]; });
+    makePlan(planCtx(d)); openPlan(PL.tab); toast(`${f.name} is in ${label}, locked`);
+  };
+  pick = { label: `Put in ${label}`, title: `Choose ${label}`, onDone: (f, q, u) => put(f, q, u) };
+  sheetBody.onclick = e => {
+    const b = e.target.closest('[data-pk2]');
+    if (b) { const x = PK[+b.dataset.pk2]; pick = { label: `Put in ${label}`, title: `Choose ${label}`, onDone: (f, q, u) => put(f, q, u) }; openAmount(x.f, { qty: x.qty, unit: x.unit }); return; }
+    if (e.target.closest('#plSearch')) { pick = { label: `Put in ${label}`, title: `Choose ${label}`, onDone: (f, q, u) => put(f, q, u) }; openSearch(); return; }
+    if (e.target.closest('#plBack')) { pick = null; openPlan(PL.tab); }
+  };
+}
 function renderPlan() {
   const box = $('plWrap'); if (!box) return;
   const d = planDay(), ctx = planCtx(d), T = S.targets;
-  let p = planStore().plans?.[d];
+  let p = planStore().plans?.[d], rebuilt = false;
   if (!p && !ctx.closed) p = makePlan(ctx);
-  const items = (p?.items || []).map((x, i) => ({ ...x, i })).filter(x => ctx.open.includes(x.slot));
+  else if (p && !ctx.closed && p.tk !== planTk(T)) { p = makePlan(ctx); rebuilt = true; }   // v74: targets changed since it was built
+  const items = (p?.items || []).map((x, i) => ({ ...x, i })).filter(x => ctx.avail.includes(x.slot));
   const tot = items.reduce((a, x) => { const v = planVal(x); return { kcal: a.kcal + v.kcal, pro: a.pro + v.pro }; }, { ...ctx.base });
   const tabs = `<div class="seg2 pl-tabs" id="plTabs" role="group" aria-label="Which day"><button type="button" data-pt="today" aria-pressed="${PL.tab === 'today'}">Today</button><button type="button" data-pt="tomorrow" aria-pressed="${PL.tab === 'tomorrow'}">Tomorrow</button></div>`;
   if (ctx.closed) {
     box.innerHTML = tabs + `<p class="hint" id="plClosed">It's after 8 pm, so today's plan is done. Tomorrow's plan is ready when you are.</p>`; return;
   }
   const inR = Math.round(tot.kcal) >= T.calLo && Math.round(tot.kcal) <= T.calHi, proOk = Math.round(tot.pro) >= T.protein;
+  const anyLock = items.some(x => x.lock);
   let note;
   if (ctx.isToday && ctx.base.kcal >= T.calHi) note = `<p class="gwarn" id="plNote">You're at the top of your range for today. One day like this is fine; the weekly trend decides.</p>`;
   else if (!items.length && ctx.isToday) note = `<p class="hint" id="plNote">${ctx.open.length ? 'You’re set for today: nothing more is needed to hit your targets.' : 'No meals left to plan for today.'}</p>`;
@@ -3251,21 +3299,26 @@ function renderPlan() {
     const why = !inR ? `comes to ${kc(tot.kcal)} kcal` : `reaches ${fmtG(tot.pro)}g protein`;
     note = ctx.isToday && ctx.done.length && p?.at < Math.max(...ctx.es.map(e => e.at || 0))
       ? `<p class="gwarn" id="plNote">With what you've logged, this plan now ${why}. Re-plan the rest to get back on target.</p><button class="btn" id="plRedo">Re-plan the rest</button>`
-      : `<p class="hint" id="plNote">${proOk ? '' : `The most protein your foods reach in this range is about ${fmtG(tot.pro)}g. A shake or egg whites would close the gap. `}${inR ? '' : `This is as close to ${kc(T.calLo)}–${kc(T.calHi)} kcal as your foods allow.`}</p>`;
-  } else note = `<p class="hint" id="plNote">Built from the meals and foods you've logged in the last 4 weeks, at your usual amounts.</p>`;
+      : `<p class="hint" id="plNote">${proOk ? '' : `The most protein ${anyLock ? 'this plan can reach with your locked meals' : 'your foods reach in this range'} is about ${fmtG(tot.pro)}g. A shake or egg whites would close the gap. `}${inR ? '' : `This is as close to ${kc(T.calLo)}–${kc(T.calHi)} kcal as ${anyLock ? 'your locked meals leave room for' : 'your foods allow'}.`}</p>`;
+  } else note = `<p class="hint" id="plNote">${rebuilt ? 'Re-planned for your new targets. ' : ''}Built from the meals and foods you've logged in the last 4 weeks, at your usual amounts.</p>`;
   const sum = `<div class="result" id="plSum"><div><span class="num">${kc(tot.kcal)}</span><small>kcal</small></div><div class="pro"><span class="num">${fmtG(tot.pro)}g</span><small>protein</small></div></div><p class="hint pl-target" id="plTarget">Your targets: ${kc(T.calLo)}–${kc(T.calHi)} kcal and ${T.protein}g protein${ctx.isToday && ctx.done.length ? ', counting what you’ve logged' : ''}.</p>`;
   const groups = SLOTS.map(([s, label]) => {
     if (ctx.done.includes(s)) { const g = ctx.es.filter(e => slotOf(e) === s), k = g.reduce((a, e) => a + e.kcal, 0), pr = g.reduce((a, e) => a + e.pro, 0);
       return `<div class="pl-slot pl-done" data-slot="${s}"><div class="mg-h"><span>${label}</span><span class="mg-t">Logged ✓ · ${kc(k)} kcal · ${fmtG(pr)}g</span></div></div>`; }
-    const g = items.filter(x => x.slot === s); if (!g.length) return '';
-    const v = g.reduce((a, x) => { const y = planVal(x); return { kcal: a.kcal + y.kcal, pro: a.pro + y.pro }; }, { kcal: 0, pro: 0 });
+    if (!ctx.avail.includes(s)) return '';
+    const g = items.filter(x => x.slot === s);
+    if (!g.length) return `<div class="pl-slot pl-empty" data-slot="${s}"><div class="mg-h"><span>${label}</span><button class="linkbtn" data-pc="${s}">+ Add</button></div></div>`;
+    const lock = g.every(x => x.lock), v = g.reduce((a, x) => { const y = planVal(x); return { kcal: a.kcal + y.kcal, pro: a.pro + y.pro }; }, { kcal: 0, pro: 0 });
     const rows = g.map(x => { const y = planVal(x), amt = `${fmtQty(x.qty)} ${unitWord(x.food, x.unit, x.qty)}${x.oil ? ` · ${OIL[x.oil].d}` : ''}`;
-      return `<button class="item" data-pi="${x.i}"${ctx.isToday ? '' : ' tabindex="-1"'}><span class="nm">${esc(x.food.name)}${x.idea ? '<i class="pl-tag">Idea</i>' : ''}<small>${esc(amt)}</small></span><span class="meta">${kc(y.kcal)} kcal · ${fmtG(y.pro)}g</span></button>`; }).join('');
-    return `<div class="pl-slot" data-slot="${s}"><div class="mg-h"><span>${label}</span><span class="mg-t">${kc(v.kcal)} kcal · ${fmtG(v.pro)}g</span></div><div class="list">${rows}</div>${ctx.isToday ? `<button class="btn ghost pl-log" data-pl="${s}">Log ${label.toLowerCase()} · ${kc(v.kcal)} kcal</button>` : ''}</div>`;
+      const btn = `<button class="item" data-pi="${x.i}"${ctx.isToday ? '' : ' tabindex="-1"'}><span class="nm">${esc(x.food.name)}${x.idea ? '<i class="pl-tag">Idea</i>' : ''}<small>${esc(amt)}</small></span><span class="meta">${kc(y.kcal)} kcal · ${fmtG(y.pro)}g</span></button>`;
+      return lock ? `<div class="meal-row">${btn}<button class="x" data-px="${x.i}" aria-label="Take ${esc(x.food.name)} out">${icon('i-x')}</button></div>` : btn; }).join('');
+    return `<div class="pl-slot${lock ? ' pl-locked' : ''}" data-slot="${s}"><div class="mg-h"><span>${label}${lock ? '<i class="pl-tag pl-lock">🔒 Locked</i>' : ''}</span><span class="mg-t">${kc(v.kcal)} kcal · ${fmtG(v.pro)}g</span></div><div class="list">${rows}</div>`
+      + (ctx.isToday ? `<button class="btn ghost pl-log" data-pl="${s}">Log ${label.toLowerCase()} · ${kc(v.kcal)} kcal</button>` : '')
+      + `<div class="pl-acts"><button class="linkbtn" data-pc="${s}">${lock ? `+ Add to ${label.toLowerCase()}` : `Choose ${label.toLowerCase()}`}</button><button class="linkbtn" data-pk="${s}">${lock ? 'Unlock' : '🔒 Lock'}</button></div></div>`;
   }).join('');
   box.innerHTML = tabs + sum + note + groups
-    + (ctx.open.length && !(ctx.isToday && ctx.base.kcal >= T.calHi) ? `<button class="btn ghost" id="plShuffle">Shuffle: another plan</button>` : '')
-    + `<p class="hint">${ctx.isToday ? 'Tap a food to change its amount before logging it, or log a whole meal with one tap.' : 'Tomorrow this plan opens on Today, so you can log each meal as you eat it.'} Shuffle mixes it up; it avoids repeating your last few plans and rotates in a home idea or two.</p>`;
+    + (ctx.open.length && !(ctx.isToday && ctx.base.kcal >= T.calHi) ? `<button class="btn ghost" id="plShuffle">Shuffle${anyLock ? ' the unlocked meals' : ': another plan'}</button>` : '')
+    + `<p class="hint">${ctx.isToday ? 'Tap a food to change its amount before logging it, or log a whole meal with one tap.' : 'Tomorrow this plan opens on Today, so you can log each meal as you eat it.'} Choose a meal to plan it yourself, or lock one you like: locked meals stay put and the rest is planned around them. Shuffle mixes up the rest and rotates in a home idea or two.</p>`;
 }
 function logPlanSlot(s) {
   const p = planStore().plans?.[todayIso()]; if (!p || day !== todayIso()) return;

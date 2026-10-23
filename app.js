@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '71';
+const APP_V = '72';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -1856,6 +1856,12 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) setT
 
 /* =================== TRENDS =================== */
 let range = 30, tab = 'today', chartAnim = false;
+/* v72: a day counts as hitting protein, or being in or over the calorie range, exactly when Today says so. Today shows
+   rounded totals (180 g), but these checks used the exact sum (179.7 g), so Kan's 180 g Sunday read "target hit" on Today and
+   "0/3 protein days" in the check-in. Only how days are counted changes; nothing stored changes. */
+const proHit = (g, T = S.targets) => Math.round(g) >= T.protein;
+const kcalOver = (k, T = S.targets) => Math.round(k) > T.calHi;
+const kcalIn = (k, T = S.targets) => Math.round(k) >= T.calLo && !kcalOver(k, T);
 function dayTotals(d) {
   const es = S.log[d]; if (!es || !es.length) return null;
   return { kcal: es.reduce((a, e) => a + e.kcal, 0), pro: es.reduce((a, e) => a + e.pro, 0) };
@@ -2045,14 +2051,14 @@ function renderTrends() {
   const empty = '<p class="empty">Days you log food will show up here.</p>';
   $('tCalChart').innerHTML = logged.length ? barChart(days, tots.map(t => t && t.kcal), {
     lo: T.calLo, hi: T.calHi, ticks: [1000, 2000, 3000, 4000], label: 'Daily calories',
-    colorFor: v => v > T.calHi ? 'var(--warn)' : v >= T.calLo ? 'var(--protein)' : 'var(--accent)' }) : empty;
+    colorFor: v => kcalOver(v) ? 'var(--warn)' : kcalIn(v) ? 'var(--protein)' : 'var(--accent)' }) : empty;
   $('tProChart').innerHTML = logged.length ? barChart(days, tots.map(t => t && t.pro), {
     line: T.protein, ticks: [50, 100, 150, 200, 250], label: 'Daily protein',
-    colorFor: v => v >= T.protein ? 'var(--protein)' : 'var(--accent)' }) : empty;
+    colorFor: v => proHit(v) ? 'var(--protein)' : 'var(--accent)' }) : empty;
   $('tCalNote').textContent = logged.length ? 'Green band is your cut range. Tap a bar to open that day.' : '';
   safe(() => renderFibChart(days));
   $('tProNote').textContent = logged.length ? `Dashed line is your ${T.protein}g target.` : '';
-  const inRange = logged.filter(t => t.kcal >= T.calLo && t.kcal <= T.calHi).length, hit = logged.filter(t => t.pro >= T.protein).length;
+  const inRange = logged.filter(t => kcalIn(t.kcal)).length, hit = logged.filter(t => proHit(t.pro)).length;
   $('tDays').textContent = `last ${range} days`;
   $('tInRange').textContent = logged.length ? `${inRange}/${logged.length}` : '–';
   $('tProHit').textContent = logged.length ? `${hit}/${logged.length}` : '–';
@@ -2086,7 +2092,7 @@ function runLength(test) {             // consecutive days ending today (or yest
   return n;
 }
 const logStreak = () => runLength(d => entriesFor(d).length > 0);
-const proStreak = () => runLength(d => { const t = dayTotals(d); return !!t && t.pro >= S.targets.protein; });
+const proStreak = () => runLength(d => { const t = dayTotals(d); return !!t && proHit(t.pro); });
 function trendNow() {
   const t = todayIso(), w = weightsArr().filter(x => x.date >= shift(t, -6));
   if (w.length >= 3) return w.reduce((a, x) => a + x.lb, 0) / w.length;
@@ -2457,7 +2463,7 @@ function renderGoalSuggest() {
    It disappears by itself once protein catches up, so a normal day never shows it. */
 const FIB_LO = 25, FIB_HI = 38;          // general adult guideline range (g a day); nothing about the user is stored
 function nudgeFor(cal, pro, T) {
-  if (!(T.protein > 0) || pro >= T.protein) return null;
+  if (!(T.protein > 0) || proHit(pro, T)) return null;
   const calFrac = cal / T.calHi, proFrac = pro / T.protein;
   if (calFrac < 0.5 || proFrac >= calFrac - 0.2) return null;
   const proLeft = Math.round(T.protein - pro), kLeft = Math.round(T.calHi - cal);
@@ -2803,7 +2809,7 @@ const signed = (n, f = kc) => (n > 0 ? '+' : n < 0 ? '−' : '') + f(Math.abs(n)
 function dayClass(x, tt, t, first) {
   if (x > t) return 'ahead';
   if (x === t) return 'now';
-  if (tt) return tt.kcal > S.targets.calHi ? 'over' : tt.kcal >= S.targets.calLo ? 'ok' : 'under';
+  if (tt) return kcalOver(tt.kcal) ? 'over' : kcalIn(tt.kcal) ? 'ok' : 'under';
   return first && x >= first ? 'miss' : 'pre';
 }
 /* a month's numbers, from finished days only (today is still in progress) */
@@ -2811,8 +2817,8 @@ function monthStats(m) {
   const T = S.targets, t = todayIso(), first = firstLogDay(), days = monthDays(m).filter(x => x < t);
   const tots = days.map(dayTotals).filter(Boolean), n = tots.length, avg = k => n ? tots.reduce((a, x) => a + x[k], 0) / n : null;
   const ws = weightsArr().filter(w => ym(w.date) === m).map(w => w.lb);
-  return { m, n, kcal: avg('kcal'), pro: avg('pro'), inRange: tots.filter(x => x.kcal >= T.calLo && x.kcal <= T.calHi).length,
-    proHit: tots.filter(x => x.pro >= T.protein).length, miss: days.filter(x => first && x >= first && !dayTotals(x)).length,
+  return { m, n, kcal: avg('kcal'), pro: avg('pro'), inRange: tots.filter(x => kcalIn(x.kcal)).length,
+    proHit: tots.filter(x => proHit(x.pro)).length, miss: days.filter(x => first && x >= first && !dayTotals(x)).length,
     wavg: ws.length ? ws.reduce((a, b) => a + b, 0) / ws.length : null, weighs: ws.length, wlo: ws.length ? Math.min(...ws) : null, whi: ws.length ? Math.max(...ws) : null };
 }
 const monthList = () => { const out = [], s = historyStart(); for (let m = ym(todayIso()); m >= s; m = addMonth(m, -1)) out.push(m); return out; };
@@ -2848,7 +2854,7 @@ function historyCal(m) {
   for (let w = weekStart(days[0]); w <= last; w = shift(w, 7)) {
     for (let i = 0; i < 7; i++) {
       const x = shift(w, i); if (ym(x) !== m) { h += '<span class="hc out"></span>'; continue; }
-      const tt = dayTotals(x), c = dayClass(x, tt, t, first), pro = tt && tt.pro >= T.protein, dt = parseIso(x);
+      const tt = dayTotals(x), c = dayClass(x, tt, t, first), pro = tt && proHit(tt.pro), dt = parseIso(x);
       const say = `${dt.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}: ${tt ? `${kc(tt.kcal)} kcal, ${Math.round(tt.pro)}g protein` : c === 'miss' ? 'not logged' : 'nothing logged'}`;
       h += `<button class="hc ${c}" data-hd="${x}"${c === 'ahead' ? ' disabled' : ''} aria-label="${esc(say)}"><i>${dt.getDate()}</i><em>${tt ? kc(tt.kcal) : c === 'miss' ? '–' : ''}</em><s${pro ? ' class="on"' : ''}></s></button>`;
     }
@@ -3085,7 +3091,7 @@ function lastWeek() {
   const arr = weightsArr(), wNow = avgBetween(arr, ws, we), wPrev = avgBetween(arr, shift(ws, -7), shift(ws, -1));
   return { ws, we, n: days.length, avgK: days.length ? days.reduce((s, x) => s + x.kcal, 0) / days.length : null,
     avgP: days.length ? days.reduce((s, x) => s + x.pro, 0) / days.length : null,
-    inRange: days.filter(x => x.kcal >= T.calLo && x.kcal <= T.calHi).length, proHit: days.filter(x => x.pro >= T.protein).length,
+    inRange: days.filter(x => kcalIn(x.kcal)).length, proHit: days.filter(x => proHit(x.pro)).length,
     wChange: wNow != null && wPrev != null ? wNow - wPrev : null };
 }
 function renderCheckin() {

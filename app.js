@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '70';
+const APP_V = '71';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -1871,6 +1871,9 @@ function trendRate(to, days) {
   if (pts.length < 3 || daysBetween(pts[0].date, pts[pts.length - 1].date) < RATE_MIN_SPAN) return null;
   return slopePerWeek(trendPts(pts, arr));
 }
+/* v71: the goal date shows the year when it isn't this year ("Dec 2027"), so a date over a year away doesn't read as weeks away */
+const etaText = d => d.getFullYear() === new Date().getFullYear() ? esc(d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }))
+  : `${esc(d.toLocaleDateString(undefined, { month: 'short' }))}<small class="eta-y"> ${d.getFullYear()}</small>`;   // the year smaller, so it fits the tile
 function slopePerWeek(pts) {          // least-squares fit of weight vs day
   if (pts.length < 3) return null;
   const xs = pts.map(p => (parseIso(p.date) - parseIso(pts[0].date)) / 864e5), ys = pts.map(p => p.lb);
@@ -1986,9 +1989,22 @@ function renderTrends() {
   // weight
   const rate = trendRate(to, range);
   const now = avgBetween(arr, shift(to, -6), to);
-  $('tRate').textContent = rate == null ? '–' : (rate > 0 ? '+' : rate < 0 ? '−' : '') + fW(Math.abs(rate));
+  /* v71: the sign only shows when the rounded number isn't zero (no "−0.0") */
+  const sgn = d => { const v = fW(Math.abs(d)); return (+v === 0 ? '' : d > 0 ? '+' : '−') + v; };
+  $('tRate').textContent = rate == null ? '–' : sgn(rate);
   $('tNow').textContent = now ? fW(now) : '–';
-  $('tChange').textContent = inR.length >= 2 ? ((d => (d > 0 ? '+' : d < 0 ? '−' : '') + fW(Math.abs(d)))(avgBetween(arr, shift(to, -6), to) - avgBetween(arr, inR[0].date, shift(inR[0].date, 6)))) : '–';
+  /* v71: on the 7-day view the old Change compared two windows that almost fully overlap (it sat at 0.0), so it compares this
+     week's average with the week before instead. 30 and 90 days are as before. */
+  if (range < RATE_MIN_DAYS) {
+    const wb = avgBetween(arr, shift(to, -13), shift(to, -7));
+    $('tChangeK').textContent = 'Vs last week'; $('tChange').textContent = now != null && wb != null ? sgn(now - wb) : '–';
+  } else {
+    $('tChangeK').textContent = 'Change';
+    $('tChange').textContent = inR.length >= 2 ? sgn(avgBetween(arr, shift(to, -6), to) - avgBetween(arr, inR[0].date, shift(inR[0].date, 6))) : '–';
+  }
+  /* v71: the rate always looks back at least 14 days, so on the 7-day view say so (otherwise 7 and 30 days look identical for no reason) */
+  const src = $('tRateSrc'); src.hidden = rate == null || range >= RATE_MIN_DAYS;
+  if (!src.hidden) src.textContent = `Rate from the last ${RATE_MIN_DAYS} days of weigh-ins`;
   $('tGoalK').textContent = T.goal ? `Reach ${fWs(T.goal)}` : 'Reach goal';
   const read = $('tRead'); read.className = 'status';
   const dir = mode() === 'lose' ? -1 : mode() === 'gain' ? 1 : 0;
@@ -2008,7 +2024,7 @@ function renderTrends() {
     const towards = dir * rate;      // positive = moving toward goal
     if (towards > 0.05) {
       const weeks = Math.abs(now - T.goal) / Math.abs(rate), eta = new Date(); eta.setDate(eta.getDate() + Math.round(weeks * 7));
-      $('tEta').textContent = eta.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+      $('tEta').innerHTML = etaText(eta);
       const r = Math.abs(rate), verb = dir < 0 ? 'Losing' : 'Gaining';
       const [slow, fast] = dir < 0 ? [0.5, 1.6] : [0.2, 0.8];
       if (r < slow) read.textContent = `${verb} ${fW(r)} ${wU()} a week, which is slow. ${dir < 0 ? 'Trimming' : 'Adding'} about 200 kcal a day would speed it up.`;
@@ -2564,7 +2580,7 @@ const GUIDE = [
     <p>Tap the weight chart, or <b>See full weight history</b>, to see every weigh-in back to your first: 1 month to all time, your goal line, monthly averages, and drag along the chart to read any day.</p>
     <p>Measure your <b>waist</b> at the belly button, relaxed, every two weeks. A shrinking waist is one of the clearest signs of fat loss, and it works without a scale.</p>`],
   ['Trends', `
-    <p><b>Weight trend</b> shows how fast you're losing or gaining each week, and the date you'd reach your goal. It appears after about a week of weigh-ins.</p>
+    <p><b>Weight trend</b> shows how fast you're losing or gaining each week, and the date you'd reach your goal (with the year when it's further off). It appears after about a week of weigh-ins. The rate always looks back at least 14 days, because a single week of weigh-ins is mostly water; on the 7-day view, <b>Vs last week</b> compares this week's average with the week before.</p>
     <p>The <b>weekly check-in</b> sums up last week every Monday: average calories and protein, weight change, and a one-line verdict.</p>
     <p><b>Your real burn</b> works out how many calories you actually burn from what you eat and how your weight moves. It takes about two weeks of logging and weighing in, then it can suggest better targets.</p>
     <p>Charts for calories, protein and fibre: tap a bar to open that day. <b>See calendar by month</b> under Calories opens your History. Plus consistency stats and <b>milestones</b> with a little celebration.</p>`],

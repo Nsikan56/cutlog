@@ -206,10 +206,12 @@ details.shut summary::after{content:"+";transform:none}
 .pace{display:flex;align-items:baseline;gap:8px}
 .pace-n{font-family:var(--display);font-weight:800;font-size:64px;line-height:.95;font-variant-numeric:tabular-nums}
 .pace-u{font-size:15px;color:var(--hero-muted);font-weight:600}
+.pace-src{margin:6px 0 0;font-size:13px;color:var(--hero-muted);font-weight:600}   /* v71: says how far back the rate looks when that is longer than the range */
 .tstats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
 .tstats div{display:flex;flex-direction:column;gap:1px;min-width:0}
 .tstats .k{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--hero-muted);font-weight:700}
 .tstats .v{font-family:var(--display);font-size:24px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--hero-ink)}
+.tstats .eta-y{font-size:15px;color:var(--hero-muted)}   /* v71: "Nov 2028": the year smaller so it stays on one line */
 .consist{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .consist div{display:flex;flex-direction:column;padding:12px 14px;border-radius:14px;background:var(--raised)}
 .consist .v{font-family:var(--display);font-size:30px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1.05}

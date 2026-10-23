@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '72';
+const APP_V = '73';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -348,7 +348,7 @@ function renderTotals() {
   else if (cal < T.calLo) st.textContent = mode() === 'gain' ? `${(T.calLo - cal).toLocaleString()} kcal to go to reach your range. Room for another meal.` : `${(T.calLo - cal).toLocaleString()} kcal under your range. Room for a high-protein snack.`;
   else if (cal <= T.calHi) { st.className = 'status ok'; st.textContent = 'In your range for today.'; }
   else { st.className = 'status hi'; st.textContent = `${(cal - T.calHi).toLocaleString()} kcal over your range. One day like this is fine; the weekly trend decides.`; }
-  safe(renderFits); safe(renderWeek); safe(renderCiBanner); safe(renderNudge); safe(renderNut); safe(renderGuideBanner); safe(renderEstBanner);
+  safe(renderFits); safe(renderWeek); safe(renderCiBanner); safe(renderNudge); safe(renderNut); safe(renderGuideBanner); safe(renderEstBanner); safe(renderPlanBtn);
 }
 let shownRows = { day: null, ids: new Set() };
 function renderRows() {
@@ -2577,6 +2577,7 @@ const GUIDE = [
   ['The Today screen', `
     <p>The left ring is calories, with a small mark where your range starts. The right ring is protein. <b>Tap the rings</b> to switch between what you've eaten and what's <b>left</b> for the day; tap again to switch back.</p>
     <p>Below the rings: how your day is going, a <b>protein nudge</b> if protein falls behind your calories, <b>What fits</b> (foods from your own list that fit what's left, in a row you can swipe; its last tile is <b>More ideas</b>: simple high-protein meals to make at home and McDonald's, Tim Hortons and Subway items that fit, lighter picks first in the evening) and <b>This week</b> (calories banked or over across the week, and how much you can eat today and stay on budget). Only days you logged count; days with nothing logged are named underneath so you know they're left out.</p>
+    <p><b>Plan my day</b>, under the logging buttons, builds a day of meals from what you actually eat (your saved meals and the foods you've logged in the last 4 weeks, at your usual amounts) plus a rotating home idea or two, aiming for your calorie range and protein target. <b>Today</b> plans the meals still ahead (nothing after 8 pm); <b>Tomorrow</b> plans a whole day. Log a meal with one tap, or tap a food to change its amount first. Ate something else? It offers to <b>re-plan the rest</b>. <b>Shuffle</b> gives another version and avoids repeating your last few plans. It shows up once you've logged a few days.</p>
     <p>Open This week and tap <b>See past weeks and months</b> for your <b>History</b>: a calendar of each month with every day's calories (green in range, orange over, blue under), what each week banked, and every month's averages. Swipe it for other months, and tap a day to open it.</p>
     <p><b>More nutrients</b>, under your food list, shows fibre. It only counts foods that have fibre data, so it says "at least" when some don't. A meal counts the ingredients that have it. Foods missing it are listed there; tap one to add the number from its label.</p>`],
   ['Weigh-ins and waist', `
@@ -3083,6 +3084,204 @@ function saveIdeaMeal(f) {
   const t = mealTotals(m); m.kcal = Math.round(t.kcal); m.pro = Math.round(t.pro);   // like Save meal, without touching a meal you're building
   S.meals.push(m); touchMeta(); haptic(); toast('Saved to My meals');
 }
+
+/* =================== v73: PLAN MY DAY ===================
+   Builds a day of meals from what you actually eat (your saved meals and the foods you've logged in the last 4 weeks, at your
+   usual amounts, in the meals you usually have them), plus one or two of the built-in home ideas, rotated. It aims for the
+   calorie range and the protein target, leaning on the most protein per calorie, and changes things up from the last few
+   plans (Shuffle gives another version). Today fills only the meals still ahead; Tomorrow plans a whole day. Nothing is planned
+   after 8 pm. Plans live on this device only (localStorage cutlog.plan), never in saved or synced data; logging a meal from the
+   plan makes ordinary entries. */
+const PLAN_KEY = 'cutlog.plan', PLAN_DAYS = 28, PLAN_END_H = 20, PLAN_MIN_KCAL = 30;
+const SLOT_END = { breakfast: 11.5, lunch: 16, dinner: PLAN_END_H, snacks: PLAN_END_H };   // a meal can still be planned until this hour
+const IDEA_SLOTS = { protoats: ['breakfast'], eggstoast: ['breakfast', 'lunch'], beanseggs: ['breakfast', 'lunch'], yogbowl: ['snacks', 'breakfast'], cottage: ['snacks', 'breakfast'], whites: ['snacks', 'breakfast'] };
+function planStore() { try { return JSON.parse(localStorage.getItem(PLAN_KEY)) || {}; } catch (e) { return {}; } }
+function planSave(x) { try { localStorage.setItem(PLAN_KEY, JSON.stringify(x)); } catch (e) {} }
+const nowH = () => { const d = new Date(); return d.getHours() + d.getMinutes() / 60; };
+const slotLabel = k => SLOTS.find(s => s[0] === k)[1];
+/* everything the planner can use, with your usual amount and meal for each */
+function planCandidates() {
+  const t = todayIso(), since = shift(t, -PLAN_DAYS), map = new Map(), daysLogged = new Set(), slotDays = { breakfast: new Set(), lunch: new Set(), dinner: new Set(), snacks: new Set() };
+  const pairs = new Map(), together = {};     // foods you have in the same meal on the same day go together in a plan too
+  Object.keys(S.log).filter(d => d >= since && d < t).forEach(d => (S.log[d] || []).forEach(e => {
+    daysLogged.add(d); slotDays[slotOf(e)]?.add(d);
+    const f0 = e.food; if (!f0 || !(e.qty > 0) || ['entry', 'chain'].includes(f0.source)) return;
+    let f;
+    if (f0.source === 'meal') { const m = mealOf(f0); if (!m) return; f = mealFood(m); }
+    else if (f0.source === 'idea') f = ideaFoods().find(x => x.id === f0.id) || null;
+    else f = freshFood(f0);
+    if (!f || !unitsFor(f).some(u => u.key === e.unit)) return;
+    const c = map.get(f.id) || { food: f, amounts: new Map(), slots: {}, days: new Set() };
+    const ak = `${r1(e.qty)}|${e.unit}|${oilKey(e.oil) || ''}`; c.amounts.set(ak, (c.amounts.get(ak) || 0) + 1);
+    c.slots[slotOf(e)] = (c.slots[slotOf(e)] || 0) + 1; c.days.add(d); map.set(f.id, c);
+    (together[d + slotOf(e)] ||= new Set()).add(f.id);
+  }));
+  Object.values(together).forEach(g => { const a = [...g].sort(); a.forEach((x, i) => a.slice(i + 1).forEach(y => pairs.set(x + '|' + y, (pairs.get(x + '|' + y) || 0) + 1))); });
+  const out = [];
+  map.forEach(c => {
+    const [ak] = [...c.amounts.entries()].sort((a, b) => b[1] - a[1])[0], [q, unit, oil] = ak.split('|');
+    const n = Object.values(c.slots).reduce((a, b) => a + b, 0), slots = Object.keys(c.slots).filter(s => c.slots[s] >= Math.max(1, n * 0.3));
+    const cand = mkCand(c.food, +q, unit, oil || null, slots, c.days.size, c.food.source === 'idea');
+    if (cand) out.push(cand);
+  });
+  S.meals.forEach(m => { const f = mealFood(m); if (map.has(f.id)) return;      // saved meals you haven't logged lately still count
+    const cand = mkCand(f, 1, 'serving', null, [S.slotPref?.[f.id] || 'lunch', ...(S.slotPref?.[f.id] ? [] : ['dinner'])], 0, false); if (cand) out.push(cand); });
+  ideaFoods().forEach(f => { if (map.has(f.id)) return;
+    const slots = IDEA_SLOTS[f.id.slice(5)] || (f.snack ? ['snacks'] : ['lunch', 'dinner']);
+    const cand = mkCand(f, 1, 'serving', null, slots, 0, true); if (cand) out.push(cand); });
+  const nd = daysLogged.size, used = SLOTS.map(s => s[0]).filter(s => slotDays[s].size >= Math.max(2, nd * 0.25));
+  return { list: out, pairs, days: nd, slots: used.length >= 2 ? used : ['breakfast', 'lunch', 'dinner'] };
+}
+function mkCand(food, qty, unit, oil, slots, freq, idea) {
+  const base = calc(food, qty, unit); if (!(base.kcal >= PLAN_MIN_KCAL)) return null;
+  const small = (unit === 'serving' || unit === 'piece') && qty <= 1 && base.kcal <= 250 && food.source !== 'meal' && !idea;
+  const scales = idea || food.source === 'meal' ? [1] : unit === 'g' ? [0.75, 1, 1.25, 1.5] : small ? [1, 2] : HAND.includes(unit) || unit === 'cup' ? [1, 1.5] : [1];
+  const at = {}; scales.forEach(s => { const q = planQty(qty * s, unit), v = calc(food, q, unit); at[s] = { q, kcal: v.kcal + (OIL[oil]?.k || 0), pro: v.pro }; });
+  return { key: food.id, food, qty, unit, oil, slots, freq, idea, scales, at };
+}
+const planQty = (q, unit) => unit === 'g' ? Math.max(5, Math.round(q / 5) * 5) : Math.round(q * 4) / 4;
+/* a plan: [{c, s, slot}]. Lower score is better. */
+function planScore(items, base, T, recent, pairs) {
+  let k = base.kcal, p = base.pro, ideas = 0, fam = 0; const per = {};
+  for (const it of items) { const a = it.c.at[it.s]; k += a.kcal; p += a.pro; if (it.c.idea) ideas++; fam += Math.min(it.c.freq, 8); per[it.slot] = (per[it.slot] || 0) + 1; }
+  const mid = (T.calLo + T.calHi) / 2;
+  let sc = (Math.round(k) < T.calLo ? 40 + (T.calLo - k) * 8 : 0) + (Math.round(k) > T.calHi ? 40 + (k - T.calHi) * 8 : 0) + Math.abs(k - mid) * 0.15;
+  sc += Math.max(0, T.protein - p) * 12 + (proHit(p, T) ? 0 : 60) + Math.max(0, p - T.protein - 30) * 0.5;   // showing 179 of 180 is a miss
+  if (ideas > 2) sc += 1e4; if (ideas === 2) sc += 70; if (!ideas && items.length) sc += 25;   // one home idea is the norm, two now and then
+  const bySlot = {}; items.forEach(it => (bySlot[it.slot] ||= []).push(it));
+  const ids = new Set(items.filter(it => !it.c.idea).map(it => it.c.key));        // an idea repeating a food already in the plan (ground chicken twice)
+  items.forEach(it => { if (it.c.idea && it.c.food.items?.some(x => ids.has(x.food.id))) sc += 35; });
+  Object.entries(bySlot).forEach(([sl, g]) => {
+    if (sl !== 'snacks' && !g.some(it => it.c.at[it.s].pro >= 15)) sc += 60;      // a main meal needs a protein (no plate of plain rice)
+    if (pairs) g.forEach((a, i) => g.slice(i + 1).forEach(b => { const n = pairs.get([a.c.key, b.c.key].sort().join('|')) || 0; if (n >= 3) sc -= 12; }));
+  });
+  items.forEach(it => { const r = recent.indexOf(it.c.key); if (r >= 0) sc += 45 * (1 - r / Math.max(recent.length, 1)) + 15; });
+  if (items.length) sc -= 6 * fam / items.length;
+  Object.values(per).forEach(n => { if (n > 2) sc += (n - 2) * 40; });
+  return { sc, kcal: k, pro: p };
+}
+function buildPlan(cands, slots, base, T, recent, avoidSig, minPer = 1) {
+  const pools = {}; slots.forEach(s => { pools[s] = cands.list.filter(c => c.slots.includes(s)); if (!pools[s].length) pools[s] = cands.list.filter(c => !c.idea && c.at[1].kcal >= 200); });
+  const rnd = a => a[Math.floor(Math.random() * a.length)];
+  const pickW = pool => { const w = pool.map(c => 1 + Math.min(c.freq, 8) + 8 * c.at[1].pro / Math.max(c.at[1].kcal, 1) * 10); let x = Math.random() * w.reduce((a, b) => a + b, 0); for (let i = 0; i < pool.length; i++) { x -= w[i]; if (x <= 0) return pool[i]; } return pool[pool.length - 1]; };
+  const lo = s => s === 'snacks' ? 0 : minPer;
+  const fresh = () => { const it = []; slots.forEach(s => { const pool = pools[s]; if (!pool.length) return; const n = lo(s) + Math.floor(Math.random() * (3 - lo(s)));
+    for (let i = 0; i < n; i++) { const c = pickW(pool); if (it.some(x => x.c.key === c.key)) continue; it.push({ c, s: rnd(c.scales), slot: s }); } }); return it; };
+  const sig = it => it.map(x => `${x.slot}:${x.c.key}:${x.s}`).sort().join('|');
+  const found = new Map();
+  for (let trial = 0; trial < 160; trial++) {
+    let cur = fresh(), best = planScore(cur, base, T, recent, cands.pairs).sc;
+    for (let step = 0; step < 50; step++) {
+      const nx = cur.slice(), mv = Math.random(), s = rnd(slots), pool = pools[s]; if (!pool.length) continue;
+      const inS = nx.map((x, i) => [x, i]).filter(([x]) => x.slot === s);
+      if (mv < 0.4 && inS.length) { const [, i] = rnd(inS), c = rnd(pool); if (nx.some(x => x.c.key === c.key)) continue; nx[i] = { c, s: rnd(c.scales), slot: s }; }
+      else if (mv < 0.65 && nx.length) { const i = Math.floor(Math.random() * nx.length); nx[i] = { ...nx[i], s: rnd(nx[i].c.scales) }; }
+      else if (mv < 0.85 && inS.length < 2) { const c = rnd(pool); if (nx.some(x => x.c.key === c.key)) continue; nx.push({ c, s: rnd(c.scales), slot: s }); }
+      else if (inS.length > lo(s)) { const [, i] = rnd(inS); nx.splice(i, 1); }
+      else continue;
+      const v = planScore(nx, base, T, recent, cands.pairs).sc; if (v <= best) { best = v; cur = nx; }
+    }
+    const g = sig(cur); if (!found.has(g)) found.set(g, { items: cur, sc: best });
+  }
+  const ranked = [...found.entries()].filter(([g]) => g !== avoidSig).sort((a, b) => a[1].sc - b[1].sc);
+  if (!ranked.length) return null;
+  const top = ranked.filter(([, x]) => x.sc <= ranked[0][1].sc + 35).slice(0, 4);
+  const [g, x] = rnd(top);
+  return { sig: g, items: x.items };
+}
+/* the state of a day's plan: meals already eaten, meals still ahead, and the plan for those */
+function planCtx(d) {
+  const t = todayIso(), T = S.targets, isToday = d === t, es = isToday ? entriesFor(d) : [];
+  const cands = planCandidates(), h = nowH();
+  const done = isToday ? SLOTS.map(s => s[0]).filter(s => es.some(e => slotOf(e) === s)) : [];
+  const open = cands.slots.filter(s => !done.includes(s) && (!isToday || h < SLOT_END[s]));
+  const base = { kcal: es.reduce((a, e) => a + e.kcal, 0), pro: es.reduce((a, e) => a + e.pro, 0) };
+  return { d, isToday, T, es, cands, done, open, base, closed: isToday && h >= PLAN_END_H };
+}
+function makePlan(ctx, avoid) {
+  const st = planStore(), recent = st.recent || [];
+  const r = ctx.open.length ? buildPlan(ctx.cands, ctx.open, ctx.base, ctx.T, recent, avoid, ctx.base.kcal >= ctx.T.calLo - 300 ? 0 : 1) : null;
+  const items = r ? r.items.map(x => ({ slot: x.slot, food: x.c.food, qty: x.c.at[x.s].q, unit: x.c.unit, oil: x.c.oil, idea: x.c.idea })) : [];
+  st.plans = Object.fromEntries(Object.entries(st.plans || {}).filter(([k]) => k >= shift(todayIso(), -1)));
+  st.plans[ctx.d] = { items, sig: r?.sig || '', at: Date.now() };
+  st.recent = [...items.map(x => x.food.id), ...recent.filter(k => !items.some(x => x.food.id === k))].slice(0, 24);
+  planSave(st); return st.plans[ctx.d];
+}
+const planVal = it => { const v = calc(it.food, it.qty, it.unit); return { kcal: v.kcal + (OIL[it.oil]?.k || 0), pro: v.pro, fib: v.fib }; };
+function planReady() { const c = planCandidates(); return c.days >= 3 && c.list.filter(x => !x.idea).length >= 4; }
+function renderPlanBtn() {
+  const b = $('planBtn'); if (!b) return;
+  b.hidden = day !== todayIso() || !planReady(); if (b.hidden) return;
+  const T = S.targets, p = planStore().plans?.[todayIso()], ctx = p ? planCtx(todayIso()) : null;
+  const next = ctx && !ctx.closed ? SLOTS.map(s => s[0]).find(s => ctx.open.includes(s) && p.items.some(x => x.slot === s)) : null;
+  if (next) { const its = p.items.filter(x => x.slot === next), v = its.reduce((a, x) => { const y = planVal(x); return { kcal: a.kcal + y.kcal, pro: a.pro + y.pro }; }, { kcal: 0, pro: 0 });
+    $('planSub').textContent = `Next: ${slotLabel(next)} · ${kc(v.kcal)} kcal · ${fmtG(v.pro)}g`; }
+  else $('planSub').textContent = 'Meals from what you eat, to hit your targets';
+}
+const PL = { tab: 'today' };
+function openPlan(tab) {
+  PL.tab = tab || (nowH() >= PLAN_END_H ? 'tomorrow' : 'today');
+  openSheet('Plan my day', '<div id="plWrap"></div>');
+  renderPlan();
+  sheetBody.onclick = e => {
+    const t = e.target.closest('[data-pt]'), lg = e.target.closest('[data-pl]'), it = e.target.closest('[data-pi]');
+    if (t && !t.disabled) { PL.tab = t.dataset.pt; haptic(); renderPlan(); return; }
+    if (e.target.closest('#plShuffle') || e.target.closest('#plRedo')) { haptic(); const d = planDay(); makePlan(planCtx(d), planStore().plans?.[d]?.sig); renderPlan(); replay($('plWrap'), 'fade-in'); return; }
+    if (lg) { logPlanSlot(lg.dataset.pl); return; }
+    if (it && PL.tab === 'today') { const p = planStore().plans?.[todayIso()], x = p?.items[+it.dataset.pi]; if (x) openAmount(x.food, { qty: x.qty, unit: x.unit, oil: x.oil }, { slot: x.slot }); }
+  };
+}
+const planDay = () => PL.tab === 'today' ? todayIso() : shift(todayIso(), 1);
+function renderPlan() {
+  const box = $('plWrap'); if (!box) return;
+  const d = planDay(), ctx = planCtx(d), T = S.targets;
+  let p = planStore().plans?.[d];
+  if (!p && !ctx.closed) p = makePlan(ctx);
+  const items = (p?.items || []).map((x, i) => ({ ...x, i })).filter(x => ctx.open.includes(x.slot));
+  const tot = items.reduce((a, x) => { const v = planVal(x); return { kcal: a.kcal + v.kcal, pro: a.pro + v.pro }; }, { ...ctx.base });
+  const tabs = `<div class="seg2 pl-tabs" id="plTabs" role="group" aria-label="Which day"><button type="button" data-pt="today" aria-pressed="${PL.tab === 'today'}">Today</button><button type="button" data-pt="tomorrow" aria-pressed="${PL.tab === 'tomorrow'}">Tomorrow</button></div>`;
+  if (ctx.closed) {
+    box.innerHTML = tabs + `<p class="hint" id="plClosed">It's after 8 pm, so today's plan is done. Tomorrow's plan is ready when you are.</p>`; return;
+  }
+  const inR = Math.round(tot.kcal) >= T.calLo && Math.round(tot.kcal) <= T.calHi, proOk = Math.round(tot.pro) >= T.protein;
+  let note;
+  if (ctx.isToday && ctx.base.kcal >= T.calHi) note = `<p class="gwarn" id="plNote">You're at the top of your range for today. One day like this is fine; the weekly trend decides.</p>`;
+  else if (!items.length && ctx.isToday) note = `<p class="hint" id="plNote">${ctx.open.length ? 'You’re set for today: nothing more is needed to hit your targets.' : 'No meals left to plan for today.'}</p>`;
+  else if (!inR || !proOk) {
+    const why = !inR ? `comes to ${kc(tot.kcal)} kcal` : `reaches ${fmtG(tot.pro)}g protein`;
+    note = ctx.isToday && ctx.done.length && p?.at < Math.max(...ctx.es.map(e => e.at || 0))
+      ? `<p class="gwarn" id="plNote">With what you've logged, this plan now ${why}. Re-plan the rest to get back on target.</p><button class="btn" id="plRedo">Re-plan the rest</button>`
+      : `<p class="hint" id="plNote">${proOk ? '' : `The most protein your foods reach in this range is about ${fmtG(tot.pro)}g. A shake or egg whites would close the gap. `}${inR ? '' : `This is as close to ${kc(T.calLo)}–${kc(T.calHi)} kcal as your foods allow.`}</p>`;
+  } else note = `<p class="hint" id="plNote">Built from the meals and foods you've logged in the last 4 weeks, at your usual amounts.</p>`;
+  const sum = `<div class="result" id="plSum"><div><span class="num">${kc(tot.kcal)}</span><small>kcal</small></div><div class="pro"><span class="num">${fmtG(tot.pro)}g</span><small>protein</small></div></div><p class="hint pl-target" id="plTarget">Your targets: ${kc(T.calLo)}–${kc(T.calHi)} kcal and ${T.protein}g protein${ctx.isToday && ctx.done.length ? ', counting what you’ve logged' : ''}.</p>`;
+  const groups = SLOTS.map(([s, label]) => {
+    if (ctx.done.includes(s)) { const g = ctx.es.filter(e => slotOf(e) === s), k = g.reduce((a, e) => a + e.kcal, 0), pr = g.reduce((a, e) => a + e.pro, 0);
+      return `<div class="pl-slot pl-done" data-slot="${s}"><div class="mg-h"><span>${label}</span><span class="mg-t">Logged ✓ · ${kc(k)} kcal · ${fmtG(pr)}g</span></div></div>`; }
+    const g = items.filter(x => x.slot === s); if (!g.length) return '';
+    const v = g.reduce((a, x) => { const y = planVal(x); return { kcal: a.kcal + y.kcal, pro: a.pro + y.pro }; }, { kcal: 0, pro: 0 });
+    const rows = g.map(x => { const y = planVal(x), amt = `${fmtQty(x.qty)} ${unitWord(x.food, x.unit, x.qty)}${x.oil ? ` · ${OIL[x.oil].d}` : ''}`;
+      return `<button class="item" data-pi="${x.i}"${ctx.isToday ? '' : ' tabindex="-1"'}><span class="nm">${esc(x.food.name)}${x.idea ? '<i class="pl-tag">Idea</i>' : ''}<small>${esc(amt)}</small></span><span class="meta">${kc(y.kcal)} kcal · ${fmtG(y.pro)}g</span></button>`; }).join('');
+    return `<div class="pl-slot" data-slot="${s}"><div class="mg-h"><span>${label}</span><span class="mg-t">${kc(v.kcal)} kcal · ${fmtG(v.pro)}g</span></div><div class="list">${rows}</div>${ctx.isToday ? `<button class="btn ghost pl-log" data-pl="${s}">Log ${label.toLowerCase()} · ${kc(v.kcal)} kcal</button>` : ''}</div>`;
+  }).join('');
+  box.innerHTML = tabs + sum + note + groups
+    + (ctx.open.length && !(ctx.isToday && ctx.base.kcal >= T.calHi) ? `<button class="btn ghost" id="plShuffle">Shuffle: another plan</button>` : '')
+    + `<p class="hint">${ctx.isToday ? 'Tap a food to change its amount before logging it, or log a whole meal with one tap.' : 'Tomorrow this plan opens on Today, so you can log each meal as you eat it.'} Shuffle mixes it up; it avoids repeating your last few plans and rotates in a home idea or two.</p>`;
+}
+function logPlanSlot(s) {
+  const p = planStore().plans?.[todayIso()]; if (!p || day !== todayIso()) return;
+  const its = p.items.filter(x => x.slot === s); if (!its.length) return;
+  const now = Date.now(), ids = [];
+  its.forEach((x, i) => { const f = freshFood(x.food), v = planVal({ ...x, food: f });
+    const e = { id: uid(), name: f.name, kcal: r1(v.kcal), pro: r1(v.pro), detail: `${fmtQty(x.qty)} ${unitWord(f, x.unit, x.qty)}${x.oil ? ` · ${OIL[x.oil].d}` : ''}`, at: now + i, slot: s, food: f, qty: x.qty, unit: x.unit };
+    setFib(e, v.fib); if (x.oil) e.oil = x.oil; (S.log[todayIso()] ||= []).push(e); ids.push(e.id); pushRecent(f, x.qty, x.unit); });
+  const st = planStore(); if (st.plans?.[todayIso()]) { st.plans[todayIso()].at = now + its.length; planSave(st); }   // logged from the plan: still on plan
+  touchDay(todayIso()); touchMeta(); renderTotals(); renderRows(); haptic(); renderPlan();
+  const k = its.reduce((a, x) => a + planVal(x).kcal, 0);
+  toast(`Logged ${slotLabel(s).toLowerCase()} · ${kc(k)} kcal`, { label: 'Undo', fn: () => {
+    S.log[todayIso()] = entriesFor(todayIso()).filter(e => !ids.includes(e.id)); if (!S.log[todayIso()].length) delete S.log[todayIso()];
+    touchDay(todayIso()); renderTotals(); renderRows(); if (SH.open && $('sheetTitle').textContent === 'Plan my day') renderPlan(); } });
+}
+$('planBtn').onclick = () => { haptic(); openPlan(); };
 
 /* Weekly check-in: last full week (Monday to Sunday) */
 function lastWeek() {

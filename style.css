@@ -763,6 +763,17 @@ details.shut>:not(summary){opacity:0;transform:translateY(-4px);transition:opaci
 .sheet-body>#aAdd.stuck{box-shadow:0 -14px 16px 2px var(--surface),0 26px 0 2px var(--surface)}
 .rings{cursor:pointer;-webkit-tap-highlight-color:transparent;border-radius:16px}
 .rings:focus-visible{outline:2px solid var(--hero-muted);outline-offset:4px}
+/* v73: Plan my day (theme tokens only, so light and dark both work) */
+.plan-open{background:var(--surface);box-shadow:var(--shadow)}
+.plan-open b{font-family:var(--display);font-size:17px;font-weight:700;letter-spacing:.02em}
+#plWrap{display:flex;flex-direction:column;gap:12px}
+#plWrap>*{flex-shrink:0}
+.pl-slot{display:flex;flex-direction:column;gap:2px}
+.pl-slot .mg-h{padding-bottom:2px}
+.pl-done .mg-t{color:var(--protein);font-weight:700}
+.pl-log{margin-top:6px}
+.pl-target{margin-top:-6px;font-weight:600}
+.pl-tag{font-style:normal;font-size:11px;font-weight:700;color:var(--accent);background:var(--accent-soft);padding:1px 7px;border-radius:999px;margin-left:6px;vertical-align:1px}
 
 @media (min-width:980px){
   #scroller{padding:28px 32px 48px calc(var(--side) + 32px)}

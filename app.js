@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '74';
+const APP_V = '75';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -605,7 +605,7 @@ function slotChips(sel) { return `<div class="chips slots" id="aSlot" role="grou
 /* ---------- log actions ---------- */
 function addEntry(name, kcal, pro, detail, src, slot) {
   const e = { id: uid(), name, kcal: r1(kcal), pro: r1(pro), detail: detail || '', at: Date.now(), slot: slot || defaultSlot(src?.food?.id) };
-  if (src) { e.food = src.food; e.qty = src.qty; e.unit = src.unit; setFib(e, src.fib); if (src.oil) e.oil = src.oil; }
+  if (src) { e.food = src.food; e.qty = src.qty; e.unit = src.unit; setFib(e, src.fib); if (src.oil) e.oil = src.oil; if (src.adds?.length) e.adds = src.adds; }
   (S.log[day] ||= []).push(e);
   touchDay(day); renderTotals(); renderRows(); haptic();
 }
@@ -845,6 +845,8 @@ function openAmount(f, preset, opts = {}) {
   const base = baseOf(f), twin = twinOf(f);
   const canOil = !picking && !!(base.cook || pkgPair(f)?.raw.cook);          // whole foods you cook yourself; dishes already include their oil, meals add it as an ingredient
   let oil = canOil ? oilKey(preset?.oil) : null;
+  const canAdd = !picking && isSubItem(f);                                   // v75: sauce and cheese on Subway subs and salads
+  let adds = canAdd ? cleanAdds(f, preset?.adds) : [];
   if (opts.slot) slot = opts.slot;
   openSheet(editing ? 'Edit entry' : 'How much?', `
     <div class="food-head" id="aFood" data-id="${esc(f.id)}"><button type="button" class="pin" id="aPin" aria-pressed="${isPinned(f.cookOf || f.id)}" aria-label="Pin this food">★</button><strong>${esc(f.name)}</strong><span>${esc([f.brand, perLine(f)].filter(Boolean).join(' · '))}</span><span class="ns-row" id="aNs">${nsBadge(f, true)}</span></div>
@@ -860,6 +862,7 @@ function openAmount(f, preset, opts = {}) {
     <div class="result"><div><span class="num" id="aK">0</span><small>kcal</small></div><div class="pro"><span class="num" id="aP">0g</span><small>protein</small></div></div>
     <p class="fib-line" id="aF" hidden></p>
     ${canOil ? `<div class="oil"><span class="oil-k">Cooked with oil or butter?</span><div class="chips" id="aOil" role="group" aria-label="Cooking oil">${Object.entries(OIL).map(([k, o]) => `<button class="chip" data-oil="${k}" aria-pressed="${k === (oil || 'none')}">${o.t}${o.k ? ` <small>+${o.k}</small>` : ''}</button>`).join('')}</div></div>` : ''}
+    ${canAdd ? addsHtml(f, adds) : ''}
     ${picking ? '' : slotChips(slot)}
     ${f.est ? '<p class="hint">Recipes and portions vary a lot, especially with oil. This is a typical estimate; tap "Numbers look wrong?" to set your own.</p>' : ''}
     ${f.kcal100 != null ? `<details class="hand" id="aHand"><summary>No scale? Estimate with your hand</summary>
@@ -882,6 +885,7 @@ function openAmount(f, preset, opts = {}) {
   const upd = () => {
     const v = calc(f, parseFloat($('aQty').value), unit);
     if (oil && v.kcal > 0) v.kcal += OIL[oil].k;
+    if (adds.length) { const x = addsVal(f, adds, parseFloat($('aQty').value)); v.kcal += x.kcal; v.pro += x.pro; }
     animateNum($('aK'), v.kcal, undefined, 220); animateNum($('aP'), v.pro, fmtP, 220);
     let fibTxt = v.fib != null && v.fib >= 0.05 ? `${fmtG(v.fib)}g fibre` : null;   // v62: no "0g fibre" on eggs, meat and fish
     if (v.fib == null && v.kcal > 0) {      // v50: a meal with some ingredients missing fibre data
@@ -932,6 +936,16 @@ function openAmount(f, preset, opts = {}) {
     [...$('aOil').children].forEach(c => c.setAttribute('aria-pressed', c.dataset.oil === (oil || 'none')));
     upd();
   };
+  if ($('aAdds')) $('aAdds').onclick = e => {
+    const b = e.target.closest('[data-add]'); if (!b) return;
+    const k = b.dataset.add, a = SUB_ADD[k]; haptic();
+    if (k === 'none') adds = adds.filter(x => SUB_ADD[x].t !== 'sauce');
+    else if (k === 'nocheese') adds = adds.filter(x => SUB_ADD[x].t !== 'cheese');
+    else if (adds.includes(k)) adds = adds.filter(x => x !== k);
+    else adds = cleanAdds(f, [...adds.filter(x => a.t === 'sauce' || SUB_ADD[x].t !== 'cheese'), k]);   // any sauces, one cheese
+    $('aAdds').querySelectorAll('[data-add]').forEach(c => c.setAttribute('aria-pressed', c.dataset.add === 'none' ? !adds.some(x => SUB_ADD[x].t === 'sauce') : c.dataset.add === 'nocheese' ? !adds.some(x => SUB_ADD[x].t === 'cheese') : adds.includes(c.dataset.add)));
+    upd();
+  };
   const fade = () => { const c = $('aUnits'); if (c) c.classList.toggle('more', c.scrollLeft + c.clientWidth < c.scrollWidth - 4); };
   $('aUnits').addEventListener('scroll', fade, { passive: true }); requestAnimationFrame(fade); setTimeout(fade, 400);
   requestAnimationFrame(() => {      // v61: the chosen unit is always in view (5 tbsp hiding off the edge read as 5 servings)
@@ -965,22 +979,23 @@ function openAmount(f, preset, opts = {}) {
   $('aAdd').onclick = () => {
     const q = parseFloat($('aQty').value);
     if (!(q > 0)) { toast('Enter how much you had.'); return; }
-    const v = calc(f, q, unit), oilD = oil ? ` · ${OIL[oil].d}` : '', detail = `${fmtQty(q)} ${unitWord(f, unit, q)}${oilD}`;
+    const v = calc(f, q, unit), oilD = (oil ? ` · ${OIL[oil].d}` : '') + addsD(adds), detail = `${fmtQty(q)} ${unitWord(f, unit, q)}${oilD}`;
     if (oil) v.kcal += OIL[oil].k;
+    if (adds.length) { const x = addsVal(f, adds, q); v.kcal += x.kcal; v.pro += x.pro; }
     if (!(editing && S.foods.some(x => x.id === f.id && x !== f))) rememberFood(f);   // an entry's old copy never overwrites the saved food
     if (f.cookOf && !S.foods.some(x => x.id === f.cookOf) && PKG_SEEN.has(f.cookOf)) rememberFood(PKG_SEEN.get(f.cookOf));   // v63: a new pack logged as Cooked is saved too
     pushRecent(f, q, unit); touchMeta(); renderSettings();
     if (picking) { pick = null; picking.onDone(f, q, unit, v); return; }
     if (editing) {
       const moved = editEntry && slotOf(editEntry) !== slot;
-      if (editEntry) { Object.assign(editEntry, { kcal: r1(v.kcal), pro: r1(v.pro), detail, food: f, qty: q, unit, slot }); setFib(editEntry, v.fib); if (oil) editEntry.oil = oil; else delete editEntry.oil; }
+      if (editEntry) { Object.assign(editEntry, { kcal: r1(v.kcal), pro: r1(v.pro), detail, food: f, qty: q, unit, slot }); setFib(editEntry, v.fib); if (oil) editEntry.oil = oil; else delete editEntry.oil; if (adds.length) editEntry.adds = adds; else delete editEntry.adds; }
       if (moved) { S.slotPref[f.id] = slot; touchMeta(); }      // moving a food teaches the app where it usually goes
       touchDay(day); renderTotals(); renderRows(); closeSheet();
       toast(moved ? `Moved to ${SLOTS.find(s => s[0] === slot)[1]}. It'll go there next time too.` : 'Entry updated'); return;
     }
     S.slotPref[f.id] = slot;
     // logging the same thing again in the same meal adds to the existing line
-    const same = entriesFor(day).find(x => x.food && x.food.id === f.id && x.unit === unit && slotOf(x) === slot && (x.oil || null) === oil);   // a different oil choice gets its own line
+    const same = entriesFor(day).find(x => x.food && x.food.id === f.id && x.unit === unit && slotOf(x) === slot && (x.oil || null) === oil && addsKey(x) === adds.join(','));   // a different oil choice gets its own line
     if (same) {
       const prev = { kcal: same.kcal, pro: same.pro, qty: same.qty, detail: same.detail }, prevFib = same.fib;
       const had = entryFib(same);
@@ -992,7 +1007,7 @@ function openAmount(f, preset, opts = {}) {
       toast(`Now ${same.detail} · ${Math.round(same.kcal)} kcal`, { label: 'Undo', fn: () => { Object.assign(same, prev); setFib(same, prevFib); touchDay(day); renderTotals(); renderRows(); } });
       return;
     }
-    addEntry(f.name, v.kcal, v.pro, detail, { food: f, qty: q, unit, fib: v.fib, oil }, slot);
+    addEntry(f.name, v.kcal, v.pro, detail, { food: f, qty: q, unit, fib: v.fib, oil, adds }, slot);
     closeSheet(); toast(`Added ${Math.round(v.kcal)} kcal · ${fmtG(v.pro)}g protein`);
   };
 }
@@ -2576,7 +2591,7 @@ const GUIDE = [
     <p>If the app closes while you're building a meal, it keeps your progress. My meals shows <b>Finish your unsaved meal</b>.</p>`],
   ['The Today screen', `
     <p>The left ring is calories, with a small mark where your range starts. The right ring is protein. <b>Tap the rings</b> to switch between what you've eaten and what's <b>left</b> for the day; tap again to switch back.</p>
-    <p>Below the rings: how your day is going, a <b>protein nudge</b> if protein falls behind your calories, <b>What fits</b> (foods from your own list that fit what's left, in a row you can swipe; its last tile is <b>More ideas</b>: simple high-protein meals to make at home and McDonald's, Tim Hortons and Subway items that fit, lighter picks first in the evening) and <b>This week</b> (calories banked or over across the week, and how much you can eat today and stay on budget). Only days you logged count; days with nothing logged are named underneath so you know they're left out.</p>
+    <p>Below the rings: how your day is going, a <b>protein nudge</b> if protein falls behind your calories, <b>What fits</b> (foods from your own list that fit what's left, in a row you can swipe; its last tile is <b>More ideas</b>: simple high-protein meals to make at home and McDonald's, Tim Hortons and Subway items that fit, lighter picks first in the evening; Subway subs and salads are counted without sauce or cheese, so pick yours on How much?, and a salad gets a double portion of sauce) and <b>This week</b> (calories banked or over across the week, and how much you can eat today and stay on budget). Only days you logged count; days with nothing logged are named underneath so you know they're left out.</p>
     <p><b>Plan my day</b>, under the logging buttons, builds a day of meals from what you actually eat (your saved meals and the foods you've logged in the last 4 weeks, at your usual amounts) plus a rotating home idea or two, aiming for your calorie range and protein target. <b>Today</b> plans the meals still ahead (nothing after 8 pm); <b>Tomorrow</b> plans a whole day. Log a meal with one tap, or tap a food to change its amount first. Ate something else? It offers to <b>re-plan the rest</b>. Already made tomorrow's breakfast? <b>Choose breakfast</b> and pick it (your meals, usual foods, home ideas or any food); it's <b>locked</b> in and the rest of the day is planned around it. Lock any planned meal you like the same way. <b>Shuffle</b> changes only what isn't locked and avoids repeating your last few plans. Change your targets and the plan re-plans itself to match. It shows up once you've logged a few days.</p>
     <p>Open This week and tap <b>See past weeks and months</b> for your <b>History</b>: a calendar of each month with every day's calories (green in range, orange over, blue under), what each week banked, and every month's averages. Swipe it for other months, and tap a day to open it.</p>
     <p><b>More nutrients</b>, under your food list, shows fibre. It only counts foods that have fibre data, so it says "at least" when some don't. A meal counts the ingredients that have it. Foods missing it are listed there; tap one to add the number from its label.</p>`],
@@ -3078,6 +3093,29 @@ function moreNote(f) {
   if (f.source === 'chain' && CHAIN_INFO[f.chain]) return `<p class="hint mi-note" id="aChain">From ${esc(CHAIN_INFO[f.chain].src)}, checked ${esc(parseIso(CHAIN_INFO[f.chain].checked).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }))}.${f.chain === 'Subway' ? ' ' + esc(CHAIN_INFO.Subway.note) : ''}</p>`;
   return '';
 }
+/* v75: sauce and cheese on Subway subs and salads. Subway counts both without them (Kan's DoorDash salads read 220 and 260
+   kcal against 140 and 110 here: the difference was the ranch). The entry's calories include what was picked, and the
+   picked keys are kept on the entry (adds) so editing shows them again. Rice bowls aren't on Subway's sauce chart, so no picker. */
+const SUB_ADD = Object.fromEntries(['sauce', 'cheese'].flatMap(t => SUBWAY_ADDS[t].map(([key, name, k, p]) => [key, { key, name, k, p, t }])));
+const SUB_ORDER = Object.keys(SUB_ADD);
+const isSubItem = f => !!f && f.source === 'chain' && f.chain === 'Subway' && !/bowl/i.test(f.item || f.name);
+const subSalad = f => /salad/i.test(f.item || f.name);
+const subMult = (f, a) => a.t === 'sauce' && subSalad(f) ? 2 : 1;          // a salad gets a double portion of sauce
+const cleanAdds = (f, a) => isSubItem(f) && Array.isArray(a) ? SUB_ORDER.filter(k => a.includes(k)) : [];
+function addsVal(f, adds, q) {
+  let k = 0, p = 0; adds.forEach(key => { const a = SUB_ADD[key]; if (a) { k += a.k * subMult(f, a); p += a.p * subMult(f, a); } });
+  return { kcal: k * (q > 0 ? q : 0), pro: p * (q > 0 ? q : 0) };
+}
+const addsD = adds => adds.length ? ` · with ${adds.map(k => SUB_ADD[k].name).join(', ')}` : '';
+const addsKey = e => (e.adds || []).join(',');
+function addsHtml(f, adds) {
+  const chip = (a, on) => `<button class="chip" data-add="${a.key}" aria-pressed="${on}">${esc(a.name)} <small>+${a.k * subMult(f, a)}</small></button>`;
+  const sauces = SUBWAY_ADDS.sauce.map(x => SUB_ADD[x[0]]), cheeses = SUBWAY_ADDS.cheese.map(x => SUB_ADD[x[0]]);
+  return `<div class="oil adds" id="aAdds"><span class="oil-k">Sauce?${subSalad(f) ? ' A salad gets a double portion.' : ''} Pick any.</span>
+    <div class="chips wrap" id="aSauce" role="group" aria-label="Sauce"><button class="chip" data-add="none" aria-pressed="${!adds.some(k => SUB_ADD[k].t === 'sauce')}">None</button>${sauces.map(a => chip(a, adds.includes(a.key))).join('')}</div>
+    <span class="oil-k">Cheese?</span>
+    <div class="chips wrap" id="aCheese" role="group" aria-label="Cheese"><button class="chip" data-add="nocheese" aria-pressed="${!adds.some(k => SUB_ADD[k].t === 'cheese')}">None</button>${cheeses.map(a => chip(a, adds.includes(a.key))).join('')}</div></div>`;
+}
 function saveIdeaMeal(f) {
   if (S.meals.some(m => m.name === f.name)) { toast('Already in My meals'); return; }
   const m = { id: uid(), name: f.name, servings: 1, items: f.items.map(it => ({ food: { ...it.food }, qty: it.qty, unit: it.unit })) };
@@ -3498,7 +3536,7 @@ $('next').onclick = () => { if (day < todayIso()) { day = shift(day, 1); renderD
 $('rows').onclick = e => {
   const r = e.target.closest('.row[data-id]'); if (!r) return;
   const en = entriesFor(day).find(z => z.id === r.dataset.id); if (!en) return;
-  openAmount(entryFood(en), en.food ? { qty: en.qty, unit: en.unit, oil: en.oil } : { qty: 1, unit: 'serving' }, { editId: en.id });
+  openAmount(entryFood(en), en.food ? { qty: en.qty, unit: en.unit, oil: en.oil, adds: en.adds } : { qty: 1, unit: 'serving' }, { editId: en.id });
 };
 $('wSave').onclick = () => {
   const v = fromW(parseFloat($('wIn').value)), t = todayIso(), f = $('wForm');

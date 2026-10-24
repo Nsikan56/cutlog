@@ -141,7 +141,17 @@ const STARTER_MEALS = [
 const CHAIN_INFO = {
   "McDonald's": { src: "McDonald's Canada nutrition info", checked: '2026-10-20' },
   'Tim Hortons': { src: 'Tim Hortons Canada menu data (with default toppings)', checked: '2026-10-20' },
-  'Subway': { src: 'Subway Canada nutrition guide', checked: '2026-10-20', note: '6-inch subs are on multigrain bread with veggies, no cheese or sauce. A footlong is 2 servings; cheddar adds about 45 kcal and 3 g protein per 6-inch.' },
+  'Subway': { src: 'Subway Canada nutrition information', checked: '2026-10-23', note: '6-inch subs are on multigrain bread with veggies, and salads are veggies only, both with no cheese or sauce: add those on How much? (a salad gets a double portion of sauce, as Subway makes it). A footlong is 2 servings.' },
+};
+/* v75: Subway sauces and cheese, picked on How much? for Subway subs and salads. From Subway Canada's own nutrition
+   information (October 2026 edition, read 23 Oct 2026): [key, name, kcal, protein g] for the amount on a 6-inch sub.
+   Subway doubles the sauce on a salad (and on a footlong, which is 2 servings here); cheese is the same on a sub or salad.
+   Keys are stored on entries, so never rename or reuse one. */
+const SUBWAY_ADDS = {
+  sauce: [['ranch', 'Peppercorn Ranch', 80, 0], ['chipotle', 'Chipotle Southwest', 60, 0], ['aioli', 'Garlic Aioli', 70, 0], ['house', 'House Sauce', 70, 0],
+    ['mayo', 'Mayonnaise', 100, 0], ['teriyaki', 'Sweet Onion Teriyaki', 35, 0], ['honeymustard', 'Smoky Honey Mustard', 45, 0], ['bbq', 'Bourbon BBQ', 20, 0],
+    ['hothoney', 'Hot Honey', 30, 0], ['nashville', 'Nashville Hot', 35, 0], ['mustard', 'Yellow Mustard', 10, 1], ['ketchup', 'Ketchup', 15, 0]],
+  cheese: [['cdncheddar', 'Canadian Cheddar', 40, 3], ['proccheddar', 'Processed Cheddar', 40, 2], ['habanero', 'Habanero Jack', 40, 3], ['montcheddar', 'Monterey Cheddar', 50, 3]],
 };
 const CHAIN_FOODS = [
   ...[["Hamburger",240,12,2],["Cheeseburger",290,14,2],["McDouble",380,21,2],["Junior Chicken",380,12,2],["Big Mac",570,24,3],["Double Cheeseburger",420,24,2],
@@ -157,7 +167,7 @@ const CHAIN_FOODS = [
     ["Tuscan Chicken Toasted Sandwich",530,30,4],["Montreal Smoked Meat Toasted Sandwich",610,28,4],["Southwest Beef & Cheddar Toasted Sandwich",530,25,5],["Ham & Cheddar Artisan Sandwich",520,25,3],
     ["Greek Yogurt Parfait",252,8,3],["Plain Oatmeal, regular",161,6,4],["Latte, medium",140,10,0],["Bacon Maple Timwich",410,17,1]].map(x => ['Tim Hortons', ...x]),
   ...[["Rotisserie-Style Chicken 6-inch",310,25],["Turkey Breast 6-inch",280,19],["Steak & Cheese 6-inch",360,24],["Sweet Onion Chicken Teriyaki 6-inch",360,23],["Black Forest Ham 6-inch",290,18],
-    ["Tuna 6-inch",440,19],["Veggie Delite 6-inch",210,10],["Italian B.M.T. 6-inch",410,20],["Rotisserie-Style Chicken Salad",150,20],["Grilled Chicken Salad",110,14],
+    ["Tuna 6-inch",440,19],["Veggie Delite 6-inch",210,10],["Italian B.M.T. 6-inch",410,20],["Rotisserie-Style Chicken Salad",140,20],["Grilled Chicken Salad",110,14],
     ["Sweet Onion Chicken Teriyaki Salad",240,18],["Sweet Onion Chicken Teriyaki Rice Bowl",490,23],["Shawarma Chicken Rice Bowl",750,30],["Jerk-Spiced Chicken Rice Bowl",670,25]].map(x => ['Subway', ...x]),
 ].map(([chain, item, k, p, fb], i) => { const f = { id: 'ch' + i, name: `${chain} ${item}`, item, chain, brand: chain, source: 'chain', kcalServ: k, proServ: p };
   if (fb != null) f.fibServ = fb; return f; });

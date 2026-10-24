@@ -779,6 +779,10 @@ details.shut>:not(summary){opacity:0;transform:translateY(-4px);transition:opaci
 .pl-empty .mg-h{padding-bottom:0}
 .pl-empty .linkbtn{font-family:var(--body);text-transform:none;letter-spacing:0;font-size:13px}
 .pl-tag{font-style:normal;font-size:11px;font-weight:700;color:var(--accent);background:var(--accent-soft);padding:1px 7px;border-radius:999px;margin-left:6px;vertical-align:1px}
+/* v75: Subway sauce and cheese chips: compact, wrapping, so twelve sauces don't make How much? too long on a phone */
+.adds .chips.wrap{gap:6px}
+.adds .chip{padding:7px 11px;font-size:13px}
+.adds .chip small{font-size:11.5px}
 
 @media (min-width:980px){
   #scroller{padding:28px 32px 48px calc(var(--side) + 32px)}

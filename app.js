@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '75';
+const APP_V = '76';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -1877,6 +1877,12 @@ let range = 30, tab = 'today', chartAnim = false;
 const proHit = (g, T = S.targets) => Math.round(g) >= T.protein;
 const kcalOver = (k, T = S.targets) => Math.round(k) > T.calHi;
 const kcalIn = (k, T = S.targets) => Math.round(k) >= T.calLo && !kcalOver(k, T);
+/* v76: on a cut, a day a little under the range is still a good day. The weekly check-in counts any day up to the top of the
+   range as on target, and only flags days that are very low (more than 300 kcal under the range: 1,800 for Kan), since eating
+   that little often costs muscle and energy. Maintaining and building still count the range itself. */
+const LOW_GAP = 300;
+const kcalLow = (k, T = S.targets) => Math.round(k) < T.calLo - LOW_GAP;
+const kcalOnTarget = (k, T = S.targets) => mode() === 'lose' ? !kcalOver(k, T) && !kcalLow(k, T) : kcalIn(k, T);
 function dayTotals(d) {
   const es = S.log[d]; if (!es || !es.length) return null;
   return { kcal: es.reduce((a, e) => a + e.kcal, 0), pro: es.reduce((a, e) => a + e.pro, 0) };
@@ -1891,6 +1897,14 @@ function trendRate(to, days) {
   const pts = arr.filter(w => w.date >= from && w.date <= to);
   if (pts.length < 3 || daysBetween(pts[0].date, pts[pts.length - 1].date) < RATE_MIN_SPAN) return null;
   return slopePerWeek(trendPts(pts, arr));
+}
+/* v76: average calories over the finished, logged days the weekly rate looks at (the last 14 days, today left out). The slow-loss
+   tip only says to eat less when that average is above the bottom of the range: telling someone already at 2,050 to cut 200 more
+   would push them under it. */
+function recentIntake() {
+  const t = todayIso(), v = [];
+  for (let i = 1; i <= RATE_MIN_DAYS; i++) { const x = dayTotals(shift(t, -i)); if (x) v.push(x.kcal); }
+  return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null;
 }
 /* v71: the goal date shows the year when it isn't this year ("Dec 2027"), so a date over a year away doesn't read as weeks away */
 const etaText = d => d.getFullYear() === new Date().getFullYear() ? esc(d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }))
@@ -2048,7 +2062,9 @@ function renderTrends() {
       $('tEta').innerHTML = etaText(eta);
       const r = Math.abs(rate), verb = dir < 0 ? 'Losing' : 'Gaining';
       const [slow, fast] = dir < 0 ? [0.5, 1.6] : [0.2, 0.8];
-      if (r < slow) read.textContent = `${verb} ${fW(r)} ${wU()} a week, which is slow. ${dir < 0 ? 'Trimming' : 'Adding'} about 200 kcal a day would speed it up.`;
+      const ate = recentIntake(), full = ate != null && (dir < 0 ? Math.round(ate) <= T.calLo : Math.round(ate) >= T.calHi);   // v76
+      if (r < slow && full) read.textContent = `${verb} ${fW(r)} ${wU()} a week, which is slow, but you're already eating about ${kc(ate)} kcal a day, ${dir < 0 ? 'at or under the low end' : 'at or over the top'} of your range. Give it another week of full logging before ${dir < 0 ? 'cutting further' : 'eating more'}.`;
+      else if (r < slow) read.textContent = `${verb} ${fW(r)} ${wU()} a week, which is slow. ${dir < 0 ? 'Trimming' : 'Adding'} about 200 kcal a day would speed it up.`;
       else if (r <= fast) { read.className = 'status ok'; read.textContent = `${verb} ${fW(r)} ${wU()} a week, a steady pace${dir < 0 ? ' that protects your strength' : ' for lean gains'}.`; }
       else { read.className = 'status hi'; read.textContent = `${verb} ${fW(r)} ${wU()} a week, on the fast side. ${dir < 0 ? 'Adding' : 'Trimming'} 200–300 kcal a day would ease the pace.`; }
     } else { $('tEta').textContent = '–'; read.className = 'status hi'; read.textContent = `Your weight isn't moving toward your goal over this range. Check that you're logging everything, and aim for the ${dir < 0 ? 'low' : 'high'} end of your calorie range.`; }
@@ -2602,8 +2618,8 @@ const GUIDE = [
     <p>Tap the weight chart, or <b>See full weight history</b>, to see every weigh-in back to your first: 1 month to all time, your goal line, monthly averages, and drag along the chart to read any day.</p>
     <p>Measure your <b>waist</b> at the belly button, relaxed, every two weeks. A shrinking waist is one of the clearest signs of fat loss, and it works without a scale.</p>`],
   ['Trends', `
-    <p><b>Weight trend</b> shows how fast you're losing or gaining each week, and the date you'd reach your goal (with the year when it's further off). It appears after about a week of weigh-ins. The rate always looks back at least 14 days, because a single week of weigh-ins is mostly water; on the 7-day view, <b>Vs last week</b> compares this week's average with the week before.</p>
-    <p>The <b>weekly check-in</b> sums up last week every Monday: average calories and protein, weight change, and a one-line verdict.</p>
+    <p><b>Weight trend</b> shows how fast you're losing or gaining each week, and the date you'd reach your goal (with the year when it's further off). It appears after about a week of weigh-ins. If your loss is slow but you're already eating at the low end of your range, it suggests another week of full logging rather than eating less. The rate always looks back at least 14 days, because a single week of weigh-ins is mostly water; on the 7-day view, <b>Vs last week</b> compares this week's average with the week before.</p>
+    <p>The <b>weekly check-in</b> sums up last week every Monday: average calories and protein, weight change, and a one-line verdict. When you're cutting, a day a little under your range still counts as <b>on target</b>; it only flags days more than 300 kcal under it, since eating that little often costs muscle.</p>
     <p><b>Your real burn</b> works out how many calories you actually burn from what you eat and how your weight moves. It takes about two weeks of logging and weighing in, then it can suggest better targets.</p>
     <p>Charts for calories, protein and fibre: tap a bar to open that day. <b>See calendar by month</b> under Calories opens your History. Plus consistency stats and <b>milestones</b> with a little celebration.</p>`],
   ['Your settings', `
@@ -3382,6 +3398,7 @@ function lastWeek() {
   return { ws, we, n: days.length, avgK: days.length ? days.reduce((s, x) => s + x.kcal, 0) / days.length : null,
     avgP: days.length ? days.reduce((s, x) => s + x.pro, 0) / days.length : null,
     inRange: days.filter(x => kcalIn(x.kcal)).length, proHit: days.filter(x => proHit(x.pro)).length,
+    onTarget: days.filter(x => kcalOnTarget(x.kcal)).length, low: mode() === 'lose' ? days.filter(x => kcalLow(x.kcal)).length : 0,   // v76
     wChange: wNow != null && wPrev != null ? wNow - wPrev : null };
 }
 function renderCheckin() {
@@ -3392,13 +3409,14 @@ function renderCheckin() {
   $('ciBanner').hidden = true;
   if (!w.n) { box.innerHTML = '<p class="empty">Log food on a few days this week. Every Monday, your check-in sums up the week before.</p>'; return; }
   const wc = w.wChange, wTxt = wc == null ? '–' : (wc > 0 ? '+' : wc < 0 ? '−' : '') + fW(Math.abs(wc));
+  const cut = m === 'lose', good = cut ? w.onTarget : w.inRange, goodTxt = cut ? 'on target' : 'in your calorie range';   // v76
   let verdict;
   if (w.n < 4) verdict = `Only ${w.n} day${w.n > 1 ? 's' : ''} logged, so take this week's numbers with a pinch of salt. Aim for at least 5.`;
-  else if (wc == null) verdict = `${w.inRange} of ${w.n} logged days in your calorie range. Weigh in a few mornings a week to see how your weight responded.`;
+  else if (wc == null) verdict = `${good} of ${w.n} logged days ${goodTxt}. Weigh in a few mornings a week to see how your weight responded.`;
   else {
     const moving = m === 'lose' ? wc < -0.2 : m === 'gain' ? wc > 0.1 : Math.abs(wc) <= 0.5;
     const move = m === 'maintain' ? 'your weight held steady' : `${m === 'lose' ? 'down' : 'up'} ${fW(Math.abs(wc))} ${wU()} on the weekly average`;
-    verdict = moving ? `Good week: ${move}, with ${w.inRange} of ${w.n} days in your calorie range.`
+    verdict = moving ? `Good week: ${move}, with ${good} of ${w.n} days ${goodTxt}.`
       : `Your weekly average ${wc > 0.05 ? 'went up' : wc < -0.05 ? 'went down' : 'held steady'} (${wTxt} ${wU()}). One week can be noise from water and salt. If it repeats next week, adjust.`;
   }
   const sug = goalSuggestion(m);
@@ -3412,11 +3430,11 @@ function renderCheckin() {
       <div><span class="v">${kc(w.avgK)}</span><span class="k">avg kcal</span></div>
       <div><span class="v">${Math.round(w.avgP)}g</span><span class="k">avg protein</span></div>
       <div><span class="v">${wTxt}</span><span class="k">weight (${wU()}) vs week before</span></div>
-      <div><span class="v">${w.inRange}/${w.n}</span><span class="k">days in range</span></div>
+      <div><span class="v">${good}/${w.n}</span><span class="k">${cut ? 'days on target' : 'days in range'}</span></div>
       <div><span class="v">${w.proHit}/${w.n}</span><span class="k">protein days</span></div>
       <div><span class="v">${w.n}/7</span><span class="k">days logged</span></div>
     </div>
-    <p class="ci-verdict">${esc(verdict)}</p>${adj}`;
+    <p class="ci-verdict">${esc(verdict)}</p>${w.low ? `<p class="hint" id="ciLow">${w.low === 1 ? '1 day was' : `${w.low} days were`} under ${kc(T.calLo - LOW_GAP)} kcal. Now and then is fine; eating that little often can cost muscle and energy.</p>` : ''}${adj}`;
   if ($('ciUse')) $('ciUse').onclick = () => {
     const old = { ...S.targets };
     S.targets = { ...S.targets, calLo: sug.lo, calHi: sug.hi }; touchMeta(); renderAll(); renderTrends(); haptic();

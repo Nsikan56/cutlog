@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '76';
+const APP_V = '77';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -147,32 +147,40 @@ const twinOf = f => {
    so x0.36). Rice, pasta and oats must also have dry-food numbers (closer to the dry food than the cooked one), so a
    package that's already cooked (ready rice) never gets it. Cooked versions are made when needed, never saved as foods. */
 const PKG_PAIRS = [
-  [/\b(ground|minced) chicken\b|\bchicken,? (ground|mince)/, 'Ground chicken, extra lean (raw)'],
-  [/\b(ground|minced) beef\b|\bbeef,? (ground|mince)/, 'Ground beef, extra lean (raw)'],
-  [/\bchicken breasts?\b/, 'Chicken breast (raw)'],
+  [/\b(ground|minced) chicken\b|\bchicken,? (ground|mince)|\bpoulet hache|\bhache de poulet\b/, 'Ground chicken, extra lean (raw)'],
+  [/\b(ground|minced) beef\b|\bbeef,? (ground|mince)|\bboeuf hache|\bhache de boeuf\b/, 'Ground beef, extra lean (raw)'],
+  [/\bchicken breasts?\b|\bpoitrines? de poulet\b/, 'Chicken breast (raw)'],
   [/\bbasa\b|\bswai\b|\bpangasius\b/, 'Basa / swai fillet (raw)'],
-  [/\bsalmon\b/, 'Salmon, Atlantic (raw)'],
-  [/\bbrown rice\b/, 'Brown rice (dry)'],
-  [/\brice\b/, 'White rice (dry)'],
-  [/\b(pasta|spaghetti|spaghettini|penne|macaroni|fusilli|linguine|rigatoni|rotini|fettuccine|farfalle|orzo)\b/, 'Pasta (dry)'],
-  [/\boats\b|\boatmeal\b|\bporridge\b/, 'Oats, rolled (dry)'],
+  [/\bsalmon\b|\bsaumon\b/, 'Salmon, Atlantic (raw)'],
+  [/\bbrown rice\b|\briz (brun|complet)\b/, 'Brown rice (dry)'],
+  [/\brice\b|\briz\b/, 'White rice (dry)'],
+  [/\b(pasta|spaghetti|spaghettis|spaghettini|penne|macaroni|fusilli|linguine|rigatoni|rotini|fettuccine|farfalle|orzo|pates|coquillettes)\b/, 'Pasta (dry)'],
+  [/\boats\b|\boatmeal\b|\bporridge\b|\bavoine\b|\bgruau\b/, 'Oats, rolled (dry)'],
 ];
-const PKG_NOT = /\b(cooked|roasted|grilled|smoked|canned|tinned|deli|sliced|nuggets?|breaded|fried|strips|cakes?|crackers?|crisps?|crispy|chips|cereal|milk|flour|bran|bars?|sauce|soup|pudding|salad|bowl|drink|granola|cookies?|vinegar|wine|oil|jerky|sushi|dinner|meal|kit)\b/;
+/* v77: Canadian packs often reach Open Food Facts under their French name (Kan's "Filets de saumon rose sauvage"), so names
+   are matched in English and French. Accents are taken off first (haché -> hache, bœuf -> boeuf), and the French words for
+   cooked, smoked, canned and so on keep ready-to-eat packs out, like the English ones. */
+const PKG_NOT = /\b(cooked|roasted|grilled|smoked|canned|tinned|deli|sliced|nuggets?|breaded|fried|strips|cakes?|crackers?|crisps?|crispy|chips|cereal|milk|flour|bran|bars?|sauce|soup|pudding|salad|bowl|drink|granola|cookies?|vinegar|wine|oil|jerky|sushi|dinner|meal|kit|cuite?s?|roties?|rotis?|grillee?s?|fumee?s?|conserve|tranchee?s?|panee?s?|frite?s?|croustillante?s?|pepites|batonnets|galettes?|craquelins?|cereales?|lait|farine|son|barres?|soupe|pouding|salade|bol|boisson|biscuits?|vinaigre|vin|huile|repas|souper|trousse)\b/;
+const PKG_FAT_SALMON = 170;      // kcal per 100 g: under this the pack is wild or pink salmon, not fatty farmed Atlantic
+const pkgName = n => String(n || '').toLowerCase().replace(/œ/g, 'oe').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 function pkgPair(f) {
   if (!f || NOT_SAVED.includes(f.source) || f.source === 'cooked' || f.cookOf || !(f.kcal100 > 0)) return null;
-  const nm = String(f.name || '').toLowerCase();
-  if (PKG_NOT.test(nm)) return null;
+  const low = String(f.name || '').toLowerCase(), nm = pkgName(low);
+  if (PKG_NOT.test(nm) || /\bpâtés?\b|pâté/.test(low)) return null;    // pâté (meat spread) isn't pâtes (pasta)
   const hit = PKG_PAIRS.find(([re]) => re.test(nm)); if (!hit) return null;
   const raw = BUILTIN_FOODS.find(x => x.name === hit[1]), cooked = raw && BUILTIN_FOODS.find(x => x.name === raw.twin);
   if (!cooked) return null;
   if (raw.state === 'dry' && Math.abs(f.kcal100 - raw.kcal100) >= Math.abs(f.kcal100 - cooked.kcal100)) return null;   // already cooked
+  /* v77: the built-in salmon pair is fatty farmed Atlantic (208 raw, 206 cooked: it loses fat as it loses water, so x0.99).
+     Wild and pink salmon are lean and just lose water: USDA pink salmon 127 raw, 153 cooked (dry heat), so x1.2. */
+  if (raw.name === 'Salmon, Atlantic (raw)' && f.kcal100 < PKG_FAT_SALMON) return { raw, cooked, k: 153 / 127 };
   return { raw, cooked };
 }
 const PKG_SEEN = new Map();   // v63: packs opened this session, so a just-scanned pack can be saved when it's logged as Cooked
 function cookedOf(p, pp = pkgPair(p)) {
   if (!pp) return null;
   PKG_SEEN.set(p.id, p);
-  const k = pp.cooked.kcal100 / pp.raw.kcal100;
+  const k = pp.k || pp.cooked.kcal100 / pp.raw.kcal100;
   const c = { id: p.id + '~cooked', cookOf: p.id, name: `${p.name} (cooked)`, source: 'cooked', state: 'cooked', kcal100: p.kcal100 * k, pro100: (p.pro100 || 0) * k };
   if (p.brand) c.brand = p.brand;
   if (pp.cooked.cook) c.cook = true;
@@ -2596,7 +2604,7 @@ const GUIDE = [
     <p><b>Snap label</b> reads a Nutrition Facts photo on your phone. Check the numbers it found before saving.</p>
     <p><b>Search</b> covers whole foods, Nigerian and Canadian dishes, your saved foods, and packaged foods online. Nothing fits? Use <b>Enter a food by hand</b>, or <b>Quick add</b> for just calories and protein (good for samples or a meal out).</p>
     <p>On <b>How much?</b> pick an amount in pieces, servings, grams, cups or spoons. No scale? Use your hand: a <b>palm</b> of meat (about 100 g), a <b>fist</b> of rice or pasta (about a cup), a <b>cupped hand</b> of snacks, a <b>thumb</b> of oil or peanut butter. Dishes come in <b>small, regular and large</b> plates or bowls, with a picture guide.</p>
-    <p>Staples like chicken, rice and pasta have a <b>Raw weight / Cooked</b> switch: pick how it was when you measured it. Your own packs of chicken, beef, fish, rice, pasta and oats get it too: the package numbers are for raw or dry food, and Cooked works out what they come to after cooking (it opens cooked next time if that's how you logged it last). Food you cook yourself asks <b>Cooked with oil or butter?</b> Oil is the most common hidden source of calories.</p>
+    <p>Staples like chicken, rice and pasta have a <b>Raw weight / Cooked</b> switch: pick how it was when you measured it. Your own packs of chicken, beef, fish, rice, pasta and oats get it too, whether the name is in English or French: the package numbers are for raw or dry food, and Cooked works out what they come to after cooking (it opens cooked next time if that's how you logged it last). Food you cook yourself asks <b>Cooked with oil or butter?</b> Oil is the most common hidden source of calories.</p>
     <p>Tap the <b>★</b> on a food to pin it: pinned foods sit at the top of search. Under the amount, <b>Usual</b> shows the amounts you log most, one tap each. Search results show <b>protein per 100 kcal</b>; green means a lean, high-protein choice.</p>
     <p>If a food's numbers are wrong, tap <b>Numbers look wrong? Fix them</b> (it works on the Cooked view too, fixing the pack). Food you already logged keeps its old numbers until you tap <b>Recount</b> when Cut Log offers it, so past days never change by surprise.</p>
     <p>Packaged foods may show a <b>Nutri-Score</b> letter from A (most nutritious) to E (least).</p>

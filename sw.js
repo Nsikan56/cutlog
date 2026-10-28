@@ -1,5 +1,5 @@
 /* Offline support: app files are cached; food lookups always go to the network. */
-const CACHE = 'cutlog-v77';
+const CACHE = 'cutlog-v78';
 const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'foods.js', 'firebase-config.js', 'manifest.webmanifest', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', e => {

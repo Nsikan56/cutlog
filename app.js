@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '77';
+const APP_V = '78';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -2556,7 +2556,7 @@ function missingFibHtml(es) {
   const m = missingFib(es); if (!m.fix.length && !m.other.length) return '';
   return `<div class="nut-miss">
     ${m.fix.length ? `<span class="nut-miss-k">No fibre data yet. Tap one to add it from its label:</span>
-      <div class="chips wrap" id="fibFix">${m.fix.map(f => `<button class="chip" data-fib="${esc(f.id)}">${esc(f.name)} <small>+ fibre</small></button>`).join('')}</div>` : ''}
+      <div class="chips wrap" id="fibFix">${m.fix.map(f => `<button class="chip" data-fib="${esc(f.id)}" title="${esc(f.name)}"><span>${esc(f.name)}</span> <small>+ fibre</small></button>`).join('')}</div>` : ''}
     ${m.other.length ? `<p class="hint">${m.fix.length ? 'Also' : 'No fibre data'}: ${esc(m.other.join(', '))}.</p>` : ''}</div>`;
 }
 $('nutBody').addEventListener('click', e => { const b = e.target.closest('[data-fib]'); if (b) { haptic(); openAddFibre(b.dataset.fib); } });

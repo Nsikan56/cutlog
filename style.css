@@ -662,6 +662,10 @@ details.shut>:not(summary){opacity:0;transform:translateY(-4px);transition:opaci
 .nut-miss{display:flex;flex-direction:column;gap:8px;padding-top:10px;border-top:1px solid var(--line)}
 .nut-miss-k{font-size:13px;font-weight:600;color:var(--muted)}
 .nut-miss .chip small{font-size:12px;font-weight:700;color:var(--accent);margin-left:3px}
+/* v78: a long food name (French pack names) is cut with … so its chip and "+ fibre" stay inside the card */
+.nut-miss .chip{display:flex;align-items:baseline;gap:4px;max-width:100%;min-width:0}
+.nut-miss .chip span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nut-miss .chip small{flex:none}
 
 /* Appearance switch (v40): Dark chosen in the app, whatever the phone is set to */
 :root[data-theme="dark"]{

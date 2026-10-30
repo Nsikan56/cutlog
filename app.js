@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '78';
+const APP_V = '79';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -1967,22 +1967,40 @@ function weightChart(from, to) {
   return svg;
 }
 /* Adaptive burn: what you ate vs how your weight moved over the last 4 weeks.
-   burn = average intake − (weight change per day × 3,500 kcal per lb) */
-const BURN_WINDOW = 28, KCAL_PER_LB = 3500;
+   burn = average intake − (weight change per day × 3,500 kcal per lb)
+   v79 (Kan's Trends, 30 Oct: 2,052 kcal a day and "3.1 lb a week" gave a burn of 3,600 and offered +750 kcal):
+   - the weight change comes from the trend line (each weigh-in's 7-day average), like the weekly rate since v59, not the raw dots;
+   - the first 2 weeks after your first weigh-in are left out: early loss is mostly water and stored carbs, not fat, and the
+     3,500 kcal per lb rule only holds for fat, so it made the burn look far higher than it is. Food is counted over the same days. */
+const BURN_WINDOW = 28, KCAL_PER_LB = 3500, BURN_SETTLE = 14;
+function burnStart() {                  // the first day the burn may use: 2 weeks after your first weigh-in
+  const first = weightsArr()[0]; return first ? shift(first.date, BURN_SETTLE) : null;
+}
 function estimateBurn() {
-  const to = shift(todayIso(), -1), from = shift(to, -(BURN_WINDOW - 1));   // today isn't finished, so it's left out of intake
+  const to = shift(todayIso(), -1), w0 = shift(to, -(BURN_WINDOW - 1));   // today isn't finished, so it's left out of intake
+  const settle = burnStart(), from = settle && settle > w0 ? settle : w0, skipped = !!settle && settle > w0;
   const logged = [];
-  for (let i = 0; i < BURN_WINDOW; i++) { const d = shift(from, i), t = dayTotals(d); if (t) logged.push(t.kcal); }
-  const wts = weightsArr().filter(w => w.date >= from && w.date <= todayIso());
+  for (let d = from; d <= to; d = shift(d, 1)) { const t = dayTotals(d); if (t) logged.push(t.kcal); }
+  const arr = weightsArr(), wts = arr.filter(w => w.date >= from && w.date <= todayIso());
   const span = wts.length ? (parseIso(wts[wts.length - 1].date) - parseIso(wts[0].date)) / 864e5 : 0;
   const need = { days: 10, weighs: scale() === 'daily' ? 7 : 3, span: 14 };
   const have = { days: logged.length, weighs: wts.length, span: Math.round(span) };
-  if (have.days < need.days || have.weighs < need.weighs || have.span < need.span) return { ready: false, need, have };
+  if (have.days < need.days || have.weighs < need.weighs || have.span < need.span) return { ready: false, need, have, skipped, settle, from };
   const intake = logged.reduce((a, b) => a + b, 0) / logged.length;
-  const perWeek = slopePerWeek(wts);
+  const perWeek = slopePerWeek(trendPts(wts, arr));
+  if (perWeek == null) return { ready: false, need, have, skipped, settle, from };
   const burn = intake - (perWeek / 7) * KCAL_PER_LB;
-  const conf = have.days >= 21 && have.weighs >= 14 ? 'High' : 'Medium';
-  return { ready: true, intake, perWeek, burn, conf, have };
+  const conf = have.days >= 21 && have.weighs >= 14 && have.span >= 21 ? 'High' : 'Medium';
+  return { ready: true, intake, perWeek, burn, conf, have, skipped, from, days: daysBetween(from, to) + 1 };
+}
+/* v79: targets move toward the real burn in steps of up to 250 kcal. Even a good estimate has some error, so a big gap is
+   closed over a few check-ins, each one confirmed by the next week's weigh-ins (no jumping 750 kcal overnight). */
+const BURN_STEP = 250;
+function burnStep(lo, hi, T = S.targets) {
+  const gap = (lo + hi) / 2 - (T.calLo + T.calHi) / 2;
+  if (Math.abs(gap) <= BURN_STEP) return { lo, hi, capped: false };
+  const d = Math.sign(gap) * BURN_STEP, nlo = Math.max(1200, T.calLo + d);
+  return { lo: nlo, hi: Math.max(nlo + 100, T.calHi + d), capped: true };
 }
 const r50 = n => Math.round(n / 50) * 50;
 function renderBurn() {
@@ -1995,7 +2013,8 @@ function renderBurn() {
   if (!e.ready) {
     conf.textContent = 'Learning'; conf.className = 'conf';
     const bar = (h, n) => `<div class="prog"><i style="width:${Math.min(100, h / n * 100)}%"></i></div>`;
-    box.innerHTML = `<p class="hint">After about two weeks of logging food and weighing in, this shows how many calories you actually burn a day, worked out from what you eat and how your weight moves. No watch needed.</p>
+    const settleTxt = e.skipped ? `<p class="hint" id="bSettle">Your first 2 weeks of weigh-ins are left out, because early weight loss is mostly water, not fat. Counting starts ${esc(parseIso(e.from).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }))}.</p>` : '';
+    box.innerHTML = `<p class="hint">After about 4 weeks of logging food and weighing in, this shows how many calories you actually burn a day, worked out from what you eat and how your weight moves. No watch needed.</p>${settleTxt}
       <div class="learn">
         <div><span>Days of food logged</span><b>${e.have.days}/${e.need.days}</b>${bar(e.have.days, e.need.days)}</div>
         <div><span>${scale() === 'daily' ? 'Morning weigh-ins' : 'Weigh-ins'}</span><b>${e.have.weighs}/${e.need.weighs}</b>${bar(e.have.weighs, e.need.weighs)}</div>
@@ -2007,21 +2026,22 @@ function renderBurn() {
   const m = mode();
   const [dLo, dHi, label] = m === 'lose' ? [-750, -500, `For ${PACE().lose} a week`] : m === 'gain' ? [200, 400, 'For a lean gain'] : [-150, 150, 'To hold steady'];
   const lo = Math.max(1200, r50(e.burn + dLo)), hi = Math.max(lo + 100, r50(e.burn + dHi));
-  const T = S.targets, same = T.calLo === lo && T.calHi === hi;
+  const T = S.targets, st = burnStep(lo, hi, T), same = T.calLo === st.lo && T.calHi === st.hi;
   const lossTxt = e.perWeek < -0.05 ? `lost ${fW(Math.abs(e.perWeek))} ${wU()} a week` : e.perWeek > 0.05 ? `gained ${fW(e.perWeek)} ${wU()} a week` : 'held your weight steady';
   box.innerHTML = `
     <div class="burn-n"><span class="num" id="burnNum">${r50(e.burn).toLocaleString()}</span><span class="u">kcal a day</span></div>
-    <p class="hint">Over the last 4 weeks you ate about ${Math.round(e.intake).toLocaleString()} kcal a day and ${lossTxt}. That works out to this daily burn, including your training.</p>
+    <p class="hint">Over the last ${e.days >= BURN_WINDOW ? '4 weeks' : `${e.days} days`} you ate about ${Math.round(e.intake).toLocaleString()} kcal a day and ${lossTxt} on your trend line. That works out to this daily burn, including your training.${e.skipped ? ' Your first 2 weeks of weigh-ins are left out, because early loss is mostly water.' : ''}</p>
     <div class="suggest">
       <div><span class="k">${label}</span><span class="v">${lo.toLocaleString()}–${hi.toLocaleString()}<small>kcal</small></span></div>
       <div><span class="k">Your target now</span><span class="v">${T.calLo.toLocaleString()}–${T.calHi.toLocaleString()}<small>kcal</small></span></div>
     </div>
-    ${same ? '<p class="hint">Your target already matches. Nothing to change.</p>' : `<button class="btn" id="useBurn">Use ${lo.toLocaleString()}–${hi.toLocaleString()} as my target</button>`}
+    ${st.capped && !same ? `<p class="hint" id="bStep">That's a big change, so move there in steps: ${st.lo > T.calLo ? 'up' : 'down'} ${BURN_STEP} kcal now, then check again after a week of weigh-ins.</p>` : ''}
+    ${same ? '<p class="hint">Your target already matches. Nothing to change.</p>' : `<button class="btn" id="useBurn">Use ${st.lo.toLocaleString()}–${st.hi.toLocaleString()} as my target</button>`}
     <p class="hint">Only as accurate as your logging: days with forgotten snacks make your burn look lower than it is.</p>`;
   if ($('viewTrends').classList.contains('anim') || chartAnim) { const n = $('burnNum'); n._v = 0; animateNum(n, r50(e.burn), undefined, 800); }
   if ($('useBurn')) $('useBurn').onclick = () => {
     const old = { ...S.targets };
-    S.targets = { ...S.targets, calLo: lo, calHi: hi }; touchMeta(); renderAll();
+    S.targets = { ...S.targets, calLo: st.lo, calHi: st.hi }; touchMeta(); renderAll();
     toast('Target updated', { label: 'Undo', fn: () => { S.targets = old; touchMeta(); renderAll(); } });
   };
 }
@@ -2336,7 +2356,7 @@ function showOnboarding(step = 1) {
         <label>Protein (g)<input id="obPro" type="number" inputmode="numeric" value="${c.pro}"></label>
         <label>Goal weight (${OB.units === 'metric' ? 'kg' : 'lb'})<input id="obG" type="number" inputmode="decimal" step="0.1" value="${c.goalShown}"></label>
       </div>
-      <p class="hint">${OB.goal === 'lose' ? `This aims for about ${OB.units === 'metric' ? '0.5–0.7 kg' : '1–1.5 lb'} a week. ` : OB.goal === 'gain' ? `This aims for a slow, lean gain of about ${OB.units === 'metric' ? '0.25 kg' : '0.5 lb'} a week. ` : ''}After two weeks of logging, the "Your real burn" card on Trends works out your actual burn from your own data and can fine-tune these.</p>
+      <p class="hint">${OB.goal === 'lose' ? `This aims for about ${OB.units === 'metric' ? '0.5–0.7 kg' : '1–1.5 lb'} a week. ` : OB.goal === 'gain' ? `This aims for a slow, lean gain of about ${OB.units === 'metric' ? '0.25 kg' : '0.5 lb'} a week. ` : ''}After about 4 weeks of logging and weighing in, the "Your real burn" card on Trends works out your actual burn from your own data and can fine-tune these.</p>
       <p class="err" id="obErr" hidden></p>
       <div class="ob-actions"><button class="btn" id="obDone">Start logging</button><button class="btn ghost" id="obBack">Back</button></div>`;
     $('obBack').onclick = () => showOnboarding(2);
@@ -2436,7 +2456,7 @@ function renderGoalSuggest() {
   const sug = goalSuggestion(m);
   const head = `<div class="gsug-h"><b>Suggested for ${MODES[m]}</b>${sug ? `<span class="gsug-src${sug.src === 'burn' ? ' ok' : ''}">${sug.src === 'burn' ? 'Real burn' : 'Estimate'}</span>` : ''}</div>`;
   if (!sug && !GS.open) {
-    box.innerHTML = `${head}<p class="hint">Your real burn on Trends takes about 2 weeks of logging. Until then, answer 4 quick questions for an estimate. Nothing is saved.</p>
+    box.innerHTML = `${head}<p class="hint">Your real burn on Trends takes about 4 weeks of logging and weigh-ins. Until then, answer 4 quick questions for an estimate. Nothing is saved.</p>
       <button type="button" class="btn ghost" id="gsAsk">Suggest targets for me</button>`;
     $('gsAsk').onclick = () => { GS.open = true; haptic(); renderGoalSuggest(); replay($('gSug'), 'fade-in'); };
     return;
@@ -2480,8 +2500,8 @@ function renderGoalSuggest() {
   const L = +$('tLo').value, H = +$('tHi').value, P = +$('tPro').value, T = S.targets;
   const filled = L === sug.lo && H === sug.hi && (!pro || P >= pro);
   const saved = T.calLo === sug.lo && T.calHi === sug.hi && (!pro || T.protein >= pro) && m === mode();
-  const src = sug.src === 'burn' ? `Worked out from your real burn of about ${r50(sug.burn).toLocaleString()} kcal a day over the last 4 weeks.`
-    : `Based on an estimated burn of about ${sug.burn.toLocaleString()} kcal a day. Once Trends has about 2 weeks of your logging, your real burn takes over.`;
+  const src = sug.src === 'burn' ? `Worked out from your real burn of about ${r50(sug.burn).toLocaleString()} kcal a day, from your recent weeks of logging and weigh-ins.`
+    : `Based on an estimated burn of about ${sug.burn.toLocaleString()} kcal a day. Once Trends has about 4 weeks of your logging and weigh-ins, your real burn takes over.`;
   box.innerHTML = `${head}
     <div class="gsug-n"><span>${sug.lo.toLocaleString()}–${sug.hi.toLocaleString()}<small>kcal</small></span>${pro ? `<span class="gsug-pro">${pro}g+<small>protein</small></span>` : ''}</div>
     ${eta ? `<p class="gsug-eta">${esc(eta)}</p>` : ''}
@@ -2628,7 +2648,7 @@ const GUIDE = [
   ['Trends', `
     <p><b>Weight trend</b> shows how fast you're losing or gaining each week, and the date you'd reach your goal (with the year when it's further off). It appears after about a week of weigh-ins. If your loss is slow but you're already eating at the low end of your range, it suggests another week of full logging rather than eating less. The rate always looks back at least 14 days, because a single week of weigh-ins is mostly water; on the 7-day view, <b>Vs last week</b> compares this week's average with the week before.</p>
     <p>The <b>weekly check-in</b> sums up last week every Monday: average calories and protein, weight change, and a one-line verdict. When you're cutting, a day a little under your range still counts as <b>on target</b>; it only flags days more than 300 kcal under it, since eating that little often costs muscle.</p>
-    <p><b>Your real burn</b> works out how many calories you actually burn from what you eat and how your weight moves. It takes about two weeks of logging and weighing in, then it can suggest better targets.</p>
+    <p><b>Your real burn</b> works out how many calories you actually burn from what you eat and how your weight moves (no watch needed). It uses your weight trend line, and leaves out your first 2 weeks of weigh-ins, because early weight loss is mostly water, so it's ready after about 4 weeks. Then it can suggest better targets. Big changes are offered in steps of up to ${BURN_STEP} kcal, so each one is checked by the next week's weigh-ins.</p>
     <p>Charts for calories, protein and fibre: tap a bar to open that day. <b>See calendar by month</b> under Calories opens your History. Plus consistency stats and <b>milestones</b> with a little celebration.</p>`],
   ['Your settings', `
     <p>In <b>You</b>: your name, goal (Cutting, Maintaining or Building) with suggested targets, weigh-in frequency, lb or kg, eight app colours (Cobalt, Ember, Teal, Violet, Rose, Gold, Graphite, Sky), Light or Dark, your saved foods, and a backup file you can keep in iCloud Drive.</p>
@@ -2636,7 +2656,7 @@ const GUIDE = [
   ['What to expect', `
     <p><b>First week:</b> your weight will bounce around. That's water, not fat. Keep logging and weighing.</p>
     <p><b>After about a week:</b> your weekly rate and goal date show up on Trends.</p>
-    <p><b>After about two weeks:</b> your real burn is ready and can fine-tune your targets.</p>
+    <p><b>After about 4 weeks:</b> your real burn is ready and can fine-tune your targets (your first 2 weeks of weigh-ins are left out, because that early drop is mostly water).</p>
     <p>Hand portions, plate sizes and dishes are estimates. Being consistent matters more than being exact, because your real burn adjusts to how you log.</p>
     <p>A steady cut is about 0.5–1% of your body weight a week. Hitting your protein target most days helps keep muscle while you lose fat.</p>
     <p>A day over your range is fine. The weekly trend decides your progress.</p>`],
@@ -3427,13 +3447,13 @@ function renderCheckin() {
     verdict = moving ? `Good week: ${move}, with ${good} of ${w.n} days ${goodTxt}.`
       : `Your weekly average ${wc > 0.05 ? 'went up' : wc < -0.05 ? 'went down' : 'held steady'} (${wTxt} ${wU()}). One week can be noise from water and salt. If it repeats next week, adjust.`;
   }
-  const sug = goalSuggestion(m);
+  const sug0 = goalSuggestion(m), sug = sug0 && sug0.src === 'burn' ? { ...sug0, ...burnStep(sug0.lo, sug0.hi, T) } : sug0;   // v79: one step at a time
   let adj;
   if (sug && sug.src === 'burn' && (Math.abs(sug.lo - T.calLo) >= 100 || Math.abs(sug.hi - T.calHi) >= 100))
-    adj = `<div class="ci-adj"><p class="hint">Your real burn now suggests <b>${kc(sug.lo)}–${kc(sug.hi)} kcal</b> for ${MODES[m]}. You're set to ${kc(T.calLo)}–${kc(T.calHi)}.</p>
+    adj = `<div class="ci-adj"><p class="hint">Your real burn now suggests <b>${kc(sug0.lo)}–${kc(sug0.hi)} kcal</b> for ${MODES[m]}. You're set to ${kc(T.calLo)}–${kc(T.calHi)}.${sug.capped ? ` That's a big change, so ${sug.lo > T.calLo ? 'go up' : 'come down'} ${BURN_STEP} kcal first and check again next week.` : ''}</p>
       <button class="btn ghost" id="ciUse">Update my targets to ${kc(sug.lo)}–${kc(sug.hi)}</button></div>`;
   else if (sug && sug.src === 'burn') adj = '<p class="hint">Your targets still match your real burn. Nothing to change.</p>';
-  else adj = '<p class="hint">After about 2 weeks of logging and weighing in, your check-in can suggest target changes from your real burn.</p>';
+  else adj = '<p class="hint">After about 4 weeks of logging and weighing in, your check-in can suggest target changes from your real burn.</p>';
   box.innerHTML = `<div class="ci-grid">
       <div><span class="v">${kc(w.avgK)}</span><span class="k">avg kcal</span></div>
       <div><span class="v">${Math.round(w.avgP)}g</span><span class="k">avg protein</span></div>

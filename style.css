@@ -788,6 +788,49 @@ details.shut>:not(summary){opacity:0;transform:translateY(-4px);transition:opaci
 .adds .chip{padding:7px 11px;font-size:13px}
 .adds .chip small{font-size:11.5px}
 
+/* v80: day shape (Eaten card bar) and the When you eat panel. Shades of the app colour, darkest first, so every theme works. */
+.shape{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:7px 10px;align-items:center;width:100%;margin:10px 0 4px;padding:10px 12px;border-radius:12px;background:var(--raised);border:1px solid var(--line);text-align:left}
+.shape:active{transform:scale(.985)}
+.shape-bar,.sh-bar{grid-column:1/-1;display:flex;gap:2px;height:8px;border-radius:4px;overflow:hidden}
+.shape-bar i,.sh-bar i{display:block;min-width:4px}
+.s-breakfast{background:var(--accent)}
+.s-lunch{background:color-mix(in srgb,var(--accent) 68%,var(--surface))}
+.s-dinner{background:color-mix(in srgb,var(--accent) 42%,var(--surface))}
+.s-snacks{background:color-mix(in srgb,var(--accent) 22%,var(--surface))}
+.shape-t{font-size:13px;color:var(--muted);min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.shape-t b{color:var(--ink);font-weight:600}
+.shape svg{width:14px;height:14px;color:var(--muted)}
+.sh{display:flex;flex-direction:column;gap:12px}
+.sh>*{flex-shrink:0}
+.sh .hint,.sh .hs-h{margin:0}
+.sh-bar{height:14px;border-radius:7px}
+.sh-meals{display:flex;flex-direction:column}
+.sh-m{display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--line)}
+.sh-m:first-child{border-top:0;padding-top:0}
+.sh-dot{width:12px;height:12px;border-radius:4px;flex:none}
+.sh-m .n{flex:1;min-width:0;display:flex;flex-wrap:wrap;align-items:center;gap:2px 8px}
+.sh-m .n b{font-size:15px;font-weight:600}
+.sh-m .n small{flex-basis:100%;font-size:12px;color:var(--muted)}
+.sh-m .p{font-family:var(--display);font-size:22px;font-weight:800;font-variant-numeric:tabular-nums}
+.sh-tag{font-style:normal;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:2px 7px;border-radius:999px}
+.sh-tag.hi{background:var(--warn-soft);color:var(--warn)}
+.sh-tag.lo{background:var(--protein-soft);color:var(--protein)}
+.sh-sum,.sh-p{margin:0;font-size:14px;line-height:1.45}
+.sh-after{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.sh-after>div{display:flex;flex-direction:column;gap:2px;padding:10px;border-radius:12px;background:var(--raised);min-width:0}
+.sh-after .k{font-size:12px;color:var(--muted)}
+.sh-after b{font-family:var(--display);font-size:22px;font-weight:800;font-variant-numeric:tabular-nums}
+.sh-after b.up{color:var(--warn)} .sh-after b.down{color:var(--protein)}
+.sh-after small{font-size:12px;color:var(--muted)}
+.sh-recs{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.sh-rec{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:10px;border-radius:12px;background:var(--raised);border:1px solid var(--line);text-align:left;min-width:0}
+.sh-rec:active{transform:scale(.985)}
+.sh-rec .ico{font-size:18px;line-height:1}
+.sh-rec .k{font-size:12px;color:var(--muted)}
+.sh-rec b{font-family:var(--display);font-size:20px;font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap}
+.sh-rec b small{font-family:var(--body);font-size:12px;font-weight:600;color:var(--muted)}
+.sh-rec>small{font-size:12px;color:var(--muted);max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
 @media (min-width:980px){
   #scroller{padding:28px 32px 48px calc(var(--side) + 32px)}
   :root{--side:204px}

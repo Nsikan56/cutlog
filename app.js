@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '79';
+const APP_V = '80';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -365,7 +365,7 @@ function renderRows() {
   shownRows = { day, ids: new Set(es.map(e => e.id)) };
   $('count').textContent = es.length ? `${es.length} item${es.length > 1 ? 's' : ''}` : '';
   $('rowsHint').hidden = !es.length; renderCopy();
-  if (!es.length) { r.innerHTML = '<p class="empty">Nothing logged for this day yet.</p>'; return; }
+  if (!es.length) { r.innerHTML = '<p class="empty">Nothing logged for this day yet.</p>'; safe(renderShape); return; }
   const rowHtml = e => {
     const time = e.at ? new Date(e.at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : '';
     const sub = [e.detail, time].filter(Boolean).join(' · ');
@@ -377,6 +377,7 @@ function renderRows() {
     const tk = g.reduce((a, e) => a + e.kcal, 0), tp = g.reduce((a, e) => a + e.pro, 0);
     return `<div class="mgroup"><div class="mg-h"><span>${label}</span><span class="mg-t">${Math.round(tk).toLocaleString()} kcal · ${fmtG(tp)}g</span></div>${g.map(rowHtml).join('')}</div>`;
   }).join('');
+  safe(renderShape);   // v80
 }
 function copySource() {
   for (let i = 1; i <= 14; i++) { const d = shift(day, -i); if (entriesFor(d).length) return d; }
@@ -2100,6 +2101,7 @@ function renderTrends() {
   renderBurn(); renderMilestones(); safe(renderCheckin);
   $('tWeightChart').innerHTML = weightChart(from, to);
   $('tWHist').hidden = arr.length < 2; $('tCalHist').hidden = !firstLogDay();   // v55
+  $('tShape').hidden = shapeDays('all').length < SHAPE_MIN;   // v80
   $('viewTrends').classList.toggle('anim', chartAnim); chartAnim = false;
   // calories + protein
   const tots = days.map(dayTotals), logged = tots.filter(Boolean);
@@ -2638,6 +2640,7 @@ const GUIDE = [
     <p>Below the rings: how your day is going, a <b>protein nudge</b> if protein falls behind your calories, <b>What fits</b> (foods from your own list that fit what's left, in a row you can swipe; its last tile is <b>More ideas</b>: simple high-protein meals to make at home and McDonald's, Tim Hortons and Subway items that fit, lighter picks first in the evening; Subway subs and salads are counted without sauce or cheese, so pick yours on How much?, and a salad gets a double portion of sauce) and <b>This week</b> (calories banked or over across the week, and how much you can eat today and stay on budget). Only days you logged count; days with nothing logged are named underneath so you know they're left out.</p>
     <p><b>Plan my day</b>, under the logging buttons, builds a day of meals from what you actually eat (your saved meals and the foods you've logged in the last 4 weeks, at your usual amounts) plus a rotating home idea or two, aiming for your calorie range and protein target. <b>Today</b> plans the meals still ahead (nothing after 8 pm); <b>Tomorrow</b> plans a whole day. Log a meal with one tap, or tap a food to change its amount first. Ate something else? It offers to <b>re-plan the rest</b>. Already made tomorrow's breakfast? <b>Choose breakfast</b> and pick it (your meals, usual foods, home ideas or any food); it's <b>locked</b> in and the rest of the day is planned around it. Lock any planned meal you like the same way. <b>Shuffle</b> changes only what isn't locked and avoids repeating your last few plans. Change your targets and the plan re-plans itself to match. It shows up once you've logged a few days.</p>
     <p>Open This week and tap <b>See past weeks and months</b> for your <b>History</b>: a calendar of each month with every day's calories (green in range, orange over, blue under), what each week banked, and every month's averages. Swipe it for other months, and tap a day to open it.</p>
+    <p>Once you've logged two or more meals, the top of your food list shows a bar of how your day splits between breakfast, lunch, dinner and snacks, and which meal is the biggest (or a 🏆 when a meal sets your protein record). Tap it for <b>When you eat</b>: each meal's share and average over 4 weeks, 3 months or all time, your heaviest and lightest meal, what time you usually finish eating, <b>the morning after</b> (how the next weigh-in moves after bigger vs lighter dinners; that's mostly food and water, not fat) and your <b>records</b>. It's also on Trends under Calories.</p>
     <p><b>More nutrients</b>, under your food list, shows fibre. It only counts foods that have fibre data, so it says "at least" when some don't. A meal counts the ingredients that have it. Foods missing it are listed there; tap one to add the number from its label.</p>`],
   ['Weigh-ins and waist', `
     <p>Pick <b>Every morning</b>, <b>Once a week</b> or <b>No scale</b> in You → Weigh-ins. Weigh after the bathroom, before food or water.</p>
@@ -3032,6 +3035,157 @@ const openWH = () => { if (weightsArr().length >= 2) openWeightHistory(); };
 $('chart').addEventListener('click', openWH); $('tWeightChart').addEventListener('click', openWH);
 $('wHist').onclick = openWH; $('tWHist').onclick = openWH;
 $('tCalHist').onclick = () => openHistory();
+
+/* ===================== v80: DAY SHAPE ===================== */
+/* Which meal carries the day. Today's Eaten card shows a bar split by meal and names the biggest one; tapping it opens
+   "When you eat": each meal's share and average over 4 weeks / 3 months / all time, which meal is usually the heaviest and
+   lightest, when the kitchen closes, how the next morning's weigh-in moves after bigger vs lighter dinners, and records.
+   Only finished, logged days count (today is in progress). Everything is worked out from the log; nothing new is stored. */
+const SHAPE_R = [['4w', '4W', 28], ['3m', '3M', 91], ['all', 'All', 0]];
+const SHAPE = { r: '4w' };
+const SHAPE_MIN = 3, SHAPE_PAIRS = 3, SHAPE_LATE = 20, SHAPE_REC_DAYS = 7, SHAPE_LIGHT_MIN = 150;
+const SLOT_NAME = Object.fromEntries(SLOTS);
+function slotSums(d) {
+  const o = {}; SLOTS.forEach(([k]) => { o[k] = { kcal: 0, pro: 0, n: 0 }; });
+  (S.log[d] || []).forEach(e => { const s = o[slotOf(e)]; if (!s) return; s.kcal += e.kcal || 0; s.pro += e.pro || 0; s.n++; });
+  return o;
+}
+/* the time the last food was logged that day, in hours (8.5 = 8:30 am); entries logged on another day (copied, moved, logged
+   the next morning) say nothing about when you ate, so they're left out */
+function lastHour(d) {
+  let h = null;
+  (S.log[d] || []).forEach(e => { if (!(e.at > 1e11)) return; const t = new Date(e.at); if (iso(t) !== d) return;
+    const x = t.getHours() + t.getMinutes() / 60; if (h == null || x > h) h = x; });
+  return h;
+}
+/* a weight change with its sign, never "−0.0" (v71) */
+const sgW = x => { const v = toW(Math.abs(x)).toFixed(1); return v === '0.0' ? '0.0' : (x > 0 ? '+' : '−') + v; };
+const hourText = h => { const d = new Date(2000, 0, 1, Math.floor(h), Math.round((h % 1) * 60)); return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }); };
+function shapeDays(r) {
+  const t = todayIso(), first = firstLogDay(); if (!first) return [];
+  const rr = SHAPE_R.find(x => x[0] === r) || SHAPE_R[0], from = rr[2] ? shift(t, -rr[2]) : first, out = [];
+  for (let d = from < first ? first : from; d < t; d = shift(d, 1)) if (dayTotals(d)) out.push(d);
+  return out;
+}
+/* the most protein in one meal on any logged day other than this one, so a new best can be cheered on Today */
+function bestProMeal(skip) {
+  let best = 0, n = 0;
+  Object.keys(S.log).forEach(d => { if (d === skip || d > todayIso() || !dayTotals(d)) return; n++;
+    const o = slotSums(d); SLOTS.forEach(([k]) => { if (o[k].pro > best) best = o[k].pro; }); });
+  return { best, n };
+}
+function renderShape() {
+  const b = $('shapeBtn'); if (!b) return;
+  const o = slotSums(day), tot = SLOTS.reduce((a, [k]) => a + o[k].kcal, 0), used = SLOTS.filter(([k]) => o[k].n);
+  b.hidden = used.length < 2 || tot <= 0; if (b.hidden) return;
+  $('shapeBar').innerHTML = SLOTS.filter(([k]) => o[k].kcal > 0).map(([k, l]) => `<i class="s-${k}" style="flex:${(o[k].kcal / tot).toFixed(4)} 1 0" title="${l}"></i>`).join('');
+  const big = used.reduce((a, s) => o[s[0]].kcal > o[a[0]].kcal ? s : a), pct = Math.round(o[big[0]].kcal / tot * 100);
+  const top = used.reduce((a, s) => o[s[0]].pro > o[a[0]].pro ? s : a), rec = bestProMeal(day);
+  const isToday = day === todayIso();
+  $('shapeTxt').innerHTML = rec.n >= SHAPE_REC_DAYS && Math.round(o[top[0]].pro) > Math.round(rec.best)
+    ? `🏆 <b>Protein record</b> · ${Math.round(o[top[0]].pro)}g at ${top[1].toLowerCase()}`
+    : `<b>${big[1]}</b> ${isToday ? 'is' : 'was'} the biggest meal · ${pct}%`;
+  b.setAttribute('aria-label', `${SLOTS.filter(([k]) => o[k].kcal > 0).map(([k, l]) => `${l} ${Math.round(o[k].kcal / tot * 100)}%`).join(', ')}. See when you eat`);
+}
+function shapeStats(days) {
+  const per = {}, biggest = {}; SLOTS.forEach(([k]) => { per[k] = { kcal: 0, pro: 0, days: 0 }; biggest[k] = 0; });
+  let all = 0;
+  days.forEach(d => { const o = slotSums(d); let bk = null;
+    SLOTS.forEach(([k]) => { const s = o[k]; if (!s.n) return; per[k].kcal += s.kcal; per[k].pro += s.pro; per[k].days++; all += s.kcal;
+      if (!bk || s.kcal > o[bk].kcal) bk = k; });
+    if (bk) biggest[bk]++; });
+  SLOTS.forEach(([k]) => { const p = per[k]; p.share = all ? p.kcal / all : 0; p.avgK = p.days ? p.kcal / p.days : 0; p.avgP = p.days ? p.pro / p.days : 0; });
+  const regular = SLOTS.map(s => s[0]).filter(k => per[k].days >= Math.max(1, days.length * 0.25));   // meals you actually eat
+  const heavy = regular.reduce((a, k) => !a || per[k].share > per[a].share ? k : a, null);
+  const light = regular.length > 1 ? regular.reduce((a, k) => !a || per[k].share < per[a].share ? k : a, null) : null;
+  return { per, biggest, heavy, light, n: days.length };
+}
+function shapeLate(days) {
+  const hs = days.map(d => ({ d, h: lastHour(d) })).filter(x => x.h != null);
+  if (hs.length < 5) return null;
+  const sorted = hs.map(x => x.h).sort((a, b) => a - b), med = sorted[Math.floor(sorted.length / 2)];
+  let best = { n: 0, end: null }, run = 0, prev = null;
+  hs.forEach(x => { run = x.h < SHAPE_LATE && (run && prev === shift(x.d, -1)) ? run + 1 : x.h < SHAPE_LATE ? 1 : 0; prev = x.d;
+    if (run && run >= best.n) best = { n: run, end: x.d }; });   // ties go to the latest run
+  return { med, early: hs.filter(x => x.h < SHAPE_LATE).length, n: hs.length, best };
+}
+/* the morning after: the change from that morning's weigh-in to the next, after bigger vs lighter dinners (split at the median) */
+function shapeAfter(days) {
+  const pairs = days.filter(d => S.weights[d] != null && S.weights[shift(d, 1)] != null)
+    .map(d => ({ d, din: slotSums(d).dinner.kcal, tot: dayTotals(d).kcal, dw: S.weights[shift(d, 1)] - S.weights[d] }));
+  const split = key => { const p = pairs.filter(x => x[key] > 0).sort((a, b) => a[key] - b[key]); if (p.length < 2 * SHAPE_PAIRS) return null;
+    const h = Math.floor(p.length / 2), lo = p.slice(0, h), hi = p.slice(p.length - h), avg = a => a.reduce((s, x) => s + x.dw, 0) / a.length;
+    return { lo: avg(lo), hi: avg(hi), cut: (lo[lo.length - 1][key] + hi[0][key]) / 2, n: lo.length + hi.length }; };
+  return { pairs: pairs.length, din: split('din'), day: split('tot') };
+}
+function shapeRecords(days) {
+  const rec = {};
+  days.forEach(d => { const o = slotSums(d);
+    SLOTS.forEach(([k, l]) => { const s = o[k]; if (!s.n) return;
+      if (!rec.pro || s.pro >= rec.pro.v) rec.pro = { v: s.pro, d, l };
+      if (!rec.big || s.kcal >= rec.big.v) rec.big = { v: s.kcal, d, l };
+      if (k === 'dinner' && s.kcal >= SHAPE_LIGHT_MIN && (!rec.light || s.kcal <= rec.light.v)) rec.light = { v: s.kcal, d, l }; }); });
+  return rec;
+}
+function openShape() {
+  openSheet('When you eat', `<div class="chips wh-r" id="shRange" role="group" aria-label="Range">${SHAPE_R.map(([k, l]) => `<button class="chip" data-sr="${k}" aria-pressed="${k === SHAPE.r}">${l}</button>`).join('')}</div><div class="sh" id="shWrap"></div>`, wideSheet());
+  renderShapePanel();
+  sheetBody.onclick = e => {
+    const r = e.target.closest('[data-sr]'), d = e.target.closest('[data-sd]');
+    if (r && r.dataset.sr !== SHAPE.r) { SHAPE.r = r.dataset.sr; [...$('shRange').children].forEach(c => c.setAttribute('aria-pressed', c === r)); haptic(); renderShapePanel(); return; }
+    if (d) { closeSheet(); day = d.dataset.sd; showTab('today'); renderAll(); }
+  };
+}
+function renderShapePanel() {
+  const box = $('shWrap'); if (!box) return;
+  const days = shapeDays(SHAPE.r), rr = SHAPE_R.find(x => x[0] === SHAPE.r);
+  const span = rr[2] ? `in the last ${rr[2] === 28 ? '4 weeks' : '3 months'}` : 'since you started';
+  if (days.length < SHAPE_MIN) {
+    box.innerHTML = `<p class="empty" id="shEmpty">Log ${SHAPE_MIN} full days and your patterns show up here: which meal carries your day, when you finish eating, and how dinner shows on the scale next morning.${days.length ? ` You have ${days.length} so far.` : ''}</p>`;
+    return;
+  }
+  const s = shapeStats(days), late = shapeLate(days), after = shapeAfter(days), rec = shapeRecords(days);
+  const pc = x => Math.round(x * 100) + '%';
+  const bar = SLOTS.filter(([k]) => s.per[k].share > 0).map(([k, l]) => `<i class="s-${k}" style="flex:${s.per[k].share.toFixed(4)} 1 0" title="${l}"></i>`).join('');
+  const rows = SLOTS.filter(([k]) => s.per[k].days).map(([k, l]) => { const p = s.per[k], tag = k === s.heavy ? '<em class="sh-tag hi">Heaviest</em>' : k === s.light ? '<em class="sh-tag lo">Lightest</em>' : '';
+    return `<div class="sh-m" data-slot="${k}"><i class="sh-dot s-${k}"></i><span class="n"><b>${l}</b>${tag}<small>avg ${kc(p.avgK)} kcal · ${Math.round(p.avgP)}g · on ${p.days} of ${s.n} days</small></span><span class="p">${pc(p.share)}</span></div>`; }).join('');
+  const hv = s.heavy && SLOT_NAME[s.heavy], lt = s.light && SLOT_NAME[s.light];
+  let sum = hv ? `<b>${hv}</b> is usually your heaviest meal, about ${pc(s.per[s.heavy].share)} of your calories` : '';
+  const topBig = SLOTS.map(x => x[0]).reduce((a, k) => s.biggest[k] > s.biggest[a] ? k : a);
+  if (hv) sum += topBig === s.heavy ? ` (the biggest of the day on ${s.biggest[topBig]} of ${s.n} days).` : `. ${SLOT_NAME[topBig]} was the biggest on more days, though (${s.biggest[topBig]} of ${s.n}).`;
+  if (lt) sum += ` <b>${lt}</b> is the lightest.`;
+  let h = `<p class="hint" id="shIntro">From the ${s.n} days you logged ${span}. Today isn’t counted until it’s over.</p>`
+    + `<div class="sh-bar" aria-hidden="true">${bar}</div><div class="sh-meals" id="shMeals">${rows}</div><p class="sh-sum" id="shSum">${sum}</p>`;
+  if (late) {
+    h += `<h3 class="hs-h">When you finish eating</h3><p class="sh-p" id="shLate">You usually log your last food around <b>${esc(hourText(late.med))}</b>. Done before 8 pm on <b>${late.early} of ${late.n}</b> days.</p>`;
+  }
+  // the morning after
+  h += `<h3 class="hs-h">The morning after</h3>`;
+  const dw = x => `<b class="${sgW(x) === '0.0' ? '' : x > 0 ? 'up' : 'down'}">${sgW(x)} ${wU()}</b>`;
+  if (after.din) {
+    const a = after.din, gap = a.hi - a.lo;
+    h += `<div class="sh-after" id="shAfter"><div><span class="k">After bigger dinners</span>${dw(a.hi)}<small>over about ${kc(Math.round(a.cut / 50) * 50)} kcal</small></div><div><span class="k">After lighter dinners</span>${dw(a.lo)}<small>under that</small></div></div>`
+      + `<p class="sh-p" id="shAfterNote">How much the scale moved from one morning to the next, on average, from ${a.n} pairs of weigh-ins.${after.day ? ` Split by the whole day’s calories instead: ${sgW(after.day.hi)} ${wU()} after bigger days, ${sgW(after.day.lo)} ${wU()} after lighter ones.` : ''} `
+      + (toW(gap) >= (metric() ? 0.15 : 0.3) ? 'So a big dinner does show up the next morning. That’s mostly the food and water still in you (salt and carbs hold water), not fat, and it usually fades within a day or two. Your 7-day average already smooths it out, so judge progress by that.'
+        : gap <= -(metric() ? 0.15 : 0.3) ? 'Bigger dinners haven’t meant a higher scale the next morning so far. Day-to-day water swings are bigger than any one meal.'
+        : 'Not much difference so far: a bigger dinner barely moves the next morning’s weigh-in for you. The weekly total is what decides fat loss.') + '</p>';
+  } else {
+    const need = Object.keys(S.weights).length;
+    h += `<p class="sh-p" id="shAfterNote">${need ? `This needs a morning weigh-in the day after at least ${2 * SHAPE_PAIRS} logged days with dinner. You have ${after.pairs} so far in this range.` : 'Weigh in in the mornings and this shows how the scale moves after bigger dinners compared with lighter ones.'}</p>`;
+  }
+  // records
+  const tileR = (key, ico, k, v, sub, d) => `<button class="sh-rec" data-rec="${key}" data-sd="${d}"><span class="ico" aria-hidden="true">${ico}</span><span class="k">${k}</span><b>${v}</b><small>${esc(sub)}</small></button>`;
+  const when = r => `${r.l} · ${shortDate(r.d)}`;
+  let tiles = '';
+  if (rec.pro) tiles += tileR('pro', '💪', 'Most protein in one meal', `${Math.round(rec.pro.v)}<small>g</small>`, when(rec.pro), rec.pro.d);
+  if (rec.light) tiles += tileR('light', '🪶', 'Lightest dinner', `${kc(rec.light.v)}<small> kcal</small>`, shortDate(rec.light.d), rec.light.d);
+  if (late && late.best.n) tiles += tileR('early', '🌙', 'Done by 8 pm', `${late.best.n}<small> day${late.best.n > 1 ? 's' : ''} in a row</small>`, `best run, to ${shortDate(late.best.end)}`, late.best.end);
+  if (rec.big) tiles += tileR('big', '🍽️', 'Biggest meal', `${kc(rec.big.v)}<small> kcal</small>`, when(rec.big), rec.big.d);
+  h += `<h3 class="hs-h">Records</h3><div class="sh-recs" id="shRecs">${tiles}</div><p class="hint">Tap a record to open that day. A big meal now and then is fine; the week decides.</p>`;
+  box.innerHTML = h;
+}
+$('shapeBtn').onclick = () => { haptic(); openShape(); };
+$('tShape').onclick = () => openShape();
 
 /* What fits: picks from your own meals, recent and saved foods, most protein per calorie first */
 function fitsCandidates() {

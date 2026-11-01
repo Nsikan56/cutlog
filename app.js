@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '81';
+const APP_V = '82';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -2640,7 +2640,7 @@ const GUIDE = [
     <p>Below the rings: how your day is going, a <b>protein nudge</b> if protein falls behind your calories, <b>What fits</b> (foods from your own list that fit what's left, in a row you can swipe; its last tile is <b>More ideas</b>: simple high-protein meals to make at home and McDonald's, Tim Hortons and Subway items that fit, lighter picks first in the evening; Subway subs and salads are counted without sauce or cheese, so pick yours on How much?, and a salad gets a double portion of sauce) and <b>This week</b> (calories banked or over across the week, and how much you can eat today and stay on budget). Only days you logged count; days with nothing logged are named underneath so you know they're left out.</p>
     <p><b>Plan my day</b>, under the logging buttons, builds a day of meals from what you actually eat (your saved meals and the foods you've logged in the last 4 weeks, at your usual amounts) plus a rotating home idea or two, aiming for your calorie range and protein target. <b>Today</b> plans the meals still ahead (nothing after 8 pm); <b>Tomorrow</b> plans a whole day. Log a meal with one tap, or tap a food to change its amount first. Ate something else? It offers to <b>re-plan the rest</b>. Already made tomorrow's breakfast? <b>Choose breakfast</b> and pick it (your meals, usual foods, home ideas or any food); it's <b>locked</b> in and the rest of the day is planned around it. Lock any planned meal you like the same way. <b>Shuffle</b> changes only what isn't locked and avoids repeating your last few plans. Change your targets and the plan re-plans itself to match. It shows up once you've logged a few days.</p>
     <p>Open This week and tap <b>See past weeks and months</b> for your <b>History</b>: a calendar of each month with every day's calories (green in range, orange over, blue under), what each week banked, and every month's averages. Swipe it for other months, and tap a day to open it.</p>
-    <p>Once you've logged two or more meals, the top of your food list shows a bar of how your day splits between breakfast, lunch, dinner and snacks, and which meal is the biggest (or a 🏆 when a meal sets your protein record). Tap it for <b>When you eat</b>: each meal's share and average over 4 weeks, 3 months or all time, your heaviest and lightest meal, what time you usually finish eating, <b>the morning after</b> (how the next weigh-in moves after bigger vs lighter dinners; that's mostly food and water, not fat) your meal split <b>week by week</b>, <b>records</b>, and <b>badges</b> to earn (like done eating by 8 pm 7 days in a row, or 30g+ protein at every main meal). It's also on Trends under Calories. The morning after waits for about two weeks of daily weigh-ins and only calls it a link when the gap is clearly bigger than your normal day-to-day swing.</p>
+    <p>Once you've logged two or more meals, the Eaten header shows which meal is the biggest ("Breakfast 48%", or a 🏆 when a meal sets your protein record) with a thin bar under it of how your day splits between breakfast, lunch, dinner and snacks; each meal heading has a dot in its colour. Tap either for <b>When you eat</b>: each meal's share and average over 4 weeks, 3 months or all time, your heaviest and lightest meal, what time you usually finish eating, <b>the morning after</b> (how the next weigh-in moves after bigger vs lighter dinners; that's mostly food and water, not fat) your meal split <b>week by week</b>, <b>records</b>, and <b>badges</b> to earn (like done eating by 8 pm 7 days in a row, or 30g+ protein at every main meal). It's also on Trends under Calories. The morning after waits for about two weeks of daily weigh-ins and only calls it a link when the gap is clearly bigger than your normal day-to-day swing.</p>
     <p><b>More nutrients</b>, under your food list, shows fibre. It only counts foods that have fibre data, so it says "at least" when some don't. A meal counts the ingredients that have it. Foods missing it are listed there; tap one to add the number from its label.</p>`],
   ['Weigh-ins and waist', `
     <p>Pick <b>Every morning</b>, <b>Once a week</b> or <b>No scale</b> in You → Weigh-ins. Weigh after the bathroom, before food or water.</p>
@@ -3079,15 +3079,17 @@ function renderShape() {
   safe(checkBadges);
   const b = $('shapeBtn'); if (!b) return;
   const o = slotSums(day), tot = SLOTS.reduce((a, [k]) => a + o[k].kcal, 0), used = SLOTS.filter(([k]) => o[k].n);
-  b.hidden = used.length < 2 || tot <= 0; if (b.hidden) return;
+  const show = used.length >= 2 && tot > 0, tx = $('shapeTxt');
+  b.hidden = tx.hidden = !show; $('eatH').classList.toggle('folded', show); if (!show) return;   // v82: folded into the Eaten header
   $('shapeBar').innerHTML = SLOTS.filter(([k]) => o[k].kcal > 0).map(([k, l]) => `<i class="s-${k}" style="flex:${(o[k].kcal / tot).toFixed(4)} 1 0" title="${l}"></i>`).join('');
   const big = used.reduce((a, s) => o[s[0]].kcal > o[a[0]].kcal ? s : a), pct = Math.round(o[big[0]].kcal / tot * 100);
   const top = used.reduce((a, s) => o[s[0]].pro > o[a[0]].pro ? s : a), rec = bestProMeal(day);
-  const isToday = day === todayIso();
-  $('shapeTxt').innerHTML = rec.n >= SHAPE_REC_DAYS && Math.round(o[top[0]].pro) > Math.round(rec.best)
-    ? `🏆 <b>Protein record</b> · ${Math.round(o[top[0]].pro)}g at ${top[1].toLowerCase()}`
-    : `<b>${big[1]}</b> ${isToday ? 'is' : 'was'} the biggest meal · ${pct}%`;
-  b.setAttribute('aria-label', `${SLOTS.filter(([k]) => o[k].kcal > 0).map(([k, l]) => `${l} ${Math.round(o[k].kcal / tot * 100)}%`).join(', ')}. See when you eat`);
+  const isRec = rec.n >= SHAPE_REC_DAYS && Math.round(o[top[0]].pro) > Math.round(rec.best);
+  const split = SLOTS.filter(([k]) => o[k].kcal > 0).map(([k, l]) => `${l} ${Math.round(o[k].kcal / tot * 100)}%`).join(', ');
+  tx.innerHTML = (isRec ? `🏆 <b>${top[1]}</b> ${Math.round(o[top[0]].pro)}g` : `<b>${big[1]}</b> ${pct}%`) + '<svg aria-hidden="true"><use href="#i-chev-r"/></svg>';
+  const say = isRec ? `Protein record: ${Math.round(o[top[0]].pro)}g at ${top[1].toLowerCase()}` : `${big[1]} ${day === todayIso() ? 'is' : 'was'} the biggest meal, ${pct}%`;
+  tx.title = say; tx.setAttribute('aria-label', `${say}. See when you eat`);
+  b.setAttribute('aria-label', `${split}. See when you eat`);
 }
 function shapeStats(days) {
   const per = {}, biggest = {}; SLOTS.forEach(([k]) => { per[k] = { kcal: 0, pro: 0, days: 0 }; biggest[k] = 0; });
@@ -3267,6 +3269,7 @@ function badgesHtml() {
   return `<h3 class="hs-h">Badges <span class="sh-bn">${n} of ${BADGES.length}</span></h3><div class="sh-badges" id="shBadges">${BADGES.map(tile).join('')}</div><p class="hint">Badges count every day you've logged, not just this range. Tap an earned one to open the day you got it.</p>`;
 }
 $('shapeBtn').onclick = () => { haptic(); openShape(); };
+$('shapeTxt').onclick = () => { haptic(); openShape(); };
 $('tShape').onclick = () => openShape();
 
 /* What fits: picks from your own meals, recent and saved foods, most protein per calorie first */

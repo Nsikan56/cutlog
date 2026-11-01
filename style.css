@@ -831,6 +831,32 @@ details.shut>:not(summary){opacity:0;transform:translateY(-4px);transition:opaci
 .sh-rec b small{font-family:var(--body);font-size:12px;font-weight:600;color:var(--muted)}
 .sh-rec>small{font-size:12px;color:var(--muted);max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
+/* v81: meal colour dots, week by week, badges */
+.mg-dot{display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:7px;vertical-align:1px}
+.sh-weeks{display:flex;flex-direction:column;gap:7px}
+.sh-w{display:grid;grid-template-columns:48px minmax(0,1fr) auto;align-items:center;gap:10px}
+.sh-w .d{font-size:12px;color:var(--muted);white-space:nowrap}
+.sh-wbar{display:flex;gap:2px;height:12px;border-radius:6px;overflow:hidden}
+.sh-wbar i{display:block;min-width:3px}
+.sh-w .v{font-size:13px;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap;text-align:right;min-width:62px}
+.sh-w .v small{font-size:11px;font-weight:500;color:var(--muted)}
+.sh-leg{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12px;color:var(--muted)}
+.sh-leg span{display:inline-flex;align-items:center;gap:6px}
+.sh-leg i{width:10px;height:10px;border-radius:3px}
+.sh-bn{font-family:var(--body);font-size:12px;font-weight:600;letter-spacing:0;text-transform:none;color:var(--muted);margin-left:6px}
+.sh-badges{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.sh-badge{display:flex;flex-direction:column;align-items:flex-start;gap:3px;padding:10px;border-radius:12px;background:var(--raised);border:1px dashed var(--line);text-align:left;min-width:0}
+.sh-badge .ico{font-size:22px;line-height:1;filter:grayscale(1);opacity:.45}
+.sh-badge b{font-size:14px;font-weight:700}
+.sh-badge small{font-size:12px;line-height:1.35;color:var(--muted)}
+.sh-badge em{font-style:normal;font-size:12px;font-weight:600;color:var(--muted);font-variant-numeric:tabular-nums}
+.sh-badge.got{background:var(--accent-soft);border:1px solid color-mix(in srgb,var(--accent) 35%,transparent)}
+.sh-badge.got .ico{filter:none;opacity:1}
+.sh-badge.got em{color:var(--accent)}
+.sh-badge.got:active{transform:scale(.985)}
+.sh-prog{display:block;width:100%;height:5px;border-radius:3px;background:var(--line);overflow:hidden;margin-top:3px}
+.sh-prog i{display:block;height:100%;background:var(--accent);border-radius:3px}
+
 @media (min-width:980px){
   #scroller{padding:28px 32px 48px calc(var(--side) + 32px)}
   :root{--side:204px}

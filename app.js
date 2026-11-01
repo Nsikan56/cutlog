@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '80';
+const APP_V = '81';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -375,7 +375,7 @@ function renderRows() {
   r.innerHTML = SLOTS.map(([k, label]) => {
     const g = es.filter(e => slotOf(e) === k); if (!g.length) return '';
     const tk = g.reduce((a, e) => a + e.kcal, 0), tp = g.reduce((a, e) => a + e.pro, 0);
-    return `<div class="mgroup"><div class="mg-h"><span>${label}</span><span class="mg-t">${Math.round(tk).toLocaleString()} kcal · ${fmtG(tp)}g</span></div>${g.map(rowHtml).join('')}</div>`;
+    return `<div class="mgroup"><div class="mg-h"><span><i class="mg-dot s-${k}" aria-hidden="true"></i>${label}</span><span class="mg-t">${Math.round(tk).toLocaleString()} kcal · ${fmtG(tp)}g</span></div>${g.map(rowHtml).join('')}</div>`;
   }).join('');
   safe(renderShape);   // v80
 }
@@ -2640,7 +2640,7 @@ const GUIDE = [
     <p>Below the rings: how your day is going, a <b>protein nudge</b> if protein falls behind your calories, <b>What fits</b> (foods from your own list that fit what's left, in a row you can swipe; its last tile is <b>More ideas</b>: simple high-protein meals to make at home and McDonald's, Tim Hortons and Subway items that fit, lighter picks first in the evening; Subway subs and salads are counted without sauce or cheese, so pick yours on How much?, and a salad gets a double portion of sauce) and <b>This week</b> (calories banked or over across the week, and how much you can eat today and stay on budget). Only days you logged count; days with nothing logged are named underneath so you know they're left out.</p>
     <p><b>Plan my day</b>, under the logging buttons, builds a day of meals from what you actually eat (your saved meals and the foods you've logged in the last 4 weeks, at your usual amounts) plus a rotating home idea or two, aiming for your calorie range and protein target. <b>Today</b> plans the meals still ahead (nothing after 8 pm); <b>Tomorrow</b> plans a whole day. Log a meal with one tap, or tap a food to change its amount first. Ate something else? It offers to <b>re-plan the rest</b>. Already made tomorrow's breakfast? <b>Choose breakfast</b> and pick it (your meals, usual foods, home ideas or any food); it's <b>locked</b> in and the rest of the day is planned around it. Lock any planned meal you like the same way. <b>Shuffle</b> changes only what isn't locked and avoids repeating your last few plans. Change your targets and the plan re-plans itself to match. It shows up once you've logged a few days.</p>
     <p>Open This week and tap <b>See past weeks and months</b> for your <b>History</b>: a calendar of each month with every day's calories (green in range, orange over, blue under), what each week banked, and every month's averages. Swipe it for other months, and tap a day to open it.</p>
-    <p>Once you've logged two or more meals, the top of your food list shows a bar of how your day splits between breakfast, lunch, dinner and snacks, and which meal is the biggest (or a 🏆 when a meal sets your protein record). Tap it for <b>When you eat</b>: each meal's share and average over 4 weeks, 3 months or all time, your heaviest and lightest meal, what time you usually finish eating, <b>the morning after</b> (how the next weigh-in moves after bigger vs lighter dinners; that's mostly food and water, not fat) and your <b>records</b>. It's also on Trends under Calories.</p>
+    <p>Once you've logged two or more meals, the top of your food list shows a bar of how your day splits between breakfast, lunch, dinner and snacks, and which meal is the biggest (or a 🏆 when a meal sets your protein record). Tap it for <b>When you eat</b>: each meal's share and average over 4 weeks, 3 months or all time, your heaviest and lightest meal, what time you usually finish eating, <b>the morning after</b> (how the next weigh-in moves after bigger vs lighter dinners; that's mostly food and water, not fat) your meal split <b>week by week</b>, <b>records</b>, and <b>badges</b> to earn (like done eating by 8 pm 7 days in a row, or 30g+ protein at every main meal). It's also on Trends under Calories. The morning after waits for about two weeks of daily weigh-ins and only calls it a link when the gap is clearly bigger than your normal day-to-day swing.</p>
     <p><b>More nutrients</b>, under your food list, shows fibre. It only counts foods that have fibre data, so it says "at least" when some don't. A meal counts the ingredients that have it. Foods missing it are listed there; tap one to add the number from its label.</p>`],
   ['Weigh-ins and waist', `
     <p>Pick <b>Every morning</b>, <b>Once a week</b> or <b>No scale</b> in You → Weigh-ins. Weigh after the bathroom, before food or water.</p>
@@ -3043,7 +3043,8 @@ $('tCalHist').onclick = () => openHistory();
    Only finished, logged days count (today is in progress). Everything is worked out from the log; nothing new is stored. */
 const SHAPE_R = [['4w', '4W', 28], ['3m', '3M', 91], ['all', 'All', 0]];
 const SHAPE = { r: '4w' };
-const SHAPE_MIN = 3, SHAPE_PAIRS = 3, SHAPE_LATE = 20, SHAPE_REC_DAYS = 7, SHAPE_LIGHT_MIN = 150;
+const SHAPE_MIN = 3, SHAPE_PAIRS = 7,   // v81: 14 nights (7 bigger, 7 lighter) before the morning after shows numbers
+     SHAPE_WEEKS = 26, SHAPE_LATE = 20, SHAPE_REC_DAYS = 7, SHAPE_LIGHT_MIN = 150;
 const SLOT_NAME = Object.fromEntries(SLOTS);
 function slotSums(d) {
   const o = {}; SLOTS.forEach(([k]) => { o[k] = { kcal: 0, pro: 0, n: 0 }; });
@@ -3075,6 +3076,7 @@ function bestProMeal(skip) {
   return { best, n };
 }
 function renderShape() {
+  safe(checkBadges);
   const b = $('shapeBtn'); if (!b) return;
   const o = slotSums(day), tot = SLOTS.reduce((a, [k]) => a + o[k].kcal, 0), used = SLOTS.filter(([k]) => o[k].n);
   b.hidden = used.length < 2 || tot <= 0; if (b.hidden) return;
@@ -3110,12 +3112,16 @@ function shapeLate(days) {
   return { med, early: hs.filter(x => x.h < SHAPE_LATE).length, n: hs.length, best };
 }
 /* the morning after: the change from that morning's weigh-in to the next, after bigger vs lighter dinners (split at the median) */
+const AFTER_MIN = 0.3;   // lb: a smaller gap isn't worth calling a link
 function shapeAfter(days) {
   const pairs = days.filter(d => S.weights[d] != null && S.weights[shift(d, 1)] != null)
     .map(d => ({ d, din: slotSums(d).dinner.kcal, tot: dayTotals(d).kcal, dw: S.weights[shift(d, 1)] - S.weights[d] }));
   const split = key => { const p = pairs.filter(x => x[key] > 0).sort((a, b) => a[key] - b[key]); if (p.length < 2 * SHAPE_PAIRS) return null;
     const h = Math.floor(p.length / 2), lo = p.slice(0, h), hi = p.slice(p.length - h), avg = a => a.reduce((s, x) => s + x.dw, 0) / a.length;
-    return { lo: avg(lo), hi: avg(hi), cut: (lo[lo.length - 1][key] + hi[0][key]) / 2, n: lo.length + hi.length }; };
+    // v81: the gap only counts as a link when it's clearly bigger than the usual night-to-night swing (about two standard errors)
+    const sd = Math.sqrt([lo, hi].reduce((t, g) => { const m = avg(g); return t + g.reduce((u, x) => u + (x.dw - m) ** 2, 0); }, 0) / Math.max(1, lo.length + hi.length - 2));
+    const gap = avg(hi) - avg(lo), se = sd * Math.sqrt(1 / lo.length + 1 / hi.length);
+    return { lo: avg(lo), hi: avg(hi), cut: (lo[lo.length - 1][key] + hi[0][key]) / 2, n: lo.length + hi.length, sd, clear: Math.abs(gap) >= Math.max(2 * se, AFTER_MIN) }; };
   return { pairs: pairs.length, din: split('din'), day: split('tot') };
 }
 function shapeRecords(days) {
@@ -3155,23 +3161,23 @@ function renderShapePanel() {
   if (hv) sum += topBig === s.heavy ? ` (the biggest of the day on ${s.biggest[topBig]} of ${s.n} days).` : `. ${SLOT_NAME[topBig]} was the biggest on more days, though (${s.biggest[topBig]} of ${s.n}).`;
   if (lt) sum += ` <b>${lt}</b> is the lightest.`;
   let h = `<p class="hint" id="shIntro">From the ${s.n} days you logged ${span}. Today isn’t counted until it’s over.</p>`
-    + `<div class="sh-bar" aria-hidden="true">${bar}</div><div class="sh-meals" id="shMeals">${rows}</div><p class="sh-sum" id="shSum">${sum}</p>`;
+    + `<div class="sh-bar" aria-hidden="true">${bar}</div><div class="sh-meals" id="shMeals">${rows}</div><p class="sh-sum" id="shSum">${sum}</p>` + shapeWeeksHtml(days);
   if (late) {
     h += `<h3 class="hs-h">When you finish eating</h3><p class="sh-p" id="shLate">You usually log your last food around <b>${esc(hourText(late.med))}</b>. Done before 8 pm on <b>${late.early} of ${late.n}</b> days.</p>`;
   }
   // the morning after
   h += `<h3 class="hs-h">The morning after</h3>`;
-  const dw = x => `<b class="${sgW(x) === '0.0' ? '' : x > 0 ? 'up' : 'down'}">${sgW(x)} ${wU()}</b>`;
+  const dw = (x, c) => `<b class="${!c || sgW(x) === '0.0' ? '' : x > 0 ? 'up' : 'down'}">${sgW(x)} ${wU()}</b>`;
   if (after.din) {
     const a = after.din, gap = a.hi - a.lo;
-    h += `<div class="sh-after" id="shAfter"><div><span class="k">After bigger dinners</span>${dw(a.hi)}<small>over about ${kc(Math.round(a.cut / 50) * 50)} kcal</small></div><div><span class="k">After lighter dinners</span>${dw(a.lo)}<small>under that</small></div></div>`
+    h += `<div class="sh-after" id="shAfter"><div><span class="k">After bigger dinners</span>${dw(a.hi, a.clear)}<small>over about ${kc(Math.round(a.cut / 50) * 50)} kcal</small></div><div><span class="k">After lighter dinners</span>${dw(a.lo, a.clear)}<small>under that</small></div></div>`
       + `<p class="sh-p" id="shAfterNote">How much the scale moved from one morning to the next, on average, from ${a.n} pairs of weigh-ins.${after.day ? ` Split by the whole day’s calories instead: ${sgW(after.day.hi)} ${wU()} after bigger days, ${sgW(after.day.lo)} ${wU()} after lighter ones.` : ''} `
-      + (toW(gap) >= (metric() ? 0.15 : 0.3) ? 'So a big dinner does show up the next morning. That’s mostly the food and water still in you (salt and carbs hold water), not fat, and it usually fades within a day or two. Your 7-day average already smooths it out, so judge progress by that.'
-        : gap <= -(metric() ? 0.15 : 0.3) ? 'Bigger dinners haven’t meant a higher scale the next morning so far. Day-to-day water swings are bigger than any one meal.'
-        : 'Not much difference so far: a bigger dinner barely moves the next morning’s weigh-in for you. The weekly total is what decides fat loss.') + '</p>';
+      + (a.clear && gap > 0 ? 'So a big dinner does show up the next morning. That’s mostly the food and water still in you (salt and carbs hold water), not fat, and it usually fades within a day or two. Your 7-day average already smooths it out, so judge progress by that.'
+        : a.clear ? 'Bigger dinners haven’t meant a higher scale the next morning so far. Day-to-day water swings are bigger than any one meal.'
+        : `No clear link yet: the gap is smaller than your normal night-to-night swing (about ±${toW(a.sd).toFixed(1)} ${wU()}), so it could be chance. It firms up as more nights come in. The weekly total is what decides fat loss.`) + '</p>';
   } else {
     const need = Object.keys(S.weights).length;
-    h += `<p class="sh-p" id="shAfterNote">${need ? `This needs a morning weigh-in the day after at least ${2 * SHAPE_PAIRS} logged days with dinner. You have ${after.pairs} so far in this range.` : 'Weigh in in the mornings and this shows how the scale moves after bigger dinners compared with lighter ones.'}</p>`;
+    h += `<p class="sh-p" id="shAfterNote">${need ? `This needs a morning weigh-in the day after at least ${2 * SHAPE_PAIRS} logged days with dinner (about two weeks of daily weigh-ins), so a single salty dinner can’t skew it. You have ${after.pairs} so far in this range.` : 'Weigh in in the mornings and this shows how the scale moves after bigger dinners compared with lighter ones.'}</p>`;
   }
   // records
   const tileR = (key, ico, k, v, sub, d) => `<button class="sh-rec" data-rec="${key}" data-sd="${d}"><span class="ico" aria-hidden="true">${ico}</span><span class="k">${k}</span><b>${v}</b><small>${esc(sub)}</small></button>`;
@@ -3181,8 +3187,84 @@ function renderShapePanel() {
   if (rec.light) tiles += tileR('light', '🪶', 'Lightest dinner', `${kc(rec.light.v)}<small> kcal</small>`, shortDate(rec.light.d), rec.light.d);
   if (late && late.best.n) tiles += tileR('early', '🌙', 'Done by 8 pm', `${late.best.n}<small> day${late.best.n > 1 ? 's' : ''} in a row</small>`, `best run, to ${shortDate(late.best.end)}`, late.best.end);
   if (rec.big) tiles += tileR('big', '🍽️', 'Biggest meal', `${kc(rec.big.v)}<small> kcal</small>`, when(rec.big), rec.big.d);
-  h += `<h3 class="hs-h">Records</h3><div class="sh-recs" id="shRecs">${tiles}</div><p class="hint">Tap a record to open that day. A big meal now and then is fine; the week decides.</p>`;
+  h += `<h3 class="hs-h">Records</h3><div class="sh-recs" id="shRecs">${tiles}</div><p class="hint">Tap a record to open that day. A big meal now and then is fine; the week decides.</p>` + badgesHtml();
   box.innerHTML = h;
+}
+/* v81: week by week. One bar per Mon–Sun week (100% of that week's calories, split by meal), oldest at the top, so a shift
+   (dinner shrinking, breakfast growing) is easy to see. Weeks count only finished, logged days. */
+function shapeWeeksHtml(days) {
+  const wk = new Map();
+  days.forEach(d => { const w = weekStart(d), o = slotSums(d); if (!wk.has(w)) wk.set(w, { n: 0, tot: 0, s: Object.fromEntries(SLOTS.map(([k]) => [k, 0])) });
+    const x = wk.get(w); x.n++; SLOTS.forEach(([k]) => { x.s[k] += o[k].kcal; x.tot += o[k].kcal; }); });
+  let ws = [...wk.entries()].sort((a, b) => a[0] < b[0] ? -1 : 1);
+  if (ws.length < 2) return '';
+  const cut = ws.length > SHAPE_WEEKS; if (cut) ws = ws.slice(-SHAPE_WEEKS);
+  const lbl = w => parseIso(w).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  const rows = ws.map(([w, x]) => `<div class="sh-w" data-wk="${w}"><span class="d">${esc(lbl(w))}</span><span class="sh-wbar" aria-label="${esc(SLOTS.filter(([k]) => x.s[k] > 0).map(([k, l]) => `${l} ${Math.round(x.s[k] / x.tot * 100)}%`).join(', '))}">${SLOTS.filter(([k]) => x.s[k] > 0).map(([k]) => `<i class="s-${k}" style="flex:${(x.s[k] / x.tot).toFixed(4)} 1 0"></i>`).join('')}</span><span class="v">${kc(x.tot / x.n)}<small> /day</small></span></div>`).join('');
+  // the biggest shift between the first and last full-ish weeks (3+ logged days each), if it's 5 points or more
+  const full = ws.filter(([, x]) => x.n >= 3); let note = '';
+  if (full.length >= 2) {
+    const [w0, a] = full[0], [w1, z] = full[full.length - 1];
+    const ch = SLOTS.map(([k, l]) => ({ l, from: a.s[k] / a.tot, to: z.s[k] / z.tot })).sort((p, q) => Math.abs(q.to - q.from) - Math.abs(p.to - p.from))[0];
+    if (Math.abs(ch.to - ch.from) >= 0.05) note = `${ch.l} went from ${Math.round(ch.from * 100)}% of your day (week of ${lbl(w0)}) to ${Math.round(ch.to * 100)}% (week of ${lbl(w1)}).`;
+    else note = 'Your meal split has stayed about the same from week to week.';
+  }
+  return `<h3 class="hs-h">Week by week</h3><div class="sh-weeks" id="shWeeks">${rows}</div><div class="sh-leg" aria-hidden="true">${SLOTS.map(([k, l]) => `<span><i class="s-${k}"></i>${l}</span>`).join('')}</div>`
+    + (note || cut ? `<p class="sh-p" id="shWeekNote">${esc(note)}${cut ? `${note ? ' ' : ''}Showing the last ${SHAPE_WEEKS} weeks.` : ''}</p>` : '');
+}
+
+/* v81: badges to earn. Worked out from every finished, logged day (not just the range shown). A new one gets the
+   celebration once per device: the ids already celebrated live in localStorage cutlog.badges (not synced, not saved data).
+   The first time this runs on a device, badges already earned are marked as seen without a celebration. */
+const BADGE_KEY = 'cutlog.badges';
+const BADGES = [
+  ['early7', '🌙', 'Kitchen closed', 'Done eating by 8 pm, 7 days in a row', 7],
+  ['spread7', '🥚', 'Protein all day', '30g+ protein at breakfast, lunch and dinner, on 7 days', 7],
+  ['pro50', '💪', 'Protein-packed meal', '50g+ protein in one meal', 50],
+  ['full14', '📋', 'Full days', 'Breakfast, lunch and dinner all logged, on 14 days', 14],
+  ['even5', '⚖️', 'Even day', '3+ meals with none over 40% of the day, on 5 days', 5],
+  ['early14', '🌌', 'Two weeks closed', 'Done eating by 8 pm, 14 days in a row', 14],
+];
+function badgeState() {
+  const t = todayIso(), first = firstLogDay(), out = Object.fromEntries(BADGES.map(b => [b[0], { cur: 0, at: null }]));
+  if (!first) return out;
+  let run = 0, prev = null, spread = 0, full = 0, even = 0, best = 0;
+  const hit = (id, v, d) => { const o = out[id], need = BADGES.find(b => b[0] === id)[4]; if (v > o.cur) o.cur = v; if (!o.at && v >= need) o.at = d; };
+  for (let d = first; d < t; d = shift(d, 1)) {
+    const tt = dayTotals(d); if (!tt) continue;
+    const o = slotSums(d), h = lastHour(d);
+    run = h != null && h < SHAPE_LATE ? (prev === shift(d, -1) ? run + 1 : 1) : 0; prev = run ? d : null;
+    hit('early7', run, d); hit('early14', run, d);
+    const main = ['breakfast', 'lunch', 'dinner'];
+    if (main.every(k => o[k].pro >= 30)) spread++; hit('spread7', spread, d);
+    if (main.every(k => o[k].n)) full++; hit('full14', full, d);
+    const used = SLOTS.filter(([k]) => o[k].n), tot = SLOTS.reduce((a, [k]) => a + o[k].kcal, 0);
+    if (used.length >= 3 && tot > 0 && used.every(([k]) => o[k].kcal / tot <= 0.4)) even++; hit('even5', even, d);
+    SLOTS.forEach(([k]) => { if (o[k].pro > best) best = o[k].pro; }); hit('pro50', Math.round(best), d);
+  }
+  return out;
+}
+function badgesSeen() { try { const v = JSON.parse(localStorage.getItem(BADGE_KEY)); return Array.isArray(v) ? v : null; } catch (e) { return null; } }
+function checkBadges() {
+  if (!S.onboarded) return;
+  const st = badgeState(), earned = BADGES.filter(b => st[b[0]].at).map(b => b[0]), seen = badgesSeen();
+  const save = v => { try { localStorage.setItem(BADGE_KEY, JSON.stringify(v)); } catch (e) {} };
+  if (!seen) { save(earned); return; }   // first run on this device: no celebrations for what was already earned
+  const fresh = earned.filter(id => !seen.includes(id)); if (!fresh.length) return;
+  save([...seen, ...fresh]);
+  if (msSilent) return;
+  const recent = shift(todayIso(), -2);   // only cheer badges earned yesterday or the day before, never old history arriving by sync
+  fresh.filter(id => st[id].at >= recent).slice(-2).forEach(id => { const b = BADGES.find(x => x[0] === id); celQueue.push({ title: `Badge earned: ${b[2]} ${b[1]}`, sub: `${b[3]}. See all your badges in When you eat.` }); });
+  if (celQueue.length) setTimeout(showNextCel, 600);
+}
+function badgesHtml() {
+  const st = badgeState();
+  const tile = ([id, ico, name, desc, need]) => { const o = st[id], got = !!o.at, cur = Math.min(o.cur, need);
+    return `<${got ? `button data-sd="${o.at}"` : 'div'} class="sh-badge${got ? ' got' : ''}" data-badge="${id}"><span class="ico" aria-hidden="true">${ico}</span><b>${esc(name)}</b><small>${esc(desc)}</small>`
+      + (got ? `<em>Earned ${esc(parseIso(o.at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }))}</em>` : `<span class="sh-prog" role="img" aria-label="${cur} of ${need}"><i style="width:${(cur / need * 100).toFixed(1)}%"></i></span><em>${cur} / ${need}${id === 'pro50' ? 'g' : ''}</em>`)
+      + `</${got ? 'button' : 'div'}>`; };
+  const n = BADGES.filter(b => st[b[0]].at).length;
+  return `<h3 class="hs-h">Badges <span class="sh-bn">${n} of ${BADGES.length}</span></h3><div class="sh-badges" id="shBadges">${BADGES.map(tile).join('')}</div><p class="hint">Badges count every day you've logged, not just this range. Tap an earned one to open the day you got it.</p>`;
 }
 $('shapeBtn').onclick = () => { haptic(); openShape(); };
 $('tShape').onclick = () => openShape();

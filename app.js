@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '82';
+const APP_V = '83';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -3173,10 +3173,10 @@ function renderShapePanel() {
   if (after.din) {
     const a = after.din, gap = a.hi - a.lo;
     h += `<div class="sh-after" id="shAfter"><div><span class="k">After bigger dinners</span>${dw(a.hi, a.clear)}<small>over about ${kc(Math.round(a.cut / 50) * 50)} kcal</small></div><div><span class="k">After lighter dinners</span>${dw(a.lo, a.clear)}<small>under that</small></div></div>`
-      + `<p class="sh-p" id="shAfterNote">How much the scale moved from one morning to the next, on average, from ${a.n} pairs of weigh-ins.${after.day ? ` Split by the whole day’s calories instead: ${sgW(after.day.hi)} ${wU()} after bigger days, ${sgW(after.day.lo)} ${wU()} after lighter ones.` : ''} `
-      + (a.clear && gap > 0 ? 'So a big dinner does show up the next morning. That’s mostly the food and water still in you (salt and carbs hold water), not fat, and it usually fades within a day or two. Your 7-day average already smooths it out, so judge progress by that.'
-        : a.clear ? 'Bigger dinners haven’t meant a higher scale the next morning so far. Day-to-day water swings are bigger than any one meal.'
-        : `No clear link yet: the gap is smaller than your normal night-to-night swing (about ±${toW(a.sd).toFixed(1)} ${wU()}), so it could be chance. It firms up as more nights come in. The weekly total is what decides fat loss.`) + '</p>';
+      + `<p class="sh-p" id="shAfterNote">From ${a.n} nights${after.day ? ` (by whole day: bigger ${sgW(after.day.hi)}, lighter ${sgW(after.day.lo)} ${wU()})` : ''}. `
+      + (a.clear && gap > 0 ? 'A big dinner does show up, but it’s food and water, not fat, and fades in a day or two. Judge by your 7-day average.'
+        : a.clear ? 'Bigger dinners haven’t meant a higher scale so far.'
+        : `No clear link yet: it’s within your normal swing (±${toW(a.sd).toFixed(1)} ${wU()}), so it could be chance.`) + '</p>';
   } else {
     const need = Object.keys(S.weights).length;
     h += `<p class="sh-p" id="shAfterNote">${need ? `This needs a morning weigh-in the day after at least ${2 * SHAPE_PAIRS} logged days with dinner (about two weeks of daily weigh-ins), so a single salty dinner can’t skew it. You have ${after.pairs} so far in this range.` : 'Weigh in in the mornings and this shows how the scale moves after bigger dinners compared with lighter ones.'}</p>`;

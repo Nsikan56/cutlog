@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '83';
+const APP_V = '84';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -187,6 +187,8 @@ function cookedOf(p, pp = pkgPair(p)) {
   if (pp.cooked.cup) c.cup = pp.cooked.cup;
   const f100 = p.fib100 != null ? p.fib100 : p.fibServ != null && p.servingG ? p.fibServ / p.servingG * 100 : null;
   if (f100 != null) c.fib100 = f100 * k;
+  if (hasMac(p)) { const per = (a, b) => p[a] != null ? p[a] : p[b] / p.servingG * 100;     // v84
+    if (p.carb100 != null || p.servingG) { c.carb100 = per('carb100', 'carbServ') * k; c.fat100 = per('fat100', 'fatServ') * k; } }
   if (nsOk(p.nutri)) c.nutri = p.nutri;
   return c;
 }
@@ -216,14 +218,19 @@ function unitsFor(f) {
 /* fib is null when the food has no fibre data, so a total never pretends to know more than it does */
 function calc(f, qty, unitKey) {
   const u = unitsFor(f).find(x => x.key === unitKey);
-  if (!u || !(qty > 0)) return { kcal: 0, pro: 0, fib: null };
+  if (!u || !(qty > 0)) return { kcal: 0, pro: 0, fib: null, carb: null, fat: null };
+  /* v84: carbs and fat work like fibre: null when the food doesn't have them */
+  const per = (k100, kS) => u.key === 'serving' && f.kcalServ != null
+    ? (f[kS] != null ? qty * f[kS] : f[k100] != null && f.servingG ? qty * f.servingG * f[k100] / 100 : null)
+    : (f[k100] != null ? qty * u.g * f[k100] / 100 : f[kS] != null && f.servingG ? qty * u.g * f[kS] / f.servingG : null);
+  const carb = per('carb100', 'carbServ'), fat = per('fat100', 'fatServ'), both = carb != null && fat != null;
   if (u.key === 'serving' && f.kcalServ != null) {
     const fib = f.fibServ != null ? qty * f.fibServ : f.fib100 != null && f.servingG ? qty * f.servingG * f.fib100 / 100 : null;
-    return { kcal: qty * f.kcalServ, pro: qty * (f.proServ || 0), fib };
+    return { kcal: qty * f.kcalServ, pro: qty * (f.proServ || 0), fib, carb: both ? carb : null, fat: both ? fat : null };
   }
   const g = qty * u.g;
   const fib = f.fib100 != null ? g * f.fib100 / 100 : f.fibServ != null && f.servingG ? g * f.fibServ / f.servingG : null;
-  return { kcal: g * f.kcal100 / 100, pro: g * (f.pro100 || 0) / 100, fib };
+  return { kcal: g * f.kcal100 / 100, pro: g * (f.pro100 || 0) / 100, fib, carb: both ? carb : null, fat: both ? fat : null };
 }
 const hasFib = f => !!f && (f.fib100 != null || f.fibServ != null);
 const fibPerServ = (f, g) => { const v = f.fibServ != null ? f.fibServ : f.fib100 != null ? f.fib100 * (g || 100) / 100 : null; return v == null ? null : r1(v); };
@@ -281,6 +288,54 @@ function dayFib(d) {
   const es = entriesFor(d); let g = 0, known = 0, part = 0;
   es.forEach(e => { const x = entryFib(e); if (x != null) { g += x; known++; } else { const y = entryFibPart(e); if (y != null) { g += y; part++; } } });
   return { g, known, part, total: es.length };
+}
+/* =================== v84: CARBS AND FAT =================== */
+/* Shown for information only: no target (with calories and protein set, carbs and fat are what's left). Like fibre, unknown
+   is never zero. Nothing new is stored on entries: an entry's carbs and fat are worked out from the food it was logged from
+   (its own copy first, then the built-in food, the saved food, the saved meal or the home idea as they are now), and only
+   while that food still gives the calories that were logged, so a food changed since never rewrites an older day.
+   Oil added in cooking counts as fat (9 kcal a gram). Chain menu items have no carb data yet, so Subway extras don't either. */
+const hasMac = f => !!f && (f.carb100 != null || f.carbServ != null) && (f.fat100 != null || f.fatServ != null);
+const MAC_K = { pro: 4, carb: 4, fat: 9 };
+function entryMac(e) {
+  const f = e.food; if (!f || !(e.qty > 0) || e.kcal == null || f.source === 'chain' || e.adds?.length) return null;
+  const oil = OIL[e.oil]?.k || 0, logged = e.kcal - oil;
+  const tryF = s => {
+    if (!hasMac(s) || !unitsFor(s).some(u => u.key === e.unit)) return null;
+    const v = calc(s, e.qty, e.unit);
+    return v.carb != null && Math.abs(v.kcal - logged) <= Math.max(3, logged * 0.03) ? { carb: v.carb, fat: v.fat + oil / 9 } : null;
+  };
+  const pack = f.cookOf && S.foods.find(x => x.id === f.cookOf), m = mealOf(f);
+  const cands = [() => f, () => baseOf(f), () => f.source === 'built-in' && BUILTIN_FOODS.find(b => b.name === f.name),
+    () => S.foods.find(x => x.id === f.id), () => pack && cookedOf(pack), () => m && mealFood(m),
+    () => f.source === 'idea' && ideaFoods().find(x => x.id === f.id)];
+  for (const c of cands) { const r = tryF(c()); if (r) return r; }
+  return null;
+}
+const itemMac = it => it.food ? entryMac({ food: it.food, qty: it.qty, unit: it.unit, kcal: calc(it.food, it.qty, it.unit).kcal }) : null;
+/* carbs, fat and protein (from the same foods, so the shares add up) for a day, and how many foods that covers */
+function dayMac(d) {
+  const es = entriesFor(d); let carb = 0, fat = 0, pro = 0, known = 0;
+  es.forEach(e => { const x = entryMac(e); if (x) { carb += x.carb; fat += x.fat; pro += e.pro || 0; known++; } });
+  return { carb, fat, pro, known, total: es.length };
+}
+/* share of calories from protein, carbs and fat (whole percents that add up to 100) */
+function macShares(pro, carb, fat) {
+  const k = [pro * MAC_K.pro, carb * MAC_K.carb, fat * MAC_K.fat], t = k[0] + k[1] + k[2];
+  if (!(t > 0)) return [0, 0, 0];
+  const p = k.map(x => x / t * 100), r = p.map(Math.floor);
+  let left = 100 - r[0] - r[1] - r[2];
+  p.map((x, i) => [x - r[i], i]).sort((a, b) => b[0] - a[0]).forEach(([, i]) => { if (left > 0) { r[i]++; left--; } });
+  return r;
+}
+const macPerServ = (f, g) => {
+  const v = calc(f, 1, f.kcalServ != null || f.servingG ? 'serving' : 'g');
+  if (f.kcalServ == null && !f.servingG) { const w = calc(f, g || 100, 'g'); return w.carb == null ? {} : { carb: r1(w.carb), fat: r1(w.fat) }; }
+  return v.carb == null ? {} : { carb: r1(v.carb), fat: r1(v.fat) };
+};
+function macSplitHtml(pro, carb, fat) {
+  const [p, c, f] = macShares(pro, carb, fat);
+  return `<div class="mac-split" aria-hidden="true"><i class="m-pro" style="width:${p}%"></i><i class="m-carb" style="width:${c}%"></i><i class="m-fat" style="width:${f}%"></i></div><div class="mac-leg"><span><b class="m-pro"></b>Protein ${p}%</span><span><b class="m-carb"></b>Carbs ${c}%</span><span><b class="m-fat"></b>Fat ${f}%</span></div>`;
 }
 /* Nutri-Score: Open Food Facts' A–E grade for packaged foods. Only a–e are kept. */
 const nsOk = g => /^[a-e]$/.test(g || '');
@@ -349,10 +404,11 @@ function renderTotals() {
   tick.style.strokeDasharray = `${tl} ${RING_C}`; tick.style.strokeDashoffset = -(RING_C * T.calLo / T.calHi) + tl / 2;
   $('calSub').textContent = `of ${T.calLo.toLocaleString()}–${T.calHi.toLocaleString()}`;
   setArc($('proArc'), pro / T.protein);
-  $('proSub').textContent = ringLeft ? `of ${T.protein}g protein` : pro >= T.protein ? `${T.protein}g target hit` : `${T.protein - pro}g to go`;
+  $('proSub').textContent = ringLeft ? `of ${T.protein}g protein` : pro >= T.protein ? `${T.protein}g target hit` : `${T.protein - pro}g ${day === todayIso() ? 'to go' : 'short'}`;
   const st = $('status'), before = st.textContent; st.className = 'status';
   queueMicrotask(() => { if (st.textContent !== before) replay(st, 'fade-in'); });
   if (!es.length) st.textContent = 'Scan, snap or search what you eat and the rings fill up.';
+  else if (cal < T.calLo && day !== todayIso()) st.textContent = `Finished ${(T.calLo - cal).toLocaleString()} kcal under your range.`;   // v84: past days don't suggest a snack
   else if (cal < T.calLo) st.textContent = mode() === 'gain' ? `${(T.calLo - cal).toLocaleString()} kcal to go to reach your range. Room for another meal.` : `${(T.calLo - cal).toLocaleString()} kcal under your range. Room for a high-protein snack.`;
   else if (cal <= T.calHi) { st.className = 'status ok'; st.textContent = 'In your range for today.'; }
   else { st.className = 'status hi'; st.textContent = `${(cal - T.calHi).toLocaleString()} kcal over your range. One day like this is fine; the weekly trend decides.`; }
@@ -869,7 +925,7 @@ function openAmount(f, preset, opts = {}) {
     ${usualHtml(f, startQty, unit)}
     <div class="chips" id="aUnits" role="group" aria-label="Unit">${units.map(u => `<button class="chip" data-u="${u.key}" aria-pressed="${u.key === unit}" title="${esc(u.long || u.label)}">${esc(u.key === 'serving' && f.servingLabel ? 'serving · ' + servLabel(f) : u.label)}</button>`).join('')}</div>
     <div class="result"><div><span class="num" id="aK">0</span><small>kcal</small></div><div class="pro"><span class="num" id="aP">0g</span><small>protein</small></div></div>
-    <p class="fib-line" id="aF" hidden></p>
+    <p class="fib-line" id="aNut" hidden><span id="aM" hidden></span><span id="aF" hidden></span></p>
     ${canOil ? `<div class="oil"><span class="oil-k">Cooked with oil or butter?</span><div class="chips" id="aOil" role="group" aria-label="Cooking oil">${Object.entries(OIL).map(([k, o]) => `<button class="chip" data-oil="${k}" aria-pressed="${k === (oil || 'none')}">${o.t}${o.k ? ` <small>+${o.k}</small>` : ''}</button>`).join('')}</div></div>` : ''}
     ${canAdd ? addsHtml(f, adds) : ''}
     ${picking ? '' : slotChips(slot)}
@@ -902,6 +958,9 @@ function openAmount(f, preset, opts = {}) {
       if (pv?.fib != null && Math.abs(pv.kcal - v.kcal) <= Math.max(3, pv.kcal * 0.03)) fibTxt = `at least ${fmtG(pv.fib)}g fibre (not every ingredient has fibre data)`;
     }
     $('aF').hidden = !fibTxt || !(v.kcal > 0); if (fibTxt) $('aF').textContent = fibTxt;
+    const mFat = v.fat != null ? v.fat + (oil ? OIL[oil].k / 9 : 0) : null;     // v84: oil counts as fat
+    $('aM').hidden = v.carb == null || !(v.kcal > 0) || adds.length > 0; if (v.carb != null) $('aM').textContent = `${fmtG(v.carb)}g carbs · ${fmtG(mFat)}g fat`;
+    $('aNut').hidden = $('aM').hidden && $('aF').hidden;      // carbs, fat and fibre share one line
     $('aNote').hidden = !['tbsp', 'tsp'].includes(unit);
     if (HAND.includes(unit) && $('aHand') && !$('aHand').dataset.seen) {   // teaches the first couple of times, then stays tucked away
       $('aHand').dataset.seen = '1';
@@ -976,14 +1035,14 @@ function openAmount(f, preset, opts = {}) {
       const pk = S.foods.find(x => x.id === f.cookOf) || PKG_SEEN.get(f.cookOf); if (!pk) return;
       const pg = pk.servingG || null, pp = pk.kcalServ != null ? { kcal: pk.kcalServ, pro: pk.proServ } : pg ? { kcal: pk.kcal100 * pg / 100, pro: (pk.pro100 || 0) * pg / 100 } : { kcal: pk.kcal100, pro: pk.pro100 };
       openSheet('Fix the numbers', `<p class="hint">Enter what the package label says for one serving (the raw or dry numbers). Cooked is worked out from them.</p><div id="labelOut"></div>`);
-      labelForm($('labelOut'), { kcal: Math.round(pp.kcal), pro: r1(pp.pro || 0), fib: fibPerServ(pk, pg), servingG: pg || (pk.kcalServ == null ? 100 : null) }, '', pk.barcode || null, pk.name, pk.id, { ...was, cooked: true });
+      labelForm($('labelOut'), { kcal: Math.round(pp.kcal), pro: r1(pp.pro || 0), fib: fibPerServ(pk, pg), ...macPerServ(pk, pg), servingG: pg || (pk.kcalServ == null ? 100 : null) }, '', pk.barcode || null, pk.name, pk.id, { ...was, cooked: true });
       return;
     }
     const g = f.servingG || null;
     const per = f.kcalServ != null ? { kcal: f.kcalServ, pro: f.proServ }
       : g ? { kcal: f.kcal100 * g / 100, pro: (f.pro100 || 0) * g / 100 } : { kcal: f.kcal100, pro: f.pro100 };
     openSheet('Fix the numbers', `<p class="hint">Enter what the label says for one serving. The app will use your numbers for this food from now on.</p><div id="labelOut"></div>`);
-    labelForm($('labelOut'), { kcal: Math.round(per.kcal), pro: r1(per.pro || 0), fib: fibPerServ(f, g), servingG: g || (f.kcalServ == null ? 100 : null) }, '', f.barcode || null, f.name, f.id, was);
+    labelForm($('labelOut'), { kcal: Math.round(per.kcal), pro: r1(per.pro || 0), fib: fibPerServ(f, g), ...macPerServ(f, g), servingG: g || (f.kcalServ == null ? 100 : null) }, '', f.barcode || null, f.name, f.id, was);
   };
   $('aAdd').onclick = () => {
     const q = parseFloat($('aQty').value);
@@ -1055,18 +1114,20 @@ function fixServingSwap(f, n, sq) {
   const scaled = f.kcal100 * sq / 100;
   let ks = offNum(n['energy-kcal_serving']);
   if (ks == null && offNum(n['energy_serving']) != null) ks = n['energy_serving'] / 4.184;
-  let kS, pS, fS;
+  let kS, pS, fS, cS, tS;
   if (ks != null && ks >= 1 && Math.abs(ks - scaled) > Math.max(2, ks * 0.5)) {
-    kS = ks; pS = offNum(n['proteins_serving']) ?? 0; fS = offNum(n['fiber_serving']);
+    kS = ks; pS = offNum(n['proteins_serving']) ?? 0; fS = offNum(n['fiber_serving']); cS = offNum(n['carbohydrates_serving']); tS = offNum(n['fat_serving']);
   } else {
     const mass = ['fat_100g', 'carbohydrates_100g', 'proteins_100g'].reduce((s, k) => s + (offNum(n[k]) || 0), 0);
     if (!(sq <= 30 && f.kcal100 >= 1 && scaled < 1 && mass > 0 && Math.abs(mass - sq) <= sq * 0.25)) return false;
-    kS = f.kcal100; pS = f.pro100 || 0; fS = offNum(n['fiber_100g']);
+    kS = f.kcal100; pS = f.pro100 || 0; fS = offNum(n['fiber_100g']); cS = offNum(n['carbohydrates_100g']); tS = offNum(n['fat_100g']);
   }
   f.kcalServ = kS; f.proServ = pS;
   f.kcal100 = Math.min(kS / sq * 100, MAX_KCAL100); f.pro100 = Math.min(pS / sq * 100, 100);
   delete f.fib100; delete f.fibServ;
   if (fS != null && fS >= 0) { f.fibServ = fS; f.fib100 = Math.min(fS / sq * 100, 100); }
+  delete f.carb100; delete f.fat100; delete f.carbServ; delete f.fatServ;      // v84: carbs and fat follow the serving numbers too
+  if (cS != null && tS != null && cS >= 0 && tS >= 0) { f.carbServ = cS; f.fatServ = tS; f.carb100 = Math.min(cS / sq * 100, 100); f.fat100 = Math.min(tS / sq * 100, 100); }
   return true;
 }
 /* fibre and Nutri-Score, when Open Food Facts has them */
@@ -1075,22 +1136,37 @@ function offExtras(f, p) {
   if (n['fiber_100g'] != null && n['fiber_100g'] !== '' && +n['fiber_100g'] >= 0) f.fib100 = +n['fiber_100g'];
   else if (f.kcalServ != null && n['fiber_serving'] != null && n['fiber_serving'] !== '' && +n['fiber_serving'] >= 0) f.fibServ = +n['fiber_serving'];
   if (nsOk(p.nutriscore_grade)) f.nutri = p.nutriscore_grade;
+  // v84: carbs and fat (both, or neither): per 100 g, or per serving for foods that only have serving numbers
+  const c100 = offNum(n['carbohydrates_100g']), ft100 = offNum(n['fat_100g']), cS = offNum(n['carbohydrates_serving']), ftS = offNum(n['fat_serving']);
+  if (f.kcal100 != null && c100 != null && ft100 != null && c100 >= 0 && ft100 >= 0) { f.carb100 = Math.min(c100, 100); f.fat100 = Math.min(ft100, 100); }
+  else if (f.kcalServ != null && cS != null && ftS != null && cS >= 0 && ftS >= 0) { f.carbServ = cS; f.fatServ = ftS; }
   return f;
 }
 const OFF_FIELDS = 'product_name,product_name_en,product_name_fr,brands,nutriments,serving_quantity,serving_size,nutriscore_grade';
 /* Foods scanned before v41 have no fibre or grade. The first time one is opened, ask Open Food Facts once and add only
    those two things; calories and protein are never touched (they may have been fixed by hand). */
 const enrichTried = new Set();
+const macTried = new Set();     // v84: foods already asked for carbs and fat this session
 async function enrichFood(f) {
-  if (!f?.barcode || f.source !== 'scan' || f.nutri !== undefined || hasFib(f) || enrichTried.has(f.id) || !navigator.onLine) return;
-  enrichTried.add(f.id);
+  if (!f?.barcode || f.source !== 'scan' || !navigator.onLine) return;
+  const needNs = f.nutri === undefined && !hasFib(f) && !enrichTried.has(f.id), needMac = !hasMac(f) && !macTried.has(f.id);   // v84: older scans get carbs and fat once too
+  if (!needNs && !needMac) return;
+  if (needNs) enrichTried.add(f.id); if (needMac) macTried.add(f.id);
   try {
-    const res = await fetch(`${OFF}/api/v2/product/${f.barcode}.json?fields=nutriments,nutriscore_grade`);
+    const res = await fetch(`${OFF}/api/v2/product/${f.barcode}.json?fields=${needMac ? OFF_FIELDS : 'nutriments,nutriscore_grade'}`);
     if (!res.ok) return;
     const j = await res.json(); if (j.status !== 1 || !j.product) return;
     const add = offExtras({ kcalServ: f.kcalServ }, j.product);
     const saved = S.foods.find(x => x.id === f.id);
-    [f, saved].forEach(t => { if (!t) return; t.nutri = add.nutri || ''; if (add.fib100 != null) t.fib100 = add.fib100; else if (add.fibServ != null && t.kcalServ != null) t.fibServ = add.fibServ; });
+    if (needNs) [f, saved].forEach(t => { if (!t) return; t.nutri = add.nutri || ''; if (add.fib100 != null) t.fib100 = add.fib100; else if (add.fibServ != null && t.kcalServ != null) t.fibServ = add.fibServ; });
+    /* carbs and fat only from a reading that gives this food's own calories (so a pack fixed by v60 or by hand isn't mixed up) */
+    const fresh = needMac && offToFood(j.product, f.barcode), same = (a, b) => a != null && b != null && Math.abs(a - b) <= Math.max(1, b * 0.03);
+    if (fresh && hasMac(fresh)) {
+      const k100 = same(fresh.kcal100, f.kcal100), kS = same(fresh.kcalServ ?? (fresh.kcal100 != null && f.servingG ? fresh.kcal100 * f.servingG / 100 : null), f.kcalServ);
+      if (k100 || kS) [f, saved].forEach(t => { if (!t || hasMac(t)) return;
+        if (fresh.carb100 != null) { t.carb100 = fresh.carb100; t.fat100 = fresh.fat100; } if (fresh.carbServ != null) { t.carbServ = fresh.carbServ; t.fatServ = fresh.fatServ; } });
+    }
+    if (!needNs && !hasMac(f)) return;
     touchMeta(); renderTotals();
     if (SH.open && $('sheetTitle').textContent === 'How much?' && $('aFood')?.dataset.id === f.id) { $('aNs').innerHTML = nsBadge(f, true); $('aQty').dispatchEvent(new Event('input')); }
   } catch (e) { /* offline or blocked: try again next visit */ }
@@ -1256,7 +1332,7 @@ async function prepImage(file) {
 function parseLabel(text) {
   const lines = text.replace(/[|]/g, ' ').split(/\n+/).map(l => l.trim()).filter(Boolean);
   const num = s => parseFloat(String(s).replace(',', '.'));
-  let kcal = null, pro = null, fib = null, servingG = null, servingText = '';
+  let kcal = null, pro = null, fib = null, carb = null, fat = null, servingG = null, servingText = '';
   for (const l of lines) {
     const low = l.toLowerCase().replace(/(\d)o\b/g, '$10').replace(/\bo(\d)/g, '0$1');
     if (kcal == null && /calor/.test(low) && !/from fat/.test(low)) {
@@ -1273,13 +1349,23 @@ function parseLabel(text) {
       const m = after.match(/(\d{1,2}(?:[.,]\d)?)\s*g/);
       if (m) fib = num(m[1]);
     }
+    if (carb == null && /(carbohydrate|glucides)/.test(low)) {     // v84: "Carbohydrate / Glucides 22 g", "Total Carbohydrate 22g"
+      const after = low.slice(low.search(/carbohydrate|glucides/));
+      const m = after.match(/(\d{1,3}(?:[.,]\d)?)\s*g/);
+      if (m) carb = num(m[1]);
+    }
+    if (fat == null && /\b(fat|lipides)\b/.test(low) && !/satur|trans|from fat|calories/.test(low)) {   // "Fat / Lipides 7 g", not saturated or trans
+      const after = low.slice(low.search(/\b(fat|lipides)\b/));
+      const m = after.match(/(\d{1,3}(?:[.,]\d)?)\s*g/);
+      if (m) fat = num(m[1]);
+    }
     if (servingG == null && /(per|pour|serving|portion|size)/.test(low)) {
       const m = low.match(/\(?\s*(\d{1,4}(?:[.,]\d)?)\s*(g|ml|mℓ)\b/);
       if (m) { servingG = num(m[1]); servingText = l.replace(/\s+/g, ' ').slice(0, 60); }
     }
   }
   if (servingG == null) { const m = text.match(/\(\s*(\d{1,4})\s*(g|ml)\s*\)/i); if (m) { servingG = num(m[1]); servingText = m[0]; } }
-  return { kcal, pro, fib, servingG, servingText };
+  return { kcal, pro, fib, carb, fat, servingG, servingText };
 }
 function openLabel(barcode) {
   if (pick && draft && barcode) { draft.pendingCode = barcode; draft.touched = true; saveDraft(draft); }   // remembered in case iOS restarts the app during the photo
@@ -1317,6 +1403,10 @@ function labelForm(out, p, text, barcode, name, keepId, then) {
       <label>Calories per serving<input id="lK" type="number" inputmode="decimal" value="${p.kcal ?? ''}"></label>
       <label>Protein per serving (g)<input id="lP" type="number" inputmode="decimal" value="${p.pro ?? ''}"></label>
     </div>
+    <div class="grid2">
+      <label>Carbs per serving (g)<input id="lC" type="number" inputmode="decimal" min="0" value="${p.carb ?? ''}" placeholder="Optional"></label>
+      <label>Fat per serving (g)<input id="lFat" type="number" inputmode="decimal" min="0" value="${p.fat ?? ''}" placeholder="Optional"></label>
+    </div>
     <label>Fibre per serving (g, optional)<input id="lF" type="number" inputmode="decimal" min="0" value="${p.fib ?? ''}" placeholder="Leave blank if the label doesn't say"></label>
     <label>Serving size (g or ml)<input id="lG" type="number" inputmode="decimal" value="${p.servingG ?? ''}" placeholder="Optional, e.g. 175"></label>
     <p class="field-note">The number in brackets on the label. Adding it lets you log by spoon or gram.</p>
@@ -1329,7 +1419,10 @@ function labelForm(out, p, text, barcode, name, keepId, then) {
     const f = { id: keepId || (barcode ? 'p' + barcode : 'c' + uid()), name: nm, source: 'label', kcalServ: k, proServ: pr };
     if (barcode) f.barcode = barcode;
     if (fb >= 0 && fb < 100) f.fibServ = fb;
-    if (g > 0) { f.servingG = g; f.servingLabel = g + ' g'; f.kcal100 = k / g * 100; f.pro100 = pr / g * 100; if (f.fibServ != null) f.fib100 = fb / g * 100; }
+    const cb = parseFloat($('lC').value), ft = parseFloat($('lFat').value);     // v84: carbs and fat count only as a pair
+    if (cb >= 0 && cb < 1000 && ft >= 0 && ft < 1000) { f.carbServ = cb; f.fatServ = ft; }
+    if (g > 0) { f.servingG = g; f.servingLabel = g + ' g'; f.kcal100 = k / g * 100; f.pro100 = pr / g * 100; if (f.fibServ != null) f.fib100 = fb / g * 100;
+      if (f.carbServ != null) { f.carb100 = cb / g * 100; f.fat100 = ft / g * 100; } }
     const old = keepId && (S.foods.find(x => x.id === keepId) || PKG_SEEN.get(keepId)); if (old && nsOk(old.nutri)) f.nutri = old.nutri;   // keep the grade when fixing numbers
     if (old?.brand) f.brand = old.brand;     // v65: and the brand
     rememberFood(f); touchMeta(); renderSettings();
@@ -1464,6 +1557,12 @@ function mealFood(m) {
   if (fibs.length && fibs.every(x => x != null)) {
     const tot = fibs.reduce((a, b) => a + b, 0);
     f.fibServ = tot / n; if (m.cookedG > 0) f.fib100 = tot / m.cookedG * 100;
+  }
+  // v84: carbs and fat the same way, only when every ingredient has them
+  const macs = (m.items || []).map(itemMac);
+  if (macs.length && macs.every(x => x)) {
+    const c = macs.reduce((a, x) => a + x.carb, 0), ft = macs.reduce((a, x) => a + x.fat, 0);
+    f.carbServ = c / n; f.fatServ = ft / n; if (m.cookedG > 0) { f.carb100 = c / m.cookedG * 100; f.fat100 = ft / m.cookedG * 100; }
   }
   return f;
 }
@@ -2117,7 +2216,7 @@ function renderTrends() {
     line: T.protein, ticks: [50, 100, 150, 200, 250], label: 'Daily protein',
     colorFor: v => proHit(v) ? 'var(--protein)' : 'var(--accent)' }) : empty;
   $('tCalNote').textContent = logged.length ? 'Green band is your cut range. Tap a bar to open that day.' : '';
-  safe(() => renderFibChart(days));
+  safe(() => renderFibChart(days)); safe(() => renderMacChart(days));
   $('tProNote').textContent = logged.length ? `Dashed line is your ${T.protein}g target.` : '';
   const inRange = logged.filter(t => kcalIn(t.kcal)).length, hit = logged.filter(t => proHit(t.pro)).length;
   $('tDays').textContent = `last ${range} days`;
@@ -2540,21 +2639,31 @@ function renderNudge() {
   const was = !el.hidden; el.hidden = !msg; if (!msg) return;
   el.textContent = msg; if (!was) replay(el, 'fade-in');
 }
-/* More nutrients on Today: fibre, counted only from foods that have fibre data, and saying how many that is */
+/* More nutrients on Today: carbs and fat (v84), then fibre, counted only from foods that have the data, and saying how many that is */
 function renderNut() {
   const box = $('nutBox'), es = entriesFor(day); box.hidden = !es.length; if (!es.length) return;
   const f = dayFib(day), g = Math.round(f.g);
   const any = f.known || f.part, pm = f.part > 1 ? `${f.part} meals` : 'a meal';
-  $('nutSum').textContent = any ? `${f.known < f.total ? 'at least ' : ''}${g}g fibre` : 'no fibre data';
+  const m = dayMac(day), mp = m.known < m.total, ge = mp ? '≥ ' : '';
+  $('nutSumC').hidden = !m.known; $('nutSumC').textContent = m.known ? `${Math.round(m.carb)}g carbs ·` : '';   // v84
+  /* with carbs alongside, "at least" shortens to ≥ (as inside); the carbs part only shows when the summary fits on one line */
+  $('nutSum').textContent = any ? `${f.known < f.total ? (m.known ? '≥ ' : 'at least ') : ''}${g}g fibre` : 'no fibre data';
+  const ns = $('nutSum').parentElement; if (m.known && ns.getBoundingClientRect().height > parseFloat(getComputedStyle(ns).lineHeight || 18) * 1.5) {
+    $('nutSumC').hidden = true; if (any && f.known < f.total) $('nutSum').textContent = `at least ${g}g fibre`; }
   const cover = f.known === f.total ? `From all ${f.total} food${f.total > 1 ? 's' : ''} logged.`
     : f.part ? `${f.known ? `From ${f.known} of ${f.total} foods, plus` : 'From'} the ingredients that have fibre data in ${pm}. Some ingredients don't have it yet, so the real total is higher.`
     : f.known ? `From ${f.known} of ${f.total} foods. The other ${f.total - f.known} ${f.total - f.known > 1 ? "don't" : "doesn't"} have fibre data, so the real total is higher.`
     : "None of these foods have fibre data yet. Scanned packaged foods and the built-in whole foods usually do.";
-  $('nutBody').innerHTML = `<div class="nut-row"><span>Fibre</span><b>${any ? (f.known < f.total ? '≥ ' : '') + g + 'g' : '–'}</b></div>
+  const macHtml = !m.known ? `<p class="hint" id="nutMac">No carb data for these foods yet. Packaged and built-in foods usually have it.</p>` : `<div class="nut-mac" id="nutMac">${macSplitHtml(m.pro, m.carb, m.fat)}
+    <div class="nut-row"><span>Carbs</span><b id="nutCarb">${ge}${Math.round(m.carb)}g</b></div>
+    <div class="nut-row"><span>Fat</span><b id="nutFat">${ge}${Math.round(m.fat)}g</b></div>
+    <p class="hint" id="nutMacNote">${mp ? `From ${m.known} of ${m.total} foods; the rest have no carb data. ` : ''}No target: carbs and fat are what's left after protein. A big carb day can show up as water weight the next morning, not fat.</p></div>`;
+  $('nutBody').innerHTML = `${macHtml}<div class="nut-row"><span>Fibre</span><b>${any ? (f.known < f.total ? '≥ ' : '') + g + 'g' : '–'}</b></div>
     <div class="prog"><i style="width:${Math.round(Math.min(1, f.g / FIB_HI) * 100)}%"></i></div>
     <p class="hint">Most adults do well with about ${FIB_LO}–${FIB_HI}g a day. Fibre comes from vegetables, fruit, beans, oats and whole grains, and it helps keep you full. ${cover}</p>
     ${missingFibHtml(es)}`;
 }
+let nutRz = 0; addEventListener('resize', () => { clearTimeout(nutRz); nutRz = setTimeout(() => safe(renderNut), 150); });   // v84: the summary re-fits on a new width
 /* v46: which of the day's foods have no fibre data, and a one-tap way to add it for saved foods */
 function missingFib(es) {
   const fix = new Map(), other = new Map();
@@ -2601,6 +2710,17 @@ function openAddFibre(id) {
   };
 }
 
+/* v84: Trends carbs and fat card: hidden until a day in the range has carb data; days without it are left out, never zero */
+function renderMacChart(days) {
+  const ms = days.map(dayMac), vals = ms.map(m => m.known ? m.carb : null), have = vals.filter(v => v != null);
+  $('macCard').hidden = !have.length; if (!have.length) return;
+  let P = 0, C = 0, F = 0; ms.forEach(m => { if (m.known) { P += m.pro; C += m.carb; F += m.fat; } });
+  $('tMacAvg').textContent = `avg ${Math.round(have.reduce((a, b) => a + b, 0) / have.length)}g carbs`;
+  $('tMacChart').innerHTML = barChart(days, vals, { ticks: [50, 100, 150, 200, 250, 300, 400], label: 'Daily carbs', colorFor: () => 'var(--carb)' });
+  $('tMacSplit').innerHTML = macSplitHtml(P, C, F);
+  const part = ms.some(m => m.known && m.known < m.total);
+  $('tMacNote').textContent = `Average share of calories on the ${have.length} day${have.length > 1 ? 's' : ''} with carb data; other days are left out.${part ? ' Foods without carb data aren\'t counted.' : ''}`;
+}
 /* Trends fibre card: hidden until a day in the range has fibre data */
 function renderFibChart(days) {
   const vals = days.map(d => { const f = dayFib(d); return f.known || f.part ? f.g : null; }), have = vals.filter(v => v != null);
@@ -2641,7 +2761,8 @@ const GUIDE = [
     <p><b>Plan my day</b>, under the logging buttons, builds a day of meals from what you actually eat (your saved meals and the foods you've logged in the last 4 weeks, at your usual amounts) plus a rotating home idea or two, aiming for your calorie range and protein target. <b>Today</b> plans the meals still ahead (nothing after 8 pm); <b>Tomorrow</b> plans a whole day. Log a meal with one tap, or tap a food to change its amount first. Ate something else? It offers to <b>re-plan the rest</b>. Already made tomorrow's breakfast? <b>Choose breakfast</b> and pick it (your meals, usual foods, home ideas or any food); it's <b>locked</b> in and the rest of the day is planned around it. Lock any planned meal you like the same way. <b>Shuffle</b> changes only what isn't locked and avoids repeating your last few plans. Change your targets and the plan re-plans itself to match. It shows up once you've logged a few days.</p>
     <p>Open This week and tap <b>See past weeks and months</b> for your <b>History</b>: a calendar of each month with every day's calories (green in range, orange over, blue under), what each week banked, and every month's averages. Swipe it for other months, and tap a day to open it.</p>
     <p>Once you've logged two or more meals, the Eaten header shows which meal is the biggest ("Breakfast 48%", or a 🏆 when a meal sets your protein record) with a thin bar under it of how your day splits between breakfast, lunch, dinner and snacks; each meal heading has a dot in its colour. Tap either for <b>When you eat</b>: each meal's share and average over 4 weeks, 3 months or all time, your heaviest and lightest meal, what time you usually finish eating, <b>the morning after</b> (how the next weigh-in moves after bigger vs lighter dinners; that's mostly food and water, not fat) your meal split <b>week by week</b>, <b>records</b>, and <b>badges</b> to earn (like done eating by 8 pm 7 days in a row, or 30g+ protein at every main meal). It's also on Trends under Calories. The morning after waits for about two weeks of daily weigh-ins and only calls it a link when the gap is clearly bigger than your normal day-to-day swing.</p>
-    <p><b>More nutrients</b>, under your food list, shows fibre. It only counts foods that have fibre data, so it says "at least" when some don't. A meal counts the ingredients that have it. Foods missing it are listed there; tap one to add the number from its label.</p>`],
+    <p><b>More nutrients</b>, under your food list, shows your <b>carbs and fat</b> and how your calories split between protein, carbs and fat. There's no carb target: with calories and protein set, carbs and fat are what's left. A big carb day can show up as water weight the next morning, not fat. Carbs come from packaged foods, the built-in foods and labels you type in (chain menu items don't have them yet); foods without them aren't counted, and it says how many foods it's from.</p>
+    <p>It also shows fibre. It only counts foods that have fibre data, so it says "at least" when some don't. A meal counts the ingredients that have it. Foods missing it are listed there; tap one to add the number from its label.</p>`],
   ['Weigh-ins and waist', `
     <p>Pick <b>Every morning</b>, <b>Once a week</b> or <b>No scale</b> in You → Weigh-ins. Weigh after the bathroom, before food or water.</p>
     <p>Daily weight jumps around by a few pounds from water, salt and carbs. The <b>7-day average</b> is the number that matters.</p>
@@ -2652,7 +2773,7 @@ const GUIDE = [
     <p><b>Weight trend</b> shows how fast you're losing or gaining each week, and the date you'd reach your goal (with the year when it's further off). It appears after about a week of weigh-ins. If your loss is slow but you're already eating at the low end of your range, it suggests another week of full logging rather than eating less. The rate always looks back at least 14 days, because a single week of weigh-ins is mostly water; on the 7-day view, <b>Vs last week</b> compares this week's average with the week before.</p>
     <p>The <b>weekly check-in</b> sums up last week every Monday: average calories and protein, weight change, and a one-line verdict. When you're cutting, a day a little under your range still counts as <b>on target</b>; it only flags days more than 300 kcal under it, since eating that little often costs muscle.</p>
     <p><b>Your real burn</b> works out how many calories you actually burn from what you eat and how your weight moves (no watch needed). It uses your weight trend line, and leaves out your first 2 weeks of weigh-ins, because early weight loss is mostly water, so it's ready after about 4 weeks. Then it can suggest better targets. Big changes are offered in steps of up to ${BURN_STEP} kcal, so each one is checked by the next week's weigh-ins.</p>
-    <p>Charts for calories, protein and fibre: tap a bar to open that day. <b>See calendar by month</b> under Calories opens your History. Plus consistency stats and <b>milestones</b> with a little celebration.</p>`],
+    <p>Charts for calories, protein, carbs (with your average protein, carbs and fat split) and fibre: tap a bar to open that day. <b>See calendar by month</b> under Calories opens your History. Plus consistency stats and <b>milestones</b> with a little celebration.</p>`],
   ['Your settings', `
     <p>In <b>You</b>: your name, goal (Cutting, Maintaining or Building) with suggested targets, weigh-in frequency, lb or kg, eight app colours (Cobalt, Ember, Teal, Violet, Rose, Gold, Graphite, Sky), Light or Dark, your saved foods, and a backup file you can keep in iCloud Drive.</p>
     <p>Your age, height and sex are only used to suggest targets. They're never saved.</p>`],
@@ -3326,6 +3447,7 @@ function ideaFoods() {
     const v = items.map(it => calc(it.food, it.qty, it.unit)), k = v.reduce((a, x) => a + x.kcal, 0), p = v.reduce((a, x) => a + x.pro, 0);
     const f = { id: 'idea-' + h.key, name: h.name, source: 'idea', kcalServ: Math.round(k), proServ: r1(p), snack: !!h.snack, what: h.what, items };
     if (v.every(x => x.fib != null)) f.fibServ = r1(v.reduce((a, x) => a + x.fib, 0));
+    if (v.every(x => x.carb != null)) { f.carbServ = r1(v.reduce((a, x) => a + x.carb, 0)); f.fatServ = r1(v.reduce((a, x) => a + x.fat, 0)); }   // v84
     return f;
   });
 }
@@ -3943,7 +4065,7 @@ function openFoodDetail(f, fromList) {
   $('fdLog').onclick = () => openAmount(f, S.recent.find(r => r.food.id === f.id));
   $('fdEdit').onclick = () => {
     openSheet('Edit numbers', '<p class="hint">Enter what the label says for one serving.</p><div id="labelOut"></div>');
-    labelForm($('labelOut'), { kcal: per ? Math.round(per.k) : Math.round(f.kcal100), pro: per ? r1(per.p) : r1(f.pro100 || 0), fib: fibPerServ(f, per ? f.servingG : null), servingG: f.servingG || (per ? null : 100) }, '', f.barcode || null, f.name, f.id);
+    labelForm($('labelOut'), { kcal: per ? Math.round(per.k) : Math.round(f.kcal100), pro: per ? r1(per.p) : r1(f.pro100 || 0), fib: fibPerServ(f, per ? f.servingG : null), ...macPerServ(f, per ? f.servingG : null), servingG: f.servingG || (per ? null : 100) }, '', f.barcode || null, f.name, f.id);
     $('lSave').textContent = 'Save and log it';
   };
   $('fdDel').onclick = () => {

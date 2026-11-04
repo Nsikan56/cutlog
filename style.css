@@ -870,6 +870,13 @@ details.shut>:not(summary){opacity:0;transform:translateY(-4px);transition:opaci
 .sh-prog{display:block;width:100%;height:5px;border-radius:3px;background:var(--line);overflow:hidden;margin-top:3px}
 .sh-prog i{display:block;height:100%;background:var(--accent);border-radius:3px}
 
+/* v87: protein, carbs and fat, and fibre history (same page style as Weight history) */
+#tProChart svg,#tMacChart svg,#tFibChart svg{cursor:pointer}
+#nhWhich{background:var(--raised)}
+.wh-read .tr2{font-size:14px;font-weight:600;color:var(--muted)}
+.wh-read .nh-open{margin-left:auto;align-self:center}
+#nhSplit{margin-top:-2px}
+
 @media (min-width:980px){
   #scroller{padding:28px 32px 48px calc(var(--side) + 32px)}
   :root{--side:204px}

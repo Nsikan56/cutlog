@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>Cut Log</title>
-<meta name="app-v" content="85">
+<meta name="app-v" content="87">
 <!-- v63: only lets the page load code and data from the places Cut Log really uses (Firebase, the scanner and label reader, Open Food Facts, Google fonts). If the theme script just below changes, its sha256 here must change too (test AY checks). -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-cxglE2uldCp/ybpBoYGJlEJKfTyNB39uAaDq3zqChpA=' https://cdn.jsdelivr.net https://fastly.jsdelivr.net https://www.gstatic.com 'wasm-unsafe-eval'; worker-src 'self' blob: https://cdn.jsdelivr.net https://fastly.jsdelivr.net; connect-src 'self' https://world.openfoodfacts.org https://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com https://cdn.jsdelivr.net https://fastly.jsdelivr.net https://www.gstatic.com data: blob:; img-src 'self' data: blob:; media-src 'self' blob: mediastream:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; frame-src https://cutlog-5ab4e.firebaseapp.com; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
 <script>/* apply Light/Dark before the page draws, so it never flashes the wrong colors */
@@ -21,7 +21,7 @@ try { var cla = localStorage.getItem('cutlog.appearance'); if (cla === 'light' |
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Barlow:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="style.css?v=85">
+<link rel="stylesheet" href="style.css?v=87">
 </head>
 <body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -208,17 +208,20 @@ try { var cla = localStorage.getItem('cutlog.appearance'); if (cla === 'light' |
       <div class="card-h"><h2>Protein</h2><span class="count" id="tProAvg"></span></div>
       <div id="tProChart"></div>
       <p class="hint" id="tProNote"></p>
+      <button class="linkbtn more-link" id="tProHist" type="button" hidden>See full protein history</button>
     </section>
     <section class="card" id="macCard" hidden>
       <div class="card-h"><h2>Carbs and fat</h2><span class="count" id="tMacAvg"></span></div>
       <div id="tMacChart"></div>
       <div id="tMacSplit" class="mac-wrap"></div>
       <p class="hint" id="tMacNote"></p>
+      <button class="linkbtn more-link" id="tMacHist" type="button">See full carbs and fat history</button>
     </section>
     <section class="card" id="fibCard" hidden>
       <div class="card-h"><h2>Fibre</h2><span class="count" id="tFibAvg"></span></div>
       <div id="tFibChart"></div>
       <p class="hint" id="tFibNote"></p>
+      <button class="linkbtn more-link" id="tFibHist" type="button">See full fibre history</button>
     </section>
     <section class="card">
       <div class="card-h"><h2>Consistency</h2><span class="count" id="tDays"></span></div>
@@ -360,8 +363,8 @@ try { var cla = localStorage.getItem('cutlog.appearance'); if (cla === 'light' |
 <div class="toast" id="toast" role="status" hidden></div>
 <input type="file" id="photoIn" accept="image/*" capture="environment" hidden>
 
-<script src="firebase-config.js?v=85"></script>
-<script src="foods.js?v=85"></script>
-<script src="app.js?v=85"></script>
+<script src="firebase-config.js?v=87"></script>
+<script src="foods.js?v=87"></script>
+<script src="app.js?v=87"></script>
 </body>
 </html>

@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '85';
+const APP_V = '87';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -2221,6 +2221,7 @@ function renderTrends() {
   $('tCalNote').textContent = logged.length ? 'Green band is your cut range. Tap a bar to open that day.' : '';
   safe(() => renderFibChart(days)); safe(() => renderMacChart(days));
   $('tProNote').textContent = logged.length ? `Dashed line is your ${T.protein}g target.` : '';
+  $('tProHist').hidden = !logged.length;   // v87
   const inRange = logged.filter(t => kcalIn(t.kcal)).length, hit = logged.filter(t => proHit(t.pro)).length;
   $('tDays').textContent = `last ${range} days`;
   $('tInRange').textContent = logged.length ? `${inRange}/${logged.length}` : '–';
@@ -2243,7 +2244,9 @@ $('range').onclick = e => {
   chartAnim = true; haptic(); renderTrends();
 };
 $('viewTrends').addEventListener('click', e => {
-  const r = e.target.closest('rect[data-day]'); if (!r) return;
+  const r = e.target.closest('rect[data-day]');
+  if (!r) { const c = e.target.closest('#tProChart,#tMacChart,#tFibChart');   // v87: the rest of the chart opens its full history
+    if (c && c.querySelector('svg')) openNutHistory({ tProChart: 'pro', tMacChart: 'mac', tFibChart: 'fib' }[c.id]); return; }
   day = r.dataset.day; showTab('today'); renderDay(); renderTotals(); renderRows();
 });
 
@@ -2654,10 +2657,11 @@ function renderNut() {
   $('nutSum').textContent = any ? `${f.known < f.total ? (m.enough ? '≥ ' : 'at least ') : ''}${g}g fibre` : 'no fibre data';
   const ns = $('nutSum').parentElement; if (m.enough && ns.getBoundingClientRect().height > parseFloat(getComputedStyle(ns).lineHeight || 18) * 1.5) {
     $('nutSumC').hidden = true; if (any && f.known < f.total) $('nutSum').textContent = `at least ${g}g fibre`; }
-  const cover = f.known === f.total ? `From all ${f.total} food${f.total > 1 ? 's' : ''} logged.`
-    : f.part ? `${f.known ? `From ${f.known} of ${f.total} foods, plus` : 'From'} the ingredients that have fibre data in ${pm}. Some ingredients don't have it yet, so the real total is higher.`
-    : f.known ? `From ${f.known} of ${f.total} foods. The other ${f.total - f.known} ${f.total - f.known > 1 ? "don't" : "doesn't"} have fibre data, so the real total is higher.`
-    : "None of these foods have fibre data yet. Scanned packaged foods and the built-in whole foods usually do.";
+  /* v86: shorter (Kan, 4 Nov) */
+  const cover = f.known === f.total ? `From all ${f.total} food${f.total > 1 ? 's' : ''}.`
+    : f.part ? `${f.known ? `From ${f.known} of ${f.total} foods plus` : 'From'} known meal ingredients, so it's likely higher.`
+    : f.known ? `From ${f.known} of ${f.total} foods, so it's likely higher.`
+    : 'No fibre data for these foods yet.';
   const pc = m.totK > 0 ? Math.round(m.knownK / m.totK * 100) : 0;
   const macHtml = !m.enough ? `<div class="nut-mac" id="nutMac"><div class="nut-row"><span>Carbs and fat</span><b id="nutCarb">–</b></div>
     <p class="hint" id="nutMacNote">${m.known ? `Only ${m.known} of ${m.total} foods have carb data so far (${pc}% of today's calories), too little to add up.` : "None of today's foods have carb data yet."} Totals show once most of the day does.</p>${missingMacHtml(es)}</div>`
@@ -2667,7 +2671,7 @@ function renderNut() {
     <p class="hint" id="nutMacNote">${mp ? `From ${m.known} of ${m.total} foods; the rest have no carb data. ` : ''}No target: carbs and fat are what's left after protein. A big carb day can show up as water weight the next morning, not fat.</p>${missingMacHtml(es)}</div>`;
   $('nutBody').innerHTML = `${macHtml}<div class="nut-row"><span>Fibre</span><b>${any ? (f.known < f.total ? '≥ ' : '') + g + 'g' : '–'}</b></div>
     <div class="prog"><i style="width:${Math.round(Math.min(1, f.g / FIB_HI) * 100)}%"></i></div>
-    <p class="hint">Most adults do well with about ${FIB_LO}–${FIB_HI}g a day. Fibre comes from vegetables, fruit, beans, oats and whole grains, and it helps keep you full. ${cover}</p>
+    <p class="hint" id="nutFibNote">Aim for ${FIB_LO}–${FIB_HI}g a day. ${cover}</p>
     ${missingFibHtml(es)}`;
 }
 let nutRz = 0; addEventListener('resize', () => { clearTimeout(nutRz); nutRz = setTimeout(() => safe(renderNut), 150); });   // v84: the summary re-fits on a new width
@@ -2693,7 +2697,7 @@ function missingFib(es) {
 function missingFibHtml(es) {
   const m = missingFib(es); if (!m.fix.length && !m.other.length) return '';
   return `<div class="nut-miss">
-    ${m.fix.length ? `<span class="nut-miss-k">No fibre data yet. Tap one to add it from its label:</span>
+    ${m.fix.length ? `<span class="nut-miss-k">Missing fibre. Tap to add it from the label:</span>
       <div class="chips wrap" id="fibFix">${m.fix.map(f => `<button class="chip" data-fib="${esc(f.id)}" title="${esc(f.name)}"><span>${esc(f.name)}</span> <small>+ fibre</small></button>`).join('')}</div>` : ''}
     ${m.other.length ? `<p class="hint">${m.fix.length ? 'Also' : 'No fibre data'}: ${esc(m.other.join(', '))}.</p>` : ''}</div>`;
 }
@@ -2840,7 +2844,7 @@ const GUIDE = [
     <p><b>Weight trend</b> shows how fast you're losing or gaining each week, and the date you'd reach your goal (with the year when it's further off). It appears after about a week of weigh-ins. If your loss is slow but you're already eating at the low end of your range, it suggests another week of full logging rather than eating less. The rate always looks back at least 14 days, because a single week of weigh-ins is mostly water; on the 7-day view, <b>Vs last week</b> compares this week's average with the week before.</p>
     <p>The <b>weekly check-in</b> sums up last week every Monday: average calories and protein, weight change, and a one-line verdict. When you're cutting, a day a little under your range still counts as <b>on target</b>; it only flags days more than 300 kcal under it, since eating that little often costs muscle.</p>
     <p><b>Your real burn</b> works out how many calories you actually burn from what you eat and how your weight moves (no watch needed). It uses your weight trend line, and leaves out your first 2 weeks of weigh-ins, because early weight loss is mostly water, so it's ready after about 4 weeks. Then it can suggest better targets. Big changes are offered in steps of up to ${BURN_STEP} kcal, so each one is checked by the next week's weigh-ins.</p>
-    <p>Charts for calories, protein, carbs (with your average protein, carbs and fat split) and fibre: tap a bar to open that day. <b>See calendar by month</b> under Calories opens your History. Plus consistency stats and <b>milestones</b> with a little celebration.</p>`],
+    <p>Charts for calories, protein, carbs (with your average protein, carbs and fat split) and fibre: tap a bar to open that day. <b>See calendar by month</b> under Calories opens your History. <b>See full protein history</b>, <b>See full carbs and fat history</b> and <b>See full fibre history</b> (or a tap on the chart outside the bars) show every day since you started, with a 7-day average line, drag-to-read, and each month's average. Plus consistency stats and <b>milestones</b> with a little celebration.</p>`],
   ['Your settings', `
     <p>In <b>You</b>: your name, goal (Cutting, Maintaining or Building) with suggested targets, weigh-in frequency, lb or kg, eight app colours (Cobalt, Ember, Teal, Violet, Rose, Gold, Graphite, Sky), Light or Dark, your saved foods, and a backup file you can keep in iCloud Drive.</p>
     <p>Your age, height and sex are only used to suggest targets. They're never saved.</p>`],
@@ -3223,6 +3227,141 @@ const openWH = () => { if (weightsArr().length >= 2) openWeightHistory(); };
 $('chart').addEventListener('click', openWH); $('tWeightChart').addEventListener('click', openWH);
 $('wHist').onclick = openWH; $('tWHist').onclick = openWH;
 $('tCalHist').onclick = () => openHistory();
+
+/* ===================== v87: NUTRIENT HISTORY ===================== */
+/* Kan (4 Nov): tapping protein, carbs and fibre on Trends should open a full history like "See full weight history".
+   One panel, three kinds: protein, carbs and fat, fibre. Daily bars (coloured like the Trends cards), a 7-day average line,
+   the target (protein) or the 25–38g band (fibre), drag to read any day, the range in numbers and every month underneath.
+   Days count the same way as the Trends cards: protein from every logged day, fibre only on days where some food has fibre
+   data, carbs and fat only on days where most food has carb data (dayMac().enough). Averages use finished days (today is in
+   progress). Read-only: the kind, range and Carbs/Fat choice live in memory; nothing is stored. */
+const NH = { k: 'pro', r: '3m', mk: 'carb', pts: null, i: 0 };
+const NH_KIND = {
+  pro: { title: 'Protein history', name: 'protein' },
+  mac: { title: 'Carbs and fat history', name: 'carbs and fat' },
+  fib: { title: 'Fibre history', name: 'fibre' }
+};
+/* one day's value for what's being charted (null = no data that day, never zero) */
+function nhVal(k, d, cache) {
+  if (k === 'pro') { const t = dayTotals(d); return t ? t.pro : null; }
+  if (k === 'fib') { const f = dayFib(d); return f.known || f.part ? f.g : null; }
+  const m = cache[d] || (cache[d] = dayMac(d)); return m.enough ? m : null;     // carbs and fat: the whole object
+}
+const nhHit = (k, v) => k === 'pro' ? proHit(v) : k === 'fib' ? Math.round(v) >= FIB_LO : false;
+function nhColor(k, v) {
+  if (k === 'pro') return proHit(v) ? 'var(--protein)' : 'var(--accent)';
+  if (k === 'fib') return v >= FIB_LO ? 'var(--protein)' : 'var(--accent)';
+  return NH.mk === 'fat' ? 'var(--fat)' : 'var(--carb)';
+}
+function nhStep(max) { for (const s of [5, 10, 20, 25, 50, 100, 200, 250, 500]) if (max / s <= 4.5) return s; return 1000; }
+function openNutHistory(k) {
+  NH.k = NH_KIND[k] ? k : 'pro';
+  const which = NH.k === 'mac' ? `<div class="seg2" id="nhWhich" role="group" aria-label="Show">${[['carb', 'Carbs'], ['fat', 'Fat']].map(([v, l]) => `<button type="button" data-nk="${v}" aria-pressed="${v === NH.mk}">${l}</button>`).join('')}</div>` : '';
+  openSheet(NH_KIND[NH.k].title, `<div class="chips wh-r" id="nhRange" role="group" aria-label="Range">${WH_R.map(([kk, l]) => `<button class="chip" data-nr="${kk}" aria-pressed="${kk === NH.r}">${l}</button>`).join('')}</div>${which}<div class="wh" id="nhWrap"></div>`, wideSheet());
+  renderNutHistory();
+  sheetBody.onclick = e => {
+    const b = e.target.closest('[data-nr]'), w = e.target.closest('[data-nk]'), o = e.target.closest('#nhOpen');
+    if (o) { const p = NH.pts && NH.pts[NH.i]; if (!p) return; closeSheet(); day = p.date; showTab('today'); renderAll(); return; }
+    if (b && b.dataset.nr !== NH.r) { NH.r = b.dataset.nr; [...$('nhRange').children].forEach(c => c.setAttribute('aria-pressed', c === b)); haptic(); renderNutHistory(); }
+    if (w && w.dataset.nk !== NH.mk) { NH.mk = w.dataset.nk; [...$('nhWhich').children].forEach(c => c.setAttribute('aria-pressed', c === w)); haptic(); renderNutHistory(); }
+  };
+}
+const nhG = v => `${Math.round(v)}<small>g</small>`;
+function nhRead(i) {
+  const p = NH.pts && NH.pts[i]; if (!p) return;
+  const k = NH.k, word = k === 'mac' ? (NH.mk === 'fat' ? 'fat' : 'carbs') : NH_KIND[k].name;
+  const extra = k === 'mac' ? `<span class="tr2">${NH.mk === 'fat' ? `${Math.round(p.m.carb)}g carbs` : `${Math.round(p.m.fat)}g fat`}</span>` : '';
+  $('nhRead').innerHTML = `<span class="dt">${esc(parseIso(p.date).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }))}${p.date === todayIso() ? ' · today so far' : ''}</span>`
+    + `<span class="n">${Math.round(p.v)}<small>g ${word}</small></span><span class="tr">7-day avg ${Math.round(p.avg)}g</span>${extra}<button class="linkbtn nh-open" id="nhOpen" type="button">Open day</button>`;
+  const cur = $('nhCur'); if (cur) { cur.setAttribute('transform', `translate(${p.x.toFixed(1)},0)`); $('nhCurD').setAttribute('cy', p.ya.toFixed(1)); cur.style.opacity = 1; }
+  NH.i = i;
+}
+function renderNutHistory() {
+  const box = $('nhWrap'); if (!box) return;
+  const k = NH.k, t = todayIso(), cache = {}, first = firstLogDay();
+  const val = d => { const v = nhVal(k, d, cache); return v == null ? null : k === 'mac' ? v[NH.mk] : v; };
+  // the first day with this kind of data
+  let start = null; if (first) for (let d = first; d <= t; d = shift(d, 1)) if (nhVal(k, d, cache) != null) { start = d; break; }
+  const r = WH_R.find(x => x[0] === NH.r), from0 = r[2] ? shift(t, -(r[2] - 1)) : start, from = start && from0 < start ? start : from0;
+  const days = []; if (start) for (let d = from; d <= t; d = shift(d, 1)) days.push(d);
+  const vals = days.map(val), have = vals.filter(v => v != null).length;
+  if (!start || have < 2) {
+    NH.pts = null;
+    const what = k === 'pro' ? 'Log food on two or more days to see your protein history here.' : k === 'fib' ? 'Two or more days with fibre data will draw your history here.' : 'Two or more days where most food has carb data will draw your history here.';
+    box.innerHTML = `<p class="empty" id="nhEmpty">${!start || r[2] === 0 || from === start ? what : 'Fewer than two days with data in this range. Try a longer one.'}</p>`;
+    return;
+  }
+  const W = Math.max(280, Math.round(box.clientWidth || sheetBody.clientWidth - 36)), H = Math.round(Math.min(260, Math.max(190, W * 0.5))), L = 34, R = 10, T0 = 12, B = 24, n = days.length;
+  const T = S.targets, line = k === 'pro' ? T.protein : null, band = k === 'fib' ? [FIB_LO, FIB_HI] : null;
+  const max = Math.max(line || 0, band ? band[1] : 0, ...vals.map(v => v || 0)) * 1.1 || 1;
+  const Y = v => T0 + (1 - v / max) * (H - T0 - B), bw = (W - L - R) / n, X = i => L + (i + 0.5) * bw;
+  const txt = 'font-size="11" fill="var(--muted)" font-family="Barlow, system-ui, sans-serif"';
+  let svg = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${esc(NH_KIND[k].title)} from ${esc(shortDate(from))} to today">`;
+  const st = nhStep(max); for (let v = st; v < max; v += st) svg += `<line x1="${L}" x2="${W - R}" y1="${Y(v).toFixed(1)}" y2="${Y(v).toFixed(1)}" stroke="var(--line)"/><text x="${L - 6}" y="${(Y(v) + 4).toFixed(1)}" text-anchor="end" ${txt}>${v}</text>`;
+  if (band) svg += `<rect x="${L}" width="${W - L - R}" y="${Y(band[1]).toFixed(1)}" height="${(Y(band[0]) - Y(band[1])).toFixed(1)}" fill="var(--protein)" opacity=".12"/>`;
+  // month starts along the bottom (labels skipped where they'd crowd), like Weight history
+  let lastX = -99; const mk = [];
+  for (let m = addMonth(ym(from), 1); m <= ym(t); m = addMonth(m, 1)) mk.push(m);
+  if (n <= 31) mk.length = 0;
+  mk.forEach(m => { const i = days.indexOf(m + '-01'); if (i < 0) return; const x = L + i * bw;
+    svg += `<line x1="${x.toFixed(1)}" x2="${x.toFixed(1)}" y1="${T0}" y2="${H - B}" stroke="var(--line)" stroke-dasharray="2 3"/>`;
+    if (x - lastX >= 30 && x > L + 26 && x < W - R - 30) { const d = parseIso(m + '-01'); svg += `<text x="${x.toFixed(1)}" y="${H - 6}" text-anchor="middle" ${txt}>${esc(d.toLocaleDateString(undefined, d.getMonth() === 0 ? { month: 'short', year: '2-digit' } : { month: 'short' }))}</text>`; lastX = x; } });
+  if (!mk.length) svg += `<text x="${L}" y="${H - 6}" ${txt}>${esc(parseIso(from).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }))}</text>`;
+  svg += `<text x="${W - R}" y="${H - 6}" text-anchor="end" ${txt}>Today</text>`;
+  const bwd = Math.max(1, bw * (n > 120 ? 0.8 : 0.7));
+  vals.forEach((v, i) => { if (v == null) return; svg += `<rect class="bar" x="${(X(i) - bwd / 2).toFixed(1)}" y="${Y(v).toFixed(1)}" width="${bwd.toFixed(1)}" height="${(H - B - Y(v)).toFixed(1)}" rx="${Math.min(3, bwd / 2).toFixed(1)}" fill="${nhColor(k, v)}"${days[i] === t ? ' opacity=".55"' : ''}/>`; });
+  if (line) svg += `<line x1="${L}" x2="${W - R}" y1="${Y(line).toFixed(1)}" y2="${Y(line).toFixed(1)}" stroke="var(--protein)" stroke-width="1.5" stroke-dasharray="5 4"/><text x="${L + 4}" y="${(Y(line) - 5).toFixed(1)}" font-size="11" fill="var(--protein)" font-family="Barlow, system-ui, sans-serif">Target ${line}g</text>`;
+  // the 7-day average of the days with data, drawn through each one
+  NH.pts = []; vals.forEach((v, i) => { if (v == null) return; const w = vals.slice(Math.max(0, i - 6), i + 1).filter(x => x != null);
+    NH.pts.push({ date: days[i], v, avg: w.reduce((a, b) => a + b, 0) / w.length, x: X(i), m: k === 'mac' ? nhVal(k, days[i], cache) : null }); });
+  NH.pts.forEach(p => { p.ya = Y(p.avg); });
+  svg += `<polyline class="draw" pathLength="1" points="${NH.pts.map(p => `${p.x.toFixed(1)},${p.ya.toFixed(1)}`).join(' ')}" fill="none" stroke="var(--ink)" stroke-opacity=".75" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>`;
+  svg += `<g id="nhCur" style="opacity:0"><line x1="0" x2="0" y1="${T0}" y2="${H - B}" stroke="var(--ink)" stroke-opacity=".35" stroke-width="1.5"/><circle id="nhCurD" cx="0" cy="0" r="5" fill="var(--ink)" stroke="var(--surface)" stroke-width="2"/></g>`;
+  svg += `<rect x="${L}" y="0" width="${W - L - R}" height="${H}" fill="transparent"/></svg>`;
+  // the range in numbers: finished days only (today is still in progress)
+  const done = NH.pts.filter(p => p.date < t), nD = done.length, av = f => nD ? done.reduce((a, p) => a + f(p), 0) / nD : null;
+  const last7 = done.filter(p => p.date >= shift(t, -7)), a7 = last7.length ? last7.reduce((a, p) => a + p.v, 0) / last7.length : null;
+  const top = NH.pts.reduce((a, p) => p.v > a.v ? p : a), topD = esc(parseIso(top.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }));
+  const tile = (v, kk) => `<div><span class="v">${v}</span><span class="k">${kk}</span></div>`;
+  let stats, extra = '', note;
+  if (k === 'mac') {
+    const aC = av(p => p.m.carb), aF = av(p => p.m.fat);
+    stats = tile(aC == null ? '–' : nhG(aC), 'avg carbs') + tile(aF == null ? '–' : nhG(aF), 'avg fat') + tile(nhG(top.v), `most ${NH.mk === 'fat' ? 'fat' : 'carbs'}, ${topD}`) + tile(nD || '–', `day${nD === 1 ? '' : 's'} counted`);
+    if (nD) extra = `<div class="mac-wrap" id="nhSplit">${macSplitHtml(av(p => p.m.pro), aC, aF)}</div>`;
+    note = `Bars are each day's ${NH.mk === 'fat' ? 'fat' : 'carbs'}; the line is your 7-day average. Only days where most of the food has carb data are shown, like the Trends card. Drag along the chart to read any day.`;
+  } else {
+    const hits = done.filter(p => nhHit(k, p.v)).length;
+    stats = tile(nD ? nhG(av(p => p.v)) : '–', 'avg a day') + tile(a7 == null ? '–' : nhG(a7), 'last 7 days')
+      + tile(nD ? `${hits}<small>/${nD}</small>` : '–', k === 'pro' ? 'days at target' : `days ${FIB_LO}g+`) + tile(nhG(top.v), `highest, ${topD}`);
+    note = k === 'pro' ? `Bars are each day's protein (green when you hit ${T.protein}g); the line is your 7-day average and the dashed line your target. Drag along the chart to read any day.`
+      : `Bars are each day's fibre (green at ${FIB_LO}g or more); the line is your 7-day average and the band the ${FIB_LO}–${FIB_HI}g most adults aim for. Days with no fibre data are left out, and foods without it aren't counted, so real totals can be higher.`;
+  }
+  // months, newest first (finished days only)
+  const months = []; NH.pts.filter(p => p.date < t).forEach(p => { const m = ym(p.date), x = months[months.length - 1]; if (x && x.m === m) x.p.push(p); else months.push({ m, p: [p] }); });
+  const mAvg = ps => ps.reduce((a, p) => a + p.v, 0) / ps.length;
+  const mrows = months.map((x, i) => { const a = mAvg(x.p), b = i ? mAvg(months[i - 1].p) : null, d = b == null ? null : a - b;
+    const cls = d == null || k === 'mac' || Math.round(d) === 0 ? '' : d > 0 ? 'good' : 'bad';
+    const sub = k === 'pro' ? `${x.p.length} day${x.p.length > 1 ? 's' : ''} · target hit on ${x.p.filter(p => proHit(p.v)).length}`
+      : k === 'fib' ? `${x.p.length} day${x.p.length > 1 ? 's' : ''} · ${FIB_LO}g+ on ${x.p.filter(p => nhHit('fib', p.v)).length}`
+      : `${x.p.length} day${x.p.length > 1 ? 's' : ''} · avg ${Math.round(x.p.reduce((s, p) => s + p.m[NH.mk === 'fat' ? 'carb' : 'fat'], 0) / x.p.length)}g ${NH.mk === 'fat' ? 'carbs' : 'fat'}`;
+    return `<div class="whm"><b>${esc(monthName(x.m))}</b><span class="r"><b>${Math.round(a)}g</b><small class="${cls}">${d == null ? 'avg a day' : Math.round(d) === 0 ? 'same' : `${signed(d, z => Math.round(z))}g`}</small></span><small>${esc(sub)}</small></div>`; }).reverse().join('');
+  box.innerHTML = `<div class="wh-read" id="nhRead" aria-live="polite"></div><div class="wh-chart" id="nhChart">${svg}</div>`
+    + `<p class="hint" id="nhNote">${esc(note)}</p>`
+    + `<div class="hs-sum wh-stats" id="nhStats">${stats}</div>${extra}`
+    + (mrows ? `<h3 class="hs-h">By month</h3><div class="hs-months" id="nhMonths">${mrows}</div>` : '');
+  nhRead(NH.pts.length - 1);
+  // drag (or tap) along the chart to read the nearest day; arrow keys step through them
+  const svgEl = $('nhChart').querySelector('svg'), at = e => { const bb = svgEl.getBoundingClientRect(), x = (e.clientX - bb.left) * W / bb.width;
+    let j = 0; NH.pts.forEach((p, q) => { if (Math.abs(p.x - x) < Math.abs(NH.pts[j].x - x)) j = q; }); if (j !== NH.i) nhRead(j); };
+  let down = false;
+  svgEl.addEventListener('pointerdown', e => { down = true; try { svgEl.setPointerCapture(e.pointerId); } catch (x) {} at(e); });
+  svgEl.addEventListener('pointermove', e => { if (down || e.pointerType === 'mouse') at(e); });
+  ['pointerup', 'pointercancel'].forEach(nn => svgEl.addEventListener(nn, () => { down = false; }));
+  svgEl.setAttribute('tabindex', '0');
+  svgEl.addEventListener('keydown', e => { if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { e.preventDefault(); nhRead(Math.max(0, Math.min(NH.pts.length - 1, NH.i + (e.key === 'ArrowLeft' ? -1 : 1)))); } });
+}
+/* ways in: the "See full … history" links under the Trends cards, or tapping the chart anywhere but a bar (a bar opens that day) */
+$('tProHist').onclick = () => openNutHistory('pro'); $('tMacHist').onclick = () => openNutHistory('mac'); $('tFibHist').onclick = () => openNutHistory('fib');
 
 /* ===================== v80: DAY SHAPE ===================== */
 /* Which meal carries the day. Today's Eaten card shows a bar split by meal and names the biggest one; tapping it opens

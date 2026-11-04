@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '84';
+const APP_V = '85';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -314,10 +314,13 @@ function entryMac(e) {
 }
 const itemMac = it => it.food ? entryMac({ food: it.food, qty: it.qty, unit: it.unit, kcal: calc(it.food, it.qty, it.unit).kcal }) : null;
 /* carbs, fat and protein (from the same foods, so the shares add up) for a day, and how many foods that covers */
+/* v85: totals only mean something when the foods with carb data make up most of the day. Kan's first v84 day showed "0g carbs"
+   and a 79% protein split from one food (119 of about 2,100 kcal). Below MAC_COVER of the day's calories, it says so instead. */
+const MAC_COVER = 0.8;
 function dayMac(d) {
-  const es = entriesFor(d); let carb = 0, fat = 0, pro = 0, known = 0;
-  es.forEach(e => { const x = entryMac(e); if (x) { carb += x.carb; fat += x.fat; pro += e.pro || 0; known++; } });
-  return { carb, fat, pro, known, total: es.length };
+  const es = entriesFor(d); let carb = 0, fat = 0, pro = 0, known = 0, knownK = 0, totK = 0;
+  es.forEach(e => { const x = entryMac(e); totK += e.kcal || 0; if (x) { carb += x.carb; fat += x.fat; pro += e.pro || 0; known++; knownK += e.kcal || 0; } });
+  return { carb, fat, pro, known, total: es.length, knownK, totK, enough: known > 0 && knownK >= MAC_COVER * totK };
 }
 /* share of calories from protein, carbs and fat (whole percents that add up to 100) */
 function macShares(pro, carb, fat) {
@@ -1154,7 +1157,7 @@ async function enrichFood(f) {
   if (needNs) enrichTried.add(f.id); if (needMac) macTried.add(f.id);
   try {
     const res = await fetch(`${OFF}/api/v2/product/${f.barcode}.json?fields=${needMac ? OFF_FIELDS : 'nutriments,nutriscore_grade'}`);
-    if (!res.ok) return;
+    if (!res.ok) { macTried.delete(f.id); return; }
     const j = await res.json(); if (j.status !== 1 || !j.product) return;
     const add = offExtras({ kcalServ: f.kcalServ }, j.product);
     const saved = S.foods.find(x => x.id === f.id);
@@ -1169,7 +1172,7 @@ async function enrichFood(f) {
     if (!needNs && !hasMac(f)) return;
     touchMeta(); renderTotals();
     if (SH.open && $('sheetTitle').textContent === 'How much?' && $('aFood')?.dataset.id === f.id) { $('aNs').innerHTML = nsBadge(f, true); $('aQty').dispatchEvent(new Event('input')); }
-  } catch (e) { /* offline or blocked: try again next visit */ }
+  } catch (e) { macTried.delete(f.id); /* offline or blocked: try again next visit (v85: carbs retry once back online) */ }
 }
 /* v60: a food scanned before the fix above may still hold the swapped numbers (0 kcal a serving). The first time it's opened,
    ask Open Food Facts once; if the corrected reading has per-serving numbers, update the saved food. Foods fixed by hand
@@ -2645,19 +2648,23 @@ function renderNut() {
   const f = dayFib(day), g = Math.round(f.g);
   const any = f.known || f.part, pm = f.part > 1 ? `${f.part} meals` : 'a meal';
   const m = dayMac(day), mp = m.known < m.total, ge = mp ? '≥ ' : '';
-  $('nutSumC').hidden = !m.known; $('nutSumC').textContent = m.known ? `${Math.round(m.carb)}g carbs ·` : '';   // v84
+  $('nutSumC').hidden = !m.enough; $('nutSumC').textContent = m.enough ? `${Math.round(m.carb)}g carbs ·` : '';   // v84 (v85: only with enough data)
+  fillMacs(es);
   /* with carbs alongside, "at least" shortens to ≥ (as inside); the carbs part only shows when the summary fits on one line */
-  $('nutSum').textContent = any ? `${f.known < f.total ? (m.known ? '≥ ' : 'at least ') : ''}${g}g fibre` : 'no fibre data';
-  const ns = $('nutSum').parentElement; if (m.known && ns.getBoundingClientRect().height > parseFloat(getComputedStyle(ns).lineHeight || 18) * 1.5) {
+  $('nutSum').textContent = any ? `${f.known < f.total ? (m.enough ? '≥ ' : 'at least ') : ''}${g}g fibre` : 'no fibre data';
+  const ns = $('nutSum').parentElement; if (m.enough && ns.getBoundingClientRect().height > parseFloat(getComputedStyle(ns).lineHeight || 18) * 1.5) {
     $('nutSumC').hidden = true; if (any && f.known < f.total) $('nutSum').textContent = `at least ${g}g fibre`; }
   const cover = f.known === f.total ? `From all ${f.total} food${f.total > 1 ? 's' : ''} logged.`
     : f.part ? `${f.known ? `From ${f.known} of ${f.total} foods, plus` : 'From'} the ingredients that have fibre data in ${pm}. Some ingredients don't have it yet, so the real total is higher.`
     : f.known ? `From ${f.known} of ${f.total} foods. The other ${f.total - f.known} ${f.total - f.known > 1 ? "don't" : "doesn't"} have fibre data, so the real total is higher.`
     : "None of these foods have fibre data yet. Scanned packaged foods and the built-in whole foods usually do.";
-  const macHtml = !m.known ? `<p class="hint" id="nutMac">No carb data for these foods yet. Packaged and built-in foods usually have it.</p>` : `<div class="nut-mac" id="nutMac">${macSplitHtml(m.pro, m.carb, m.fat)}
+  const pc = m.totK > 0 ? Math.round(m.knownK / m.totK * 100) : 0;
+  const macHtml = !m.enough ? `<div class="nut-mac" id="nutMac"><div class="nut-row"><span>Carbs and fat</span><b id="nutCarb">–</b></div>
+    <p class="hint" id="nutMacNote">${m.known ? `Only ${m.known} of ${m.total} foods have carb data so far (${pc}% of today's calories), too little to add up.` : "None of today's foods have carb data yet."} Totals show once most of the day does.</p>${missingMacHtml(es)}</div>`
+    : `<div class="nut-mac" id="nutMac">${macSplitHtml(m.pro, m.carb, m.fat)}
     <div class="nut-row"><span>Carbs</span><b id="nutCarb">${ge}${Math.round(m.carb)}g</b></div>
     <div class="nut-row"><span>Fat</span><b id="nutFat">${ge}${Math.round(m.fat)}g</b></div>
-    <p class="hint" id="nutMacNote">${mp ? `From ${m.known} of ${m.total} foods; the rest have no carb data. ` : ''}No target: carbs and fat are what's left after protein. A big carb day can show up as water weight the next morning, not fat.</p></div>`;
+    <p class="hint" id="nutMacNote">${mp ? `From ${m.known} of ${m.total} foods; the rest have no carb data. ` : ''}No target: carbs and fat are what's left after protein. A big carb day can show up as water weight the next morning, not fat.</p>${missingMacHtml(es)}</div>`;
   $('nutBody').innerHTML = `${macHtml}<div class="nut-row"><span>Fibre</span><b>${any ? (f.known < f.total ? '≥ ' : '') + g + 'g' : '–'}</b></div>
     <div class="prog"><i style="width:${Math.round(Math.min(1, f.g / FIB_HI) * 100)}%"></i></div>
     <p class="hint">Most adults do well with about ${FIB_LO}–${FIB_HI}g a day. Fibre comes from vegetables, fruit, beans, oats and whole grains, and it helps keep you full. ${cover}</p>
@@ -2691,6 +2698,66 @@ function missingFibHtml(es) {
     ${m.other.length ? `<p class="hint">${m.fix.length ? 'Also' : 'No fibre data'}: ${esc(m.other.join(', '))}.</p>` : ''}</div>`;
 }
 $('nutBody').addEventListener('click', e => { const b = e.target.closest('[data-fib]'); if (b) { haptic(); openAddFibre(b.dataset.fib); } });
+/* v85: which of the day's foods have no carb data, with the same one-tap fix as fibre for saved foods (and meal ingredients) */
+function missingMac(es) {
+  const fix = new Map(), other = new Map();
+  es.forEach(e => {
+    if (entryMac(e)) return;
+    const f = e.food, saved = f && S.foods.find(x => x.id === (f.cookOf || f.id));
+    if (saved) { if (!hasMac(saved)) fix.set(saved.id, saved); else other.set('ch' + e.id, `${e.name} (logged before its numbers changed)`); return; }
+    const m = mealOf(f);
+    if (m && m.items?.length) {
+      const gaps = m.items.filter(it => !itemMac(it));
+      gaps.forEach(it => { const s2 = S.foods.find(x => x.id === it.food.id);
+        if (s2 && !hasMac(s2)) fix.set(s2.id, s2); else other.set('mi' + it.food.id, `${it.food.name} (in ${m.name})`); });
+      if (gaps.length) return;
+      other.set('mc' + e.id, `${e.name} (the meal has changed since this was logged)`); return;
+    }
+    other.set((f?.id || 'q') + e.name, `${e.name}${!f ? ' (quick add)' : f.source === 'chain' || e.adds?.length ? ' (restaurant menus have no carb data yet)' : ''}`);
+  });
+  return { fix: [...fix.values()], other: [...other.values()] };
+}
+function missingMacHtml(es) {
+  const m = missingMac(es); if (!m.fix.length && !m.other.length) return '';
+  return `<div class="nut-miss" id="macMiss">
+    ${m.fix.length ? `<span class="nut-miss-k">No carb data yet. Tap one to add it from its label:</span>
+      <div class="chips wrap" id="macFix">${m.fix.map(f => `<button class="chip" data-mac="${esc(f.id)}" title="${esc(f.name)}"><span>${esc(f.name)}</span> <small>+ carbs</small></button>`).join('')}</div>` : ''}
+    ${m.other.length ? `<p class="hint">${m.fix.length ? 'Also' : 'No carb data'}: ${esc(m.other.join(', '))}.</p>` : ''}</div>`;
+}
+$('nutBody').addEventListener('click', e => { const b = e.target.closest('[data-mac]'); if (b) { haptic(); openAddMac(b.dataset.mac); } });
+/* scanned foods in the day without carbs ask Open Food Facts by themselves (once a session each), no need to open them */
+function fillMacs(es) {
+  if (!navigator.onLine) return;
+  if (!fillMacs.on) { fillMacs.on = 1; addEventListener('online', () => safe(renderNut)); }    // retry when the phone is back online
+  const want = new Map();
+  es.forEach(e => { const f = e.food; if (!f) return;
+    const ids = [f.cookOf || f.id, ...(mealOf(f)?.items || []).map(it => it.food?.id)];
+    ids.forEach(id => { const s2 = id && S.foods.find(x => x.id === id); if (s2?.barcode && s2.source === 'scan' && !hasMac(s2) && !macTried.has(s2.id)) want.set(s2.id, s2); }); });
+  [...want.values()].slice(0, 8).forEach(f => enrichFood(f));
+}
+/* add carbs and fat to a saved food without touching its calories, so earlier entries of it start counting too */
+function openAddMac(id) {
+  const f = S.foods.find(x => x.id === id); if (!f) return;
+  const perServ = f.kcalServ != null || f.servingG, per = perServ ? `serving${f.servingG ? ` (${esc(servLabel(f))})` : ''}` : '100 g';
+  openSheet('Add carbs and fat', `
+    <div class="food-head"><strong>${esc(f.name)}</strong><span>${esc([f.brand, perLine(f)].filter(Boolean).join(' · '))}</span></div>
+    <p class="hint">Per ${per}, in grams.</p>
+    <div class="grid2">
+      <label>Carbs<input id="amC" type="number" inputmode="decimal" min="0" step="0.1" placeholder="e.g. 22"></label>
+      <label>Fat<input id="amF" type="number" inputmode="decimal" min="0" step="0.1" placeholder="e.g. 7"></label>
+    </div>
+    <p class="hint">On the Nutrition Facts table they're the "Carbohydrate / Glucides" and "Fat / Lipides" lines. Enter 0 if it says 0.</p>
+    <button class="btn" id="amSave">Save carbs and fat</button>`);
+  setTimeout(() => $('amC')?.focus(), 350);
+  $('amSave').onclick = () => {
+    const c = parseFloat($('amC').value), ft = parseFloat($('amF').value);
+    if (!(c >= 0 && c < 1000 && ft >= 0 && ft < 1000)) { toast('Enter both numbers from the label.'); return; }
+    if (perServ) { f.carbServ = c; f.fatServ = ft; if (f.servingG) { f.carb100 = c / f.servingG * 100; f.fat100 = ft / f.servingG * 100; } }
+    else { f.carb100 = c; f.fat100 = ft; }
+    touchMeta(); renderTotals(); closeSheet(); haptic();
+    toast(`Added to ${f.name}. Earlier entries count too.`);
+  };
+}
 /* add fibre to a saved food without touching its calories, so earlier entries of it start counting too */
 function openAddFibre(id) {
   const f = S.foods.find(x => x.id === id); if (!f) return;
@@ -2712,14 +2779,14 @@ function openAddFibre(id) {
 
 /* v84: Trends carbs and fat card: hidden until a day in the range has carb data; days without it are left out, never zero */
 function renderMacChart(days) {
-  const ms = days.map(dayMac), vals = ms.map(m => m.known ? m.carb : null), have = vals.filter(v => v != null);
+  const ms = days.map(dayMac), vals = ms.map(m => m.enough ? m.carb : null), have = vals.filter(v => v != null);   // v85: days with most food covered
   $('macCard').hidden = !have.length; if (!have.length) return;
-  let P = 0, C = 0, F = 0; ms.forEach(m => { if (m.known) { P += m.pro; C += m.carb; F += m.fat; } });
+  let P = 0, C = 0, F = 0; ms.forEach(m => { if (m.enough) { P += m.pro; C += m.carb; F += m.fat; } });
   $('tMacAvg').textContent = `avg ${Math.round(have.reduce((a, b) => a + b, 0) / have.length)}g carbs`;
   $('tMacChart').innerHTML = barChart(days, vals, { ticks: [50, 100, 150, 200, 250, 300, 400], label: 'Daily carbs', colorFor: () => 'var(--carb)' });
   $('tMacSplit').innerHTML = macSplitHtml(P, C, F);
-  const part = ms.some(m => m.known && m.known < m.total);
-  $('tMacNote').textContent = `Average share of calories on the ${have.length} day${have.length > 1 ? 's' : ''} with carb data; other days are left out.${part ? ' Foods without carb data aren\'t counted.' : ''}`;
+  const part = ms.some(m => m.enough && m.known < m.total);
+  $('tMacNote').textContent = `Average share of calories on the ${have.length} day${have.length > 1 ? 's' : ''} where most food has carb data; other days are left out.${part ? ' Foods without carb data aren\'t counted.' : ''}`;
 }
 /* Trends fibre card: hidden until a day in the range has fibre data */
 function renderFibChart(days) {
@@ -2761,7 +2828,7 @@ const GUIDE = [
     <p><b>Plan my day</b>, under the logging buttons, builds a day of meals from what you actually eat (your saved meals and the foods you've logged in the last 4 weeks, at your usual amounts) plus a rotating home idea or two, aiming for your calorie range and protein target. <b>Today</b> plans the meals still ahead (nothing after 8 pm); <b>Tomorrow</b> plans a whole day. Log a meal with one tap, or tap a food to change its amount first. Ate something else? It offers to <b>re-plan the rest</b>. Already made tomorrow's breakfast? <b>Choose breakfast</b> and pick it (your meals, usual foods, home ideas or any food); it's <b>locked</b> in and the rest of the day is planned around it. Lock any planned meal you like the same way. <b>Shuffle</b> changes only what isn't locked and avoids repeating your last few plans. Change your targets and the plan re-plans itself to match. It shows up once you've logged a few days.</p>
     <p>Open This week and tap <b>See past weeks and months</b> for your <b>History</b>: a calendar of each month with every day's calories (green in range, orange over, blue under), what each week banked, and every month's averages. Swipe it for other months, and tap a day to open it.</p>
     <p>Once you've logged two or more meals, the Eaten header shows which meal is the biggest ("Breakfast 48%", or a 🏆 when a meal sets your protein record) with a thin bar under it of how your day splits between breakfast, lunch, dinner and snacks; each meal heading has a dot in its colour. Tap either for <b>When you eat</b>: each meal's share and average over 4 weeks, 3 months or all time, your heaviest and lightest meal, what time you usually finish eating, <b>the morning after</b> (how the next weigh-in moves after bigger vs lighter dinners; that's mostly food and water, not fat) your meal split <b>week by week</b>, <b>records</b>, and <b>badges</b> to earn (like done eating by 8 pm 7 days in a row, or 30g+ protein at every main meal). It's also on Trends under Calories. The morning after waits for about two weeks of daily weigh-ins and only calls it a link when the gap is clearly bigger than your normal day-to-day swing.</p>
-    <p><b>More nutrients</b>, under your food list, shows your <b>carbs and fat</b> and how your calories split between protein, carbs and fat. There's no carb target: with calories and protein set, carbs and fat are what's left. A big carb day can show up as water weight the next morning, not fat. Carbs come from packaged foods, the built-in foods and labels you type in (chain menu items don't have them yet); foods without them aren't counted, and it says how many foods it's from.</p>
+    <p><b>More nutrients</b>, under your food list, shows your <b>carbs and fat</b> and how your calories split between protein, carbs and fat. There's no carb target: with calories and protein set, carbs and fat are what's left. A big carb day can show up as water weight the next morning, not fat. Carbs come from packaged foods, the built-in foods and labels you type in (chain menu items don't have them yet); foods without them aren't counted, and it says how many foods it's from. Totals only show once foods with carb data make up most of the day's calories; until then it lists the foods missing them, and a tap adds the numbers from the label (scanned foods fill in by themselves).</p>
     <p>It also shows fibre. It only counts foods that have fibre data, so it says "at least" when some don't. A meal counts the ingredients that have it. Foods missing it are listed there; tap one to add the number from its label.</p>`],
   ['Weigh-ins and waist', `
     <p>Pick <b>Every morning</b>, <b>Once a week</b> or <b>No scale</b> in You → Weigh-ins. Weigh after the bathroom, before food or water.</p>

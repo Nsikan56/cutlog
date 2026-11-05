@@ -876,6 +876,7 @@ details.shut>:not(summary){opacity:0;transform:translateY(-4px);transition:opaci
 .wh-read .tr2{font-size:14px;font-weight:600;color:var(--muted)}
 .wh-read .nh-open{margin-left:auto;align-self:center}
 #nhSplit{margin-top:-2px}
+#nhRange .chip:disabled{opacity:.35;cursor:default}   /* v88: ranges longer than your data */
 
 @media (min-width:980px){
   #scroller{padding:28px 32px 48px calc(var(--side) + 32px)}

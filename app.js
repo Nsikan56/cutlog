@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '87';
+const APP_V = '88';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -2844,7 +2844,7 @@ const GUIDE = [
     <p><b>Weight trend</b> shows how fast you're losing or gaining each week, and the date you'd reach your goal (with the year when it's further off). It appears after about a week of weigh-ins. If your loss is slow but you're already eating at the low end of your range, it suggests another week of full logging rather than eating less. The rate always looks back at least 14 days, because a single week of weigh-ins is mostly water; on the 7-day view, <b>Vs last week</b> compares this week's average with the week before.</p>
     <p>The <b>weekly check-in</b> sums up last week every Monday: average calories and protein, weight change, and a one-line verdict. When you're cutting, a day a little under your range still counts as <b>on target</b>; it only flags days more than 300 kcal under it, since eating that little often costs muscle.</p>
     <p><b>Your real burn</b> works out how many calories you actually burn from what you eat and how your weight moves (no watch needed). It uses your weight trend line, and leaves out your first 2 weeks of weigh-ins, because early weight loss is mostly water, so it's ready after about 4 weeks. Then it can suggest better targets. Big changes are offered in steps of up to ${BURN_STEP} kcal, so each one is checked by the next week's weigh-ins.</p>
-    <p>Charts for calories, protein, carbs (with your average protein, carbs and fat split) and fibre: tap a bar to open that day. <b>See calendar by month</b> under Calories opens your History. <b>See full protein history</b>, <b>See full carbs and fat history</b> and <b>See full fibre history</b> (or a tap on the chart outside the bars) show every day since you started, with a 7-day average line, drag-to-read, and each month's average. Plus consistency stats and <b>milestones</b> with a little celebration.</p>`],
+    <p>Charts for calories, protein, carbs (with your average protein, carbs and fat split) and fibre: tap a bar to open that day. <b>See calendar by month</b> under Calories opens your History. <b>See full protein history</b>, <b>See full carbs and fat history</b> and <b>See full fibre history</b> (or a tap on the chart outside the bars) show every day since you started, with a 7-day average line, drag-to-read, and each month's average. The 3M, 6M and 1Y buttons come on once you've logged longer than the range before them. Plus consistency stats and <b>milestones</b> with a little celebration.</p>`],
   ['Your settings', `
     <p>In <b>You</b>: your name, goal (Cutting, Maintaining or Building) with suggested targets, weigh-in frequency, lb or kg, eight app colours (Cobalt, Ember, Teal, Violet, Rose, Gold, Graphite, Sky), Light or Dark, your saved foods, and a backup file you can keep in iCloud Drive.</p>
     <p>Your age, height and sex are only used to suggest targets. They're never saved.</p>`],
@@ -3262,7 +3262,7 @@ function openNutHistory(k) {
   sheetBody.onclick = e => {
     const b = e.target.closest('[data-nr]'), w = e.target.closest('[data-nk]'), o = e.target.closest('#nhOpen');
     if (o) { const p = NH.pts && NH.pts[NH.i]; if (!p) return; closeSheet(); day = p.date; showTab('today'); renderAll(); return; }
-    if (b && b.dataset.nr !== NH.r) { NH.r = b.dataset.nr; [...$('nhRange').children].forEach(c => c.setAttribute('aria-pressed', c === b)); haptic(); renderNutHistory(); }
+    if (b && !b.disabled && b.dataset.nr !== NH.r) { NH.r = b.dataset.nr; [...$('nhRange').children].forEach(c => c.setAttribute('aria-pressed', c === b)); haptic(); renderNutHistory(); }
     if (w && w.dataset.nk !== NH.mk) { NH.mk = w.dataset.nk; [...$('nhWhich').children].forEach(c => c.setAttribute('aria-pressed', c === w)); haptic(); renderNutHistory(); }
   };
 }
@@ -3282,6 +3282,12 @@ function renderNutHistory() {
   const val = d => { const v = nhVal(k, d, cache); return v == null ? null : k === 'mac' ? v[NH.mk] : v; };
   // the first day with this kind of data
   let start = null; if (first) for (let d = first; d <= t; d = shift(d, 1)) if (nhVal(k, d, cache) != null) { start = d; break; }
+  /* v88: a range only lights up once your data is longer than the range before it (until you've logged more than a month, only
+     1M and All); a longer range would show exactly the same days. If the remembered range isn't on yet, the longest one that is is used. */
+  const span = start ? daysBetween(start, t) + 1 : 0, rOn = WH_R.map(([kk, , dd], i) => !dd || i === 0 || span > WH_R[i - 1][2]);
+  if (!rOn[WH_R.findIndex(x => x[0] === NH.r)]) NH.r = WH_R[rOn.lastIndexOf(true, WH_R.length - 2)][0];
+  const rb = $('nhRange'); if (rb) [...rb.children].forEach((c, i) => { c.disabled = !rOn[i]; c.setAttribute('aria-pressed', c.dataset.nr === NH.r);
+    c.title = rOn[i] ? '' : `Comes on once you've logged more than ${WH_R[i - 1][1] === '1M' ? 'a month' : WH_R[i - 1][1].replace('M', ' months').replace('1Y', 'a year')}`; });
   const r = WH_R.find(x => x[0] === NH.r), from0 = r[2] ? shift(t, -(r[2] - 1)) : start, from = start && from0 < start ? start : from0;
   const days = []; if (start) for (let d = from; d <= t; d = shift(d, 1)) days.push(d);
   const vals = days.map(val), have = vals.filter(v => v != null).length;

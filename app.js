@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '88';
+const APP_V = '89';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -821,6 +821,7 @@ function closeSheet() {
   if (onSheetClose) { try { onSheetClose(); } catch (e) {} onSheetClose = null; }
   if (!SH.open) return;
   SH.open = false; SH.drag = null;
+  if (adjPending) setTimeout(() => safe(adjCheck), 700);   // v89: the calorie check-in waits for panels to close
   safe(renderTotals);   // v50: changes made in a panel (fixing a food, saving a meal) show on Today right away
   sheetEl.style.pointerEvents = 'none'; scrimEl.style.pointerEvents = 'none';
   setY(sheetH(), true);
@@ -2144,7 +2145,7 @@ function renderBurn() {
   if ($('viewTrends').classList.contains('anim') || chartAnim) { const n = $('burnNum'); n._v = 0; animateNum(n, r50(e.burn), undefined, 800); }
   if ($('useBurn')) $('useBurn').onclick = () => {
     const old = { ...S.targets };
-    S.targets = { ...S.targets, calLo: st.lo, calHi: st.hi }; touchMeta(); renderAll();
+    S.targets = { ...S.targets, calLo: st.lo, calHi: st.hi, adjWk: weekStart(todayIso()) }; touchMeta(); renderAll();   // v89: counts as this week's change
     toast('Target updated', { label: 'Undo', fn: () => { S.targets = old; touchMeta(); renderAll(); } });
   };
 }
@@ -2329,7 +2330,7 @@ function showNextCel() {
 }
 $('celOk').onclick = () => {
   const c = $('celebrate'); c.classList.remove('in');
-  setTimeout(() => { c.hidden = true; showNextCel(); }, 320);
+  setTimeout(() => { c.hidden = true; showNextCel(); if (c.hidden && adjPending) setTimeout(() => safe(adjCheck), 500); }, 320);
 };
 function confetti() {
   if (REDUCED) return;
@@ -2811,6 +2812,7 @@ const GUIDE = [
     <p>Put Cut Log on your home screen: in Safari, tap Share, then <b>Add to Home Screen</b>. It works offline and saves everything on your phone first.</p>
     <p>Your goal and daily targets (a calorie range and a protein target) are in <b>You → Goal</b>. Change them any time.</p>
     <p>The <b>New to Cut Log?</b> banner on Today opens this guide; tap its ✕ to hide it. The guide is always here in You → Help.</p>
+    <p>After each update, <b>What's new</b> shows once when you open the app. You can read every update any time in You → Help → What's new.</p>
     <p>To back up and sync with a laptop, tap the pill at the top right and sign in. Syncing works once your email has been added to the invite list, so ask the person who shared the app. Until then, everything still works on your phone.</p>`],
   ['Logging food', `
     <p><b>Scan barcode</b> for packaged food. If it isn't in the free database, snap the label once and the app remembers that barcode next time.</p>
@@ -2844,6 +2846,7 @@ const GUIDE = [
     <p><b>Weight trend</b> shows how fast you're losing or gaining each week, and the date you'd reach your goal (with the year when it's further off). It appears after about a week of weigh-ins. If your loss is slow but you're already eating at the low end of your range, it suggests another week of full logging rather than eating less. The rate always looks back at least 14 days, because a single week of weigh-ins is mostly water; on the 7-day view, <b>Vs last week</b> compares this week's average with the week before.</p>
     <p>The <b>weekly check-in</b> sums up last week every Monday: average calories and protein, weight change, and a one-line verdict. When you're cutting, a day a little under your range still counts as <b>on target</b>; it only flags days more than 300 kcal under it, since eating that little often costs muscle.</p>
     <p><b>Your real burn</b> works out how many calories you actually burn from what you eat and how your weight moves (no watch needed). It uses your weight trend line, and leaves out your first 2 weeks of weigh-ins, because early weight loss is mostly water, so it's ready after about 4 weeks. Then it can suggest better targets. Big changes are offered in steps of up to ${BURN_STEP} kcal, so each one is checked by the next week's weigh-ins.</p>
+    <p><b>Calorie check-in pop-up:</b> when your calories should change, Cut Log asks you, at most once a week. It's either your real burn (in steps of up to ${BURN_STEP} kcal) or your weight trend moving much faster than your goal calls for, two weeks in a row (it asks you to log a full week first if too many days are missing). <b>Yes</b> updates your target (with Undo); <b>Not now</b> leaves it until next week.</p>
     <p>Charts for calories, protein, carbs (with your average protein, carbs and fat split) and fibre: tap a bar to open that day. <b>See calendar by month</b> under Calories opens your History. <b>See full protein history</b>, <b>See full carbs and fat history</b> and <b>See full fibre history</b> (or a tap on the chart outside the bars) show every day since you started, with a 7-day average line, drag-to-read, and each month's average. The 3M, 6M and 1Y buttons come on once you've logged longer than the range before them. Plus consistency stats and <b>milestones</b> with a little celebration.</p>`],
   ['Your settings', `
     <p>In <b>You</b>: your name, goal (Cutting, Maintaining or Building) with suggested targets, weigh-in frequency, lb or kg, eight app colours (Cobalt, Ember, Teal, Violet, Rose, Gold, Graphite, Sky), Light or Dark, your saved foods, and a backup file you can keep in iCloud Drive.</p>
@@ -4038,7 +4041,7 @@ function renderCheckin() {
     <p class="ci-verdict">${esc(verdict)}</p>${w.low ? `<p class="hint" id="ciLow">${w.low === 1 ? '1 day was' : `${w.low} days were`} under ${kc(T.calLo - LOW_GAP)} kcal. Now and then is fine; eating that little often can cost muscle and energy.</p>` : ''}${adj}`;
   if ($('ciUse')) $('ciUse').onclick = () => {
     const old = { ...S.targets };
-    S.targets = { ...S.targets, calLo: sug.lo, calHi: sug.hi }; touchMeta(); renderAll(); renderTrends(); haptic();
+    S.targets = { ...S.targets, calLo: sug.lo, calHi: sug.hi, adjWk: weekStart(todayIso()) }; touchMeta(); renderAll(); renderTrends(); haptic();
     toast('Targets updated', { label: 'Undo', fn: () => { S.targets = old; touchMeta(); renderAll(); if (tab === 'trends') renderTrends(); } });
   };
 }
@@ -4049,6 +4052,119 @@ function renderCiBanner() {
   b.hidden = !show; if (show) $('ciBannerS').textContent = `${rangeTxt(w.ws, w.we)} · ${w.n} days logged`;
 }
 $('ciBanner').onclick = () => { haptic(); showTab('trends'); requestAnimationFrame(() => $('ciCard').scrollIntoView({ behavior: REDUCED ? 'auto' : 'smooth', block: 'start' })); };
+
+/* ===================== v89: CALORIE CHECK-IN POP-UP AND WHAT'S NEW ===================== */
+/* Kan (4 Nov): target steps shouldn't be a light nudge. When it's time to move your calories, a box pops up on its own (at most
+   once a week) and asks: Yes changes the target (with Undo), Not now changes nothing until next week. Two things can ask:
+   1. the real burn (same suggestion and 250 kcal steps as the Trends card and the check-in), or
+   2. the trend watch: your weekly rate on the trend line is out of a healthy range for your goal two weeks running (this week's
+      14 days and last week's 14 days), counting only after your first 2 weeks of weigh-ins. If too few days are logged, it asks
+      you to log a full week instead of changing anything (unlogged snacks look like a big deficit).
+   "Asked this week" is kept on this device (localStorage cutlog.adj) and in the targets (targets.adjWk, so it syncs and the
+   other device doesn't ask again). Nothing else is stored. */
+const ADJ_BAND = { lose: [-1.5, 0.2], maintain: [-0.5, 0.5], gain: [-0.1, 0.8] };   // lb a week on the trend line: [too fast down, too fast up]
+const ADJ_LOGGED = 10;                                                             // of the last 14 finished days
+let adjPending = false, adjCur = null;
+function adjWeekAsked() {
+  const wk = weekStart(todayIso()); let d = null; try { d = localStorage.getItem('cutlog.adj'); } catch (e) {}
+  return (d && d >= wk) || (S.targets.adjWk && S.targets.adjWk >= wk);
+}
+const adjStepOf = (T, dir) => { const lo = Math.max(1200, T.calLo + dir * BURN_STEP); return { lo, hi: Math.max(lo + 100, T.calHi + dir * BURN_STEP) }; };
+/* what the pop-up would say right now, or null */
+function adjOffer() {
+  const T = S.targets, m = mode(), t = todayIso();
+  const sug = goalSuggestion(m);
+  if (sug && sug.src === 'burn') {
+    const st = burnStep(sug.lo, sug.hi, T);
+    if (Math.abs(st.lo - T.calLo) >= 100 || Math.abs(st.hi - T.calHi) >= 100) {
+      const gap = (sug.lo + sug.hi) / 2 - (T.calLo + T.calHi) / 2;
+      return { kind: 'burn', lo: st.lo, hi: st.hi, steps: Math.max(1, Math.ceil(Math.abs(gap) / BURN_STEP - 0.2)),
+        why: `Your real burn is about ${kc(r50(sug.burn))} kcal a day, so ${MODES[m].toLowerCase()} is about ${kc(sug.lo)}\u2060–\u2060${kc(sug.hi)}.${st.capped ? ` Going ${st.lo > T.calLo ? 'up' : 'down'} ${BURN_STEP} at a time lets next week's weigh-ins check it.` : ''}` };
+    }
+  }
+  // trend watch
+  const first = weightsArr()[0]; if (!first || shift(first.date, BURN_SETTLE) > shift(t, -20)) return null;   // both 2-week windows after your first 2 weeks
+  const r1 = trendRate(t, RATE_MIN_DAYS), r2 = trendRate(shift(t, -7), RATE_MIN_DAYS); if (r1 == null || r2 == null) return null;
+  const [dn, up] = ADJ_BAND[m], side = r => r < dn ? 1 : r > up ? -1 : 0, dir = side(r1);     // 1 = eat more, -1 = eat less
+  if (!dir || side(r2) !== dir) return null;
+  let logged = 0; for (let i = 1; i <= RATE_MIN_DAYS; i++) if (dayTotals(shift(t, -i))) logged++;
+  const moved = r1 < 0 ? `lost ${fW(-r1)} ${wU()}` : `gained ${fW(r1)} ${wU()}`;
+  const pace = m === 'lose' ? (dir > 0 ? `faster than about ${fW(-dn)} ${wU()} a week, the pace that protects your muscle` : 'while you\'re cutting')
+    : m === 'maintain' ? `more than the ${fW(up)} ${wU()} a week that counts as holding steady` : (dir < 0 ? `faster than about ${fW(up)} ${wU()} a week, so more of it is likely fat` : 'while you\'re building');
+  const base = `Your trend line has ${moved} a week over the last 2 weeks, ${pace}.`;
+  if (logged < ADJ_LOGGED) return { kind: 'log', why: `${base} But only ${logged} of the last ${RATE_MIN_DAYS} days are logged, so Cut Log can't tell whether your calories need to change. Log everything for a week and it will check again.` };
+  const st = adjStepOf(T, dir); if (st.lo === T.calLo && st.hi === T.calHi) return null;
+  return { kind: 'trend', lo: st.lo, hi: st.hi, steps: 1, why: base };
+}
+function adjCheck() {
+  adjPending = false;
+  if (!S.onboarded || !$('adj').hidden || !$('onboard').hidden || adjWeekAsked()) return;
+  if (SH.open || !$('celebrate').hidden) { adjPending = true; return; }      // shown once the panel or celebration closes
+  let o = null; try { o = adjOffer(); } catch (e) { console.error('Cut Log adjOffer', e); } if (!o) return;
+  adjCur = o; const T = S.targets, b = $('adj');
+  if (o.kind === 'log') {
+    $('adjTitle').textContent = 'Log a full week first'; $('adjCh').hidden = true; $('adjStep').hidden = true;
+    $('adjYes').hidden = true; $('adjNo').textContent = 'Got it'; $('adjNote').textContent = 'Your target stays as it is.';
+  } else {
+    const d = o.lo - T.calLo;
+    $('adjTitle').textContent = d > 0 ? 'Time to eat a bit more' : 'Time to eat a bit less';
+    $('adjCh').hidden = false; $('adjOld').textContent = `${kc(T.calLo)}–${kc(T.calHi)}`; $('adjNew').textContent = `${kc(o.lo)}–${kc(o.hi)}`;
+    $('adjStep').hidden = false; $('adjStep').className = 'adj-step ' + (d > 0 ? 'up' : 'down');
+    $('adjStep').innerHTML = `<span>${d > 0 ? '+' : '−'}${kc(Math.abs(d))} kcal a day</span>${o.steps > 1 ? `<span> · step 1 of about ${o.steps}</span>` : ''}`;
+    $('adjYes').hidden = false; $('adjYes').textContent = 'Yes, update my target'; $('adjNo').textContent = 'Not now';
+    $('adjNote').textContent = "Not now keeps your target. It asks again at next week's check-in.";
+  }
+  $('adjWhy').textContent = o.why;
+  b.hidden = false; requestAnimationFrame(() => requestAnimationFrame(() => b.classList.add('in')));   // no vibration: it opens without a tap
+}
+function adjClose(answer) {
+  const wk = weekStart(todayIso()), o = adjCur, b = $('adj'); adjCur = null;
+  try { localStorage.setItem('cutlog.adj', wk); } catch (e) {}
+  b.classList.remove('in'); setTimeout(() => { b.hidden = true; }, 320);
+  if (answer && o && o.lo) {
+    const old = { ...S.targets, adjWk: wk };
+    S.targets = { ...S.targets, calLo: o.lo, calHi: o.hi, adjWk: wk }; touchMeta(); renderAll(); if (tab === 'trends') renderTrends();
+    toast('Target updated', { label: 'Undo', fn: () => { S.targets = old; touchMeta(); renderAll(); if (tab === 'trends') renderTrends(); } });
+  } else { S.targets = { ...S.targets, adjWk: wk }; touchMeta(); }
+}
+$('adjYes').onclick = () => { haptic(); adjClose(true); };
+$('adjNo').onclick = () => adjClose(false);
+
+/* What's new: after an update, the changes since the version this device last saw show once on opening (people who just
+   set the app up don't get it). Always available in You → Help. Last seen version: localStorage cutlog.seenV (per device).
+   Every release adds an entry at the top, in plain words for everyone who uses Cut Log. */
+const CHANGELOG = [
+  { v: 89, d: '2026-11-04', items: [
+    'When it\'s time to change your calories, Cut Log now asks you with a pop-up: Yes updates your target, Not now leaves it. At most once a week.',
+    'It also watches your weight trend: if you\'re losing or gaining much faster than your goal calls for, two weeks in a row, it suggests a 250 kcal change (or asks you to log a full week first).',
+    'This What\'s new page, after each update. You can find it any time in You → Help.'] },
+  { v: 88, d: '2026-11-04', items: ['In the protein, carbs and fibre history pages, 3M, 6M and 1Y switch on once you\'ve logged long enough for them to show something new.'] },
+  { v: 87, d: '2026-11-04', items: ['Trends: See full protein history, See full carbs and fat history and See full fibre history. Every day with a 7-day average line, drag to read any day, and each month\'s average. Tapping those charts (not a bar) opens them too.'] },
+  { v: 86, d: '2026-11-04', items: ['Shorter notes under fibre in More nutrients.'] },
+  { v: 85, d: '2026-11-03', items: ['Carb totals only show once most of the day\'s food has carb data, so a few known foods can\'t give a misleading number.', 'Foods missing carbs get a "+ carbs" button to add them from the label, and scanned foods fill theirs in by themselves.'] },
+  { v: 84, d: '2026-11-03', items: ['Carbs and fat: in More nutrients on Today, on How much?, and a new Carbs and fat card on Trends.'] }
+];
+const NEWS_MAX = 5;
+function newsHtml(list) {
+  return `<div class="news">${list.map(c => `<section class="news-v"><h3>Version ${c.v} · ${esc(parseIso(c.d).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }))}</h3><ul>${c.items.map(i => `<li>${esc(i)}</li>`).join('')}</ul></section>`).join('')}</div>`;
+}
+function openNews(list, auto) {
+  openSheet("What's new", newsHtml(list) + (auto ? '<p class="hint" id="newsWhere">Every update is listed in You → Help → What\'s new.</p><button class="btn" id="newsOk">Got it</button>' : ''));
+  if ($('newsOk')) $('newsOk').onclick = () => closeSheet();
+}
+function newsOnLaunch() {
+  const cur = +APP_V; let seen = null; try { seen = localStorage.getItem('cutlog.seenV'); } catch (e) {}
+  const mark = () => { try { localStorage.setItem('cutlog.seenV', String(cur)); } catch (e) {} };
+  if (!S.onboarded) { mark(); return; }                                      // someone setting the app up: nothing has changed for them
+  const had = Object.keys(S.log).length || Object.keys(S.weights).length;
+  const from = seen ? +seen : had ? cur - 1 : cur;                          // before v89 nothing was remembered: show this update
+  if (!(from < cur)) { if (!seen) mark(); return; }
+  const list = CHANGELOG.filter(c => c.v > from && c.v <= cur).slice(0, NEWS_MAX);
+  if (!list.length) { mark(); return; }
+  if (SH.open || !$('celebrate').hidden) return;                             // busy (a meal being picked up): next time
+  mark(); openNews(list, true);
+}
+$('newsBtn').onclick = () => { haptic(); openNews(CHANGELOG); };
 
 /* Move an entry to another day */
 function openMoveDay(id) {
@@ -4313,7 +4429,7 @@ function checkNewDay() {
   if (t !== lastToday) { if (day === lastToday) day = t; lastToday = t; renderAll(); }
 }
 setInterval(checkNewDay, 60000);
-document.addEventListener('visibilitychange', () => { if (!document.hidden) { checkNewDay(); renderAll(); if (Sync.user) flush(); } });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { checkNewDay(); renderAll(); if (Sync.user) flush(); setTimeout(() => safe(adjCheck), 1200); } });
 
 /* app feel: no pinch zoom (iOS ignores the viewport setting) */
 ['gesturestart', 'gesturechange'].forEach(t => document.addEventListener(t, e => e.preventDefault(), { passive: false }));
@@ -4323,5 +4439,6 @@ if (S.onboarded) { const md = loadDraft(); if (autoResume(md)) { markDraft('resu
 if (!S.msInit && S.onboarded) { S.msInit = true; checkMilestones(true); }
 if (!S.onboarded) showOnboarding(1);
 else if (!REDUCED) document.body.classList.add('launch');
+setTimeout(() => safe(newsOnLaunch), 800); setTimeout(() => safe(adjCheck), 1600);   // v89
 initSync();
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});

@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '90';
+const APP_V = '91';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -114,7 +114,7 @@ function persist() {
   catch (e) { toast('Could not save. Phone storage may be full.'); }
 }
 function markDirty(key) { if (!S.dirty.includes(key)) S.dirty.push(key); }
-function touchDay(d) { S.stamps.days[d] = Date.now(); markDirty('d:' + d); persist(); scheduleFlush(); queueMicrotask(() => checkMilestones()); }
+function touchDay(d) { S.stamps.days[d] = Date.now(); markDirty('d:' + d); persist(); scheduleFlush(); queueMicrotask(() => checkMilestones()); alertsKick(); }   // v91: weigh-ins too
 function touchMeta() { S.stamps.meta = Date.now(); markDirty('meta'); persist(); scheduleFlush(); if (!msBusy) queueMicrotask(() => checkMilestones()); }
 function touchAll() {
   const now = Date.now();
@@ -397,6 +397,7 @@ $('rings').onclick = () => {
 };
 $('rings').onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('rings').click(); } };
 function renderTotals() {
+  alertsKick();   // v91: the alarm clock's note for today follows the log
   const T = S.targets, es = entriesFor(day);
   const cal = Math.round(es.reduce((a, e) => a + e.kcal, 0));
   const pro = Math.round(es.reduce((a, e) => a + e.pro, 0));
@@ -595,6 +596,7 @@ function renderSettings() {
   [...$('pUnits').children].forEach(c => c.setAttribute('aria-pressed', c.dataset.v === (S.units || 'imperial')));
   $('pScaleHint').textContent = SCALE_HINT[scale()];
   { const mt = mealTimes(); [['tvB', 'breakfast'], ['tvL', 'lunch'], ['tvD', 'dinner'], ['tvE', 'last']].forEach(([id, k]) => { $(id).textContent = hourText(mt[k]); }); }   // v90
+  safe(renderAlerts); alertsKick();   // v91
   $('foodCount').textContent = S.foods.length ? `${S.foods.length}` : '';
   renderHeader();
   const nf = S.foods.length;
@@ -664,6 +666,7 @@ function timeSlot(at) {
 }
 function slotOf(e) { return e.slot || timeSlot(e.at); }
 function defaultSlot(foodId) {
+  if (PUSH_SLOT && Date.now() < PUSH_SLOT.until) return PUSH_SLOT.slot;   // v91: opened from a meal alert
   if (foodId && S.slotPref?.[foodId]) return S.slotPref[foodId];       // where you usually log this food
   const h = new Date().getHours() + new Date().getMinutes() / 60;
   if (day === todayIso() && h < 14 && !entriesFor(day).some(e => slotOf(e) === 'breakfast')) return 'breakfast';  // first meal of a late morning
@@ -818,7 +821,7 @@ function glideSheet(h0) {
 function closeSheet() {
   if (draft) markDraft('open', false);   // left the meal on purpose: keep it in My meals, don't pop it up next launch
   const unsaved = draft && draft.touched && loadDraft() ? draft : null;   // v53: closed without Save meal
-  pick = null; draft = null;
+  pick = null; draft = null; PUSH_SLOT = null;   // v91
   if (onSheetClose) { try { onSheetClose(); } catch (e) {} onSheetClose = null; }
   if (!SH.open) return;
   SH.open = false; SH.drag = null;
@@ -1794,6 +1797,7 @@ async function flush() {
 }
 function startUser(user) {
   Sync.user = user; setSync('syncing'); setTimeout(quietVerifyCheck, 3000);   // v64: notice a confirmed email by itself
+  setTimeout(() => safe(() => { renderAlerts(); alertsSync(); }), 2000);   // v91: alerts need the sign-in
   const base = Sync.db.collection('users').doc(user.uid);
   let gotMeta = false, gotDays = false;
   const firstDone = () => {
@@ -2851,6 +2855,7 @@ const GUIDE = [
     <p>Charts for calories, protein, carbs (with your average protein, carbs and fat split) and fibre: tap a bar to open that day. <b>See calendar by month</b> under Calories opens your History. <b>See full protein history</b>, <b>See full carbs and fat history</b> and <b>See full fibre history</b> (or a tap on the chart outside the bars) show every day since you started, with a 7-day average line, drag-to-read, and each month's average. The 3M, 6M and 1Y buttons come on once you've logged longer than the range before them. Plus consistency stats and <b>milestones</b> with a little celebration.</p>`],
   ['Your settings', `
     <p>In <b>You</b>: your name, goal (Cutting, Maintaining or Building) with suggested targets, weigh-in frequency, lb or kg, <b>meal times</b> (when you usually have breakfast, lunch and dinner, and your latest meal; Plan my day plans around them), eight app colours (Cobalt, Ember, Teal, Violet, Rose, Gold, Graphite, Sky), Light or Dark, your saved foods, and a backup file you can keep in iCloud Drive.</p>
+    <p><b>Notifications</b> (You → Notifications): a lunch or dinner check that only comes when that meal isn't logged yet, a last call 30 minutes before your latest meal with what's left for today, and a weigh-in reminder at your own time (every morning, or your chosen day if you weigh in weekly). Breakfast and Monday check-in alerts are there too, off to start. They need Cut Log on your Home Screen and Cloud sync sign-in, and they're set separately on each phone. Tap an alert to open the right screen.</p>
     <p>Your age, height and sex are only used to suggest targets. They're never saved.</p>`],
   ['What to expect', `
     <p><b>First week:</b> your weight will bounce around. That's water, not fat. Keep logging and weighing.</p>
@@ -4208,6 +4213,10 @@ $('adjNo').onclick = () => adjClose(false);
    set the app up don't get it). Always available in You → Help. Last seen version: localStorage cutlog.seenV (per device).
    Every release adds an entry at the top, in plain words for everyone who uses Cut Log. */
 const CHANGELOG = [
+  { v: 91, d: '2026-11-06', items: [
+    'Notifications, in You → Notifications. A lunch or dinner check comes only when that meal isn\'t logged yet, and a last call 30 minutes before your latest meal tells you what\'s left for today.',
+    'Weigh-in reminders at the time you pick: every morning if you weigh in daily, or on your chosen day if you weigh in weekly.',
+    'Tap an alert to land on the right screen. Each phone has its own switches; they need Cut Log on your Home Screen and Cloud sync.'] },
   { v: 90, d: '2026-11-05', items: [
     'Set your own meal times in You → Meal times (breakfast, lunch, dinner and your latest meal). Plan my day plans around them.',
     'Close to your latest meal, Plan my day keeps what\'s left light, protein first, however many calories are left, so a late meal doesn\'t hurt your sleep. The rest stays in your weekly budget.',
@@ -4351,6 +4360,159 @@ $('tmSave').onclick = () => {
   const bad = timesProblem(t); $('tmWarn').hidden = !bad; $('tmWarn').textContent = bad; if (bad) return;
   S.targets = { ...S.targets, times: t }; touchMeta(); openTimesEdit(false); renderAll(); haptic(); toast('Meal times saved');
 };
+/* ---------- v91: NOTIFICATIONS ----------
+   Alerts come from a small free Supabase function (server/cutlog-alerts in the project), which acts as the alarm clock:
+   Firebase's free plan can't run anything on a schedule. Cut Log's data stays in Firebase. Each phone that turns alerts on
+   sends that function: where to send pushes, its time zone, meal times, weigh-in setting, which alerts are on, and a short
+   note for today (calories, protein, meals logged, weighed in). Settings for alerts are per phone (localStorage
+   cutlog.push), never in saved data. Needs Cloud sync sign-in (the function checks the Firebase sign-in). */
+var ALERTS_URL = window.CUTLOG_ALERTS_URL ?? 'https://mwgbphjchwmbvsyhkulu.supabase.co/functions/v1/cutlog-alerts';   // Supabase project cutlog-alerts. var: render functions can run before this line on launch           // set to the Supabase function's address once it exists
+var PUSH_KEY = 'cutlog.push', PUSH_STALE = 6 * 36e5, PUSH_WAIT = 2500;
+const ALERT_DEF = { breakfast: false, lunch: true, dinner: true, last: true, weigh: true, weighT: 7.5, weighDay: 1, checkin: false };
+const ALERT_ROWS = [['lunch', 'Lunch check'], ['dinner', 'Dinner check'], ['last', 'Last call'], ['weigh', 'Weigh-in reminder'], ['breakfast', 'Breakfast check'], ['checkin', 'Monday check-in']];
+const DAYS_LONG = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+function pushState() { try { return JSON.parse(localStorage.getItem(PUSH_KEY)) || {}; } catch (e) { return {}; } }
+function pushSave(o) { try { localStorage.setItem(PUSH_KEY, JSON.stringify({ ...pushState(), ...o })); } catch (e) {} }
+const alertPrefs = () => ({ ...ALERT_DEF, ...(pushState().prefs || {}) });
+const isIOS = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const standalone = () => navigator.standalone === true || !!window.matchMedia?.('(display-mode: standalone)').matches;
+const pushCan = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+const keyBytes = s => { const b = atob(s.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((s.length + 3) % 4)); return Uint8Array.from(b, c => c.charCodeAt(0)); };
+var PUSH_SLOT = null;          // a lunch alert opens search with Lunch picked (cleared when the panel closes)
+var alertBusy = false, alertTimer = null;
+// When each alert goes, in words, from the meal times (same rules as the alarm clock: 45 min after, 30 min before)
+function alertWhen(k) {
+  const mt = mealTimes(), lastAt = mt.last - 0.5, p = alertPrefs();
+  if (k === 'last') return `${hourText(lastAt)}, with what's left for today`;
+  if (k === 'checkin') return 'Monday at 9:00 AM';
+  if (k === 'weigh') return scale() === 'weekly' ? `${DAYS_LONG[p.weighDay]} at ${hourText(p.weighT)}, if you haven't weighed in` : `Every morning at ${hourText(p.weighT)}, if you haven't weighed in`;
+  const at = mt[k] + 0.75;
+  if (k === 'dinner' && p.last && at >= lastAt - 0.5) return `If dinner isn't logged, the ${hourText(lastAt)} last call says so`;
+  return `If ${k} isn't logged by ${hourText(at)}`;
+}
+// Today's note for the alarm clock: only numbers, no food names
+function alertStatus() {
+  const t = todayIso(), es = entriesFor(t), tot = dayTotals(t) || { kcal: 0, pro: 0 };
+  return { d: t, kcal: Math.round(tot.kcal), pro: Math.round(tot.pro), calHi: S.targets.calHi, protein: S.targets.protein,
+    slots: [...new Set(es.map(slotOf))], weighed: S.weights[t] != null };
+}
+function alertBody() {
+  return { tz: Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Toronto', prefs: alertPrefs(), times: mealTimes(), scale: scale(), status: alertStatus() };
+}
+async function alertCall(body, ms = 15000) {
+  const tok = await Promise.race([Sync.user.getIdToken(), new Promise((_, no) => setTimeout(() => no(new Error('sign-in timeout')), 8000))]);
+  const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), ms);
+  try {
+    const r = await fetch(ALERTS_URL, { method: 'POST', signal: ctl.signal, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` }, body: JSON.stringify(body) });
+    let j = {}; try { j = await r.json(); } catch (e) {}
+    return { status: r.status, ...j };
+  } finally { clearTimeout(t); }
+}
+async function swReg() {
+  return Promise.race([navigator.serviceWorker.ready, new Promise((_, no) => setTimeout(() => no(new Error('no service worker')), 6000))]);
+}
+async function alertsOn() {
+  if (alertBusy) return; alertBusy = true; renderAlerts();
+  try {
+    const perm = await Notification.requestPermission();      // must come first, straight from the tap (iPhone)
+    if (perm !== 'granted') { pushSave({ on: false }); toast(perm === 'denied' ? 'Notifications are blocked for Cut Log' : 'Notifications not turned on'); return; }
+    const reg = await swReg();
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      const r = await fetch(ALERTS_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'key' }) });
+      const { key } = await r.json(); if (!key) throw new Error('no key');
+      sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(key) });
+    }
+    const body = alertBody(), j = await alertCall({ action: 'save', sub: sub.toJSON(), ...body });
+    if (j.status !== 200) throw new Error('save ' + j.status);
+    pushSave({ on: true, ep: sub.endpoint, sig: JSON.stringify(body), sentAt: Date.now(), okAt: Date.now(), failAt: 0 });
+    haptic(); toast('Notifications on');
+  } catch (e) {
+    console.warn('Cut Log alerts:', e);
+    toast(/sign-in/.test(e?.message) ? 'Couldn’t check your sign-in. Try again.' : 'Couldn’t turn notifications on. Try again.');
+  } finally { alertBusy = false; renderAlerts(); }
+}
+async function alertsOff() {
+  const ps = pushState(); pushSave({ on: false, sig: '' }); renderAlerts(); haptic(); toast('Notifications off on this phone');
+  try { if (Sync.user && ps.ep) await alertCall({ action: 'remove', endpoint: ps.ep }); } catch (e) {}
+  try { const sub = await (await swReg()).pushManager.getSubscription(); if (sub) await sub.unsubscribe(); } catch (e) {}
+}
+async function alertsTest() {
+  const ps = pushState(); if (!ps.on || alertBusy) return;
+  toast('Sending in 5 seconds. You can leave the app.'); haptic();
+  try {
+    const j = await alertCall({ action: 'test', endpoint: ps.ep }, 30000);
+    if (j.gone) { pushSave({ on: false }); renderAlerts(); toast('Alerts were reset. Turn them on again.'); }
+    else if (!j.ok) toast('The test didn’t go through. Try again later.');
+  } catch (e) { toast('Couldn’t reach the alert server.'); }
+}
+// Keeps the alarm clock's copy current: after changes (a few seconds later), and at least every 6 hours the app is used
+function alertsKick() { if (ALERTS_URL && pushState().on) { clearTimeout(alertTimer); alertTimer = setTimeout(() => safe(alertsSync), PUSH_WAIT); } }
+async function alertsSync(force) {
+  const ps = pushState(); if (!ps.on || !ALERTS_URL || !Sync.user || alertBusy) return;
+  const body = alertBody(), sig = JSON.stringify(body);
+  if (!force && sig === ps.sig && Date.now() - (ps.sentAt || 0) < PUSH_STALE) return;
+  try {
+    const j = await alertCall({ action: 'status', endpoint: ps.ep, ...body });
+    if (j.status === 200) pushSave({ sig, sentAt: Date.now(), okAt: Date.now(), failAt: 0 });
+    else if (j.gone) {                       // the alarm clock lost this phone (Apple reset it, or it was removed): sign up again quietly
+      const sub = Notification.permission === 'granted' && await (await swReg()).pushManager.getSubscription();
+      const k = sub && await alertCall({ action: 'save', sub: sub.toJSON(), ...body });
+      if (k && k.status === 200) pushSave({ ep: sub.endpoint, sig, sentAt: Date.now(), okAt: Date.now(), failAt: 0 });
+      else { pushSave({ on: false }); renderAlerts(); }
+    } else pushSave({ failAt: Date.now() });
+  } catch (e) { pushSave({ failAt: Date.now() }); }
+  if ($('notifCard') && tab === 'you') renderAlerts();
+}
+function renderAlerts() {
+  const card = $('notifCard'); card.hidden = !ALERTS_URL; if (!ALERTS_URL) return;
+  const ps = pushState(), on = !!ps.on, p = alertPrefs();
+  let text = '', btn = false;
+  if (!pushCan()) text = isIOS() && !standalone() ? 'To get alerts, add Cut Log to your Home Screen (Share, then Add to Home Screen) and open it from there.' : 'This browser can’t show notifications from Cut Log.';
+  else if (!Sync.user) text = 'Sign in under Account and sync first. Alerts use your account to know your meal times and what you’ve logged.';
+  else if (!on && Notification.permission === 'denied') text = 'Notifications are blocked for Cut Log. Turn them on in your phone’s Settings, under Notifications, then come back here.';
+  else if (!on) { text = 'Get a nudge when you forget to log a meal, before your latest meal, and for weigh-ins. Meal checks only come when that meal isn’t logged yet.'; btn = true; }
+  else text = 'On for this phone. Meal checks only come when that meal isn’t logged yet.';
+  $('ntText').textContent = text;
+  $('ntOn').hidden = !btn; $('ntOn').disabled = alertBusy; $('ntOn').textContent = alertBusy ? 'Turning on…' : 'Turn on notifications';
+  $('ntState').textContent = on ? 'On' : '';
+  const show = on && pushCan() && !!Sync.user;
+  $('ntList').hidden = $('ntFoot').hidden = !show;
+  const stale = show && ps.failAt && Date.now() - (ps.okAt || 0) > 2 * 864e5;
+  $('ntWarn').hidden = !stale;
+  if (stale) $('ntWarn').textContent = `Couldn’t reach the alert server since ${shortDate(isoOf(new Date(ps.okAt || ps.failAt)))}. Alerts may be paused until it’s back.`;
+  if (!show) return;
+  const rows = ALERT_ROWS.filter(([k]) => k !== 'weigh' || scale() !== 'none');
+  $('ntList').innerHTML = rows.map(([k, name]) => `<div class="nt-row"><span class="nt-t"><b>${name}</b><small id="ntW-${k}">${esc(alertWhen(k))}</small></span><button type="button" class="nt-sw" role="switch" data-nt="${k}" aria-checked="${!!p[k]}" aria-label="${name}"></button></div>`
+    + (k === 'weigh' && p.weigh ? `<div class="nt-weigh" id="ntWeigh"><label>Time<input type="time" id="ntWT" step="900" value="${hmOf(p.weighT)}"></label>${scale() === 'weekly' ? `<label>Day<select id="ntWD">${DAYS_LONG.map((d, i) => `<option value="${i}"${i === p.weighDay ? ' selected' : ''}>${d}</option>`).join('')}</select></label>` : ''}</div>` : '')).join('');
+}
+const isoOf = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+function setAlertPref(patch) { pushSave({ prefs: { ...alertPrefs(), ...patch } }); renderAlerts(); alertsKick(); }
+$('ntOn').onclick = alertsOn;
+$('ntOff').onclick = alertsOff;
+$('ntTest').onclick = alertsTest;
+$('ntList').onclick = e => {
+  const b = e.target.closest('[data-nt]'); if (!b) return;
+  const k = b.dataset.nt, v = b.getAttribute('aria-checked') !== 'true';
+  setAlertPref({ [k]: v }); haptic();
+};
+$('ntList').onchange = e => {
+  if (e.target.id === 'ntWT') { const h = hOf(e.target.value); if (h != null && h >= 3 && h <= 14) setAlertPref({ weighT: h }); else { toast('Pick a time between 3 AM and 2 PM'); renderAlerts(); } }
+  if (e.target.id === 'ntWD') setAlertPref({ weighDay: +e.target.value });
+};
+// Opening the app from an alert: ./?open=log&slot=lunch | plan | weigh | checkin
+function alertOpen(what, slot) {
+  if (!S.onboarded || !what) return;
+  if (SH.open) closeSheet();
+  day = todayIso();
+  if (what === 'checkin') { showTab('trends'); setTimeout(() => $('ciCard')?.scrollIntoView({ block: 'start', behavior: REDUCED ? 'auto' : 'smooth' }), 350); return; }
+  showTab('today'); renderAll();
+  if (what === 'log') { if (['breakfast', 'lunch', 'dinner'].includes(slot)) PUSH_SLOT = { slot, until: Date.now() + 15 * 6e4 }; setTimeout(() => safe(openSearch), 350); }
+  else if (what === 'plan') setTimeout(() => safe(() => { if (!$('planBtn').hidden) openPlan(); }), 350);
+  else if (what === 'weigh') setTimeout(() => { $('wForm').closest('.card').scrollIntoView({ block: 'center', behavior: REDUCED ? 'auto' : 'smooth' }); if (!$('wForm').hidden) $('wIn').focus({ preventScroll: true }); }, 350);
+}
+const ALERT_LAUNCH = (() => { const q = new URLSearchParams(location.search), o = q.get('open'); if (!o) return null; try { history.replaceState(null, '', location.pathname); } catch (e) {} return { what: o, slot: q.get('slot') }; })();
+if ('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('message', e => { if (e.data?.cutlog === 'open') safe(() => alertOpen(e.data.open, e.data.slot)); });
 $('pMode').onclick = e => {
   const b = e.target.closest('[data-v]'); if (!b) return;
   $('pMode').dataset.pending = b.dataset.v; haptic();
@@ -4536,6 +4698,7 @@ if (S.onboarded) { const md = loadDraft(); if (autoResume(md)) { markDraft('resu
 if (!S.msInit && S.onboarded) { S.msInit = true; checkMilestones(true); }
 if (!S.onboarded) showOnboarding(1);
 else if (!REDUCED) document.body.classList.add('launch');
-setTimeout(() => safe(newsOnLaunch), 800); setTimeout(() => safe(adjCheck), 1600);   // v89
+if (ALERT_LAUNCH) setTimeout(() => safe(() => alertOpen(ALERT_LAUNCH.what, ALERT_LAUNCH.slot)), 500);   // v91: opened from an alert (What's new waits for the next launch)
+else { setTimeout(() => safe(newsOnLaunch), 800); setTimeout(() => safe(adjCheck), 1600); }   // v89
 initSync();
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});

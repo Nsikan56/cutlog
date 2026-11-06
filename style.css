@@ -792,6 +792,11 @@ details.shut>:not(summary){opacity:0;transform:translateY(-4px);transition:opaci
 .pl-lock{color:var(--ink);background:var(--raised);border:1px solid var(--line)}
 .pl-empty .mg-h{padding-bottom:0}
 .pl-empty .linkbtn{font-family:var(--body);text-transform:none;letter-spacing:0;font-size:13px}
+/* v90: a meal left for later (room kept for it), and Plan later between Choose and Lock */
+.pl-later .mg-h{padding-bottom:2px}
+.pl-room{margin:0 0 2px;line-height:1.45}
+.pl-room b{color:var(--ink);font-weight:700}
+.pl-acts .linkbtn{white-space:nowrap}
 .pl-tag{font-style:normal;font-size:11px;font-weight:700;color:var(--accent);background:var(--accent-soft);padding:1px 7px;border-radius:999px;margin-left:6px;vertical-align:1px}
 /* v75: Subway sauce and cheese chips: compact, wrapping, so twelve sauces don't make How much? too long on a phone */
 .adds .chips.wrap{gap:6px}

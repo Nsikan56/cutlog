@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '89';
+const APP_V = '90';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -594,6 +594,7 @@ function renderSettings() {
   [...$('pScale').children].forEach(c => c.setAttribute('aria-pressed', c.dataset.v === scale()));
   [...$('pUnits').children].forEach(c => c.setAttribute('aria-pressed', c.dataset.v === (S.units || 'imperial')));
   $('pScaleHint').textContent = SCALE_HINT[scale()];
+  { const mt = mealTimes(); [['tvB', 'breakfast'], ['tvL', 'lunch'], ['tvD', 'dinner'], ['tvE', 'last']].forEach(([id, k]) => { $(id).textContent = hourText(mt[k]); }); }   // v90
   $('foodCount').textContent = S.foods.length ? `${S.foods.length}` : '';
   renderHeader();
   const nf = S.foods.length;
@@ -2831,7 +2832,7 @@ const GUIDE = [
   ['The Today screen', `
     <p>The left ring is calories, with a small mark where your range starts. The right ring is protein. <b>Tap the rings</b> to switch between what you've eaten and what's <b>left</b> for the day; tap again to switch back.</p>
     <p>Below the rings: how your day is going, a <b>protein nudge</b> if protein falls behind your calories, <b>What fits</b> (foods from your own list that fit what's left, in a row you can swipe; its last tile is <b>More ideas</b>: simple high-protein meals to make at home and McDonald's, Tim Hortons and Subway items that fit, lighter picks first in the evening; Subway subs and salads are counted without sauce or cheese, so pick yours on How much?, and a salad gets a double portion of sauce) and <b>This week</b> (calories banked or over across the week, and how much you can eat today and stay on budget). Only days you logged count; days with nothing logged are named underneath so you know they're left out.</p>
-    <p><b>Plan my day</b>, under the logging buttons, builds a day of meals from what you actually eat (your saved meals and the foods you've logged in the last 4 weeks, at your usual amounts) plus a rotating home idea or two, aiming for your calorie range and protein target. <b>Today</b> plans the meals still ahead (nothing after 8 pm); <b>Tomorrow</b> plans a whole day. Log a meal with one tap, or tap a food to change its amount first. Ate something else? It offers to <b>re-plan the rest</b>. Already made tomorrow's breakfast? <b>Choose breakfast</b> and pick it (your meals, usual foods, home ideas or any food); it's <b>locked</b> in and the rest of the day is planned around it. Lock any planned meal you like the same way. <b>Shuffle</b> changes only what isn't locked and avoids repeating your last few plans. Change your targets and the plan re-plans itself to match. It shows up once you've logged a few days.</p>
+    <p><b>Plan my day</b>, under the logging buttons, builds a day of meals from what you actually eat (your saved meals and the foods you've logged in the last 4 weeks, at your usual amounts) plus a rotating home idea or two, aiming for your calorie range and protein target. <b>Today</b> plans the meals still ahead, following your <b>meal times</b> (You → Meal times; nothing after your latest meal, 8 pm unless you change it). In the hour before your latest meal it keeps what's left <b>light</b> (protein first, up to 450 kcal) however many calories are left, so a late meal doesn't hurt your sleep; the rest stays in your weekly budget. <b>Tomorrow</b> plans a whole day. Not sure what dinner will be yet? Tap <b>Plan later</b>: it's left open, with room kept for it (about your usual dinner), and the rest is planned around it. Log it as usual when you know. Log a meal with one tap, or tap a food to change its amount first. Ate something else? It offers to <b>re-plan the rest</b>. Already made tomorrow's breakfast? <b>Choose breakfast</b> and pick it (your meals, usual foods, home ideas or any food); it's <b>locked</b> in and the rest of the day is planned around it. Lock any planned meal you like the same way. <b>Shuffle</b> changes only what isn't locked and avoids repeating your last few plans. Change your targets and the plan re-plans itself to match. It shows up once you've logged a few days.</p>
     <p>Open This week and tap <b>See past weeks and months</b> for your <b>History</b>: a calendar of each month with every day's calories (green in range, orange over, blue under), what each week banked, and every month's averages. Swipe it for other months, and tap a day to open it.</p>
     <p>Once you've logged two or more meals, the Eaten header shows which meal is the biggest ("Breakfast 48%", or a 🏆 when a meal sets your protein record) with a thin bar under it of how your day splits between breakfast, lunch, dinner and snacks; each meal heading has a dot in its colour. Tap either for <b>When you eat</b>: each meal's share and average over 4 weeks, 3 months or all time, your heaviest and lightest meal, what time you usually finish eating, <b>the morning after</b> (how the next weigh-in moves after bigger vs lighter dinners; that's mostly food and water, not fat) your meal split <b>week by week</b>, <b>records</b>, and <b>badges</b> to earn (like done eating by 8 pm 7 days in a row, or 30g+ protein at every main meal). It's also on Trends under Calories. The morning after waits for about two weeks of daily weigh-ins and only calls it a link when the gap is clearly bigger than your normal day-to-day swing.</p>
     <p><b>More nutrients</b>, under your food list, shows your <b>carbs and fat</b> and how your calories split between protein, carbs and fat. There's no carb target: with calories and protein set, carbs and fat are what's left. A big carb day can show up as water weight the next morning, not fat. Carbs come from packaged foods, the built-in foods and labels you type in (chain menu items don't have them yet); foods without them aren't counted, and it says how many foods it's from. Totals only show once foods with carb data make up most of the day's calories; until then it lists the foods missing them, and a tap adds the numbers from the label (scanned foods fill in by themselves).</p>
@@ -2849,7 +2850,7 @@ const GUIDE = [
     <p><b>Calorie check-in pop-up:</b> when your calories should change, Cut Log asks you, at most once a week. It's either your real burn (in steps of up to ${BURN_STEP} kcal) or your weight trend moving much faster than your goal calls for, two weeks in a row (it asks you to log a full week first if too many days are missing). <b>Yes</b> updates your target (with Undo); <b>Not now</b> leaves it until next week.</p>
     <p>Charts for calories, protein, carbs (with your average protein, carbs and fat split) and fibre: tap a bar to open that day. <b>See calendar by month</b> under Calories opens your History. <b>See full protein history</b>, <b>See full carbs and fat history</b> and <b>See full fibre history</b> (or a tap on the chart outside the bars) show every day since you started, with a 7-day average line, drag-to-read, and each month's average. The 3M, 6M and 1Y buttons come on once you've logged longer than the range before them. Plus consistency stats and <b>milestones</b> with a little celebration.</p>`],
   ['Your settings', `
-    <p>In <b>You</b>: your name, goal (Cutting, Maintaining or Building) with suggested targets, weigh-in frequency, lb or kg, eight app colours (Cobalt, Ember, Teal, Violet, Rose, Gold, Graphite, Sky), Light or Dark, your saved foods, and a backup file you can keep in iCloud Drive.</p>
+    <p>In <b>You</b>: your name, goal (Cutting, Maintaining or Building) with suggested targets, weigh-in frequency, lb or kg, <b>meal times</b> (when you usually have breakfast, lunch and dinner, and your latest meal; Plan my day plans around them), eight app colours (Cobalt, Ember, Teal, Violet, Rose, Gold, Graphite, Sky), Light or Dark, your saved foods, and a backup file you can keep in iCloud Drive.</p>
     <p>Your age, height and sex are only used to suggest targets. They're never saved.</p>`],
   ['What to expect', `
     <p><b>First week:</b> your weight will bounce around. That's water, not fat. Keep logging and weighing.</p>
@@ -3666,7 +3667,7 @@ function ideaFoods() {
     return f;
   });
 }
-const lateNow = () => { const h = new Date().getHours(); return h >= 19 || h < 4; };
+const lateNow = () => { const h = nowH(); return h >= mealTimes().last - 1 || h < 4; };   // v90: the hour before your latest meal (7 pm by default)
 const ideaWhat = f => f.what || (ideaFoods().find(x => x.id === f.id) || {}).what || '';
 function moreIdeas(left) {
   const late = lateNow(), light = f => f.source === 'idea' ? f.snack : f.kcalServ <= 350;   // home ideas are tagged; chain items by size
@@ -3751,12 +3752,44 @@ function saveIdeaMeal(f) {
    after 8 pm. Plans live on this device only (localStorage cutlog.plan), never in saved or synced data; logging a meal from the
    plan makes ordinary entries. */
 const PLAN_KEY = 'cutlog.plan', PLAN_DAYS = 28, PLAN_END_H = 20, PLAN_MIN_KCAL = 30;
-const SLOT_END = { breakfast: 11.5, lunch: 16, dinner: PLAN_END_H, snacks: PLAN_END_H };   // a meal can still be planned until this hour
+const SLOT_END = { breakfast: 11.5, lunch: 16, dinner: PLAN_END_H, snacks: PLAN_END_H };   // the defaults; v90: slotEnd() follows your meal times
 const IDEA_SLOTS = { protoats: ['breakfast'], eggstoast: ['breakfast', 'lunch'], beanseggs: ['breakfast', 'lunch'], yogbowl: ['snacks', 'breakfast'], cottage: ['snacks', 'breakfast'], whites: ['snacks', 'breakfast'] };
 function planStore() { try { return JSON.parse(localStorage.getItem(PLAN_KEY)) || {}; } catch (e) { return {}; } }
 function planSave(x) { try { localStorage.setItem(PLAN_KEY, JSON.stringify(x)); } catch (e) {} }
 const nowH = () => { const d = new Date(); return d.getHours() + d.getMinutes() / 60; };
 const slotLabel = k => SLOTS.find(s => s[0] === k)[1];
+
+/* ===================== v90: MEAL TIMES, LIGHT DINNER, PLAN LATER =====================
+   Kan (5 Nov): "because I like to have my dinner before 7 or 8pm doesn't mean everyone does": anyone can set when they have
+   breakfast, lunch and dinner and their latest meal (You → Meal times). Kept in the targets (targets.times, hours as numbers,
+   so it syncs like adjWk; nothing new at the top level). Not set = the old fixed hours, so nothing changes for anyone who
+   doesn't touch it (breakfast can be planned until 11:30, lunch until 4 pm, dinner and snacks until 8 pm).
+   In the last hour before the latest meal, Today's plan keeps what's left light (LIGHT_KCAL at most, protein first) however
+   many calories are left, so a late meal doesn't hurt sleep; the rest stays in the weekly budget.
+   Plan later: a meal can be left "not planned yet" (you'll eat it, you just don't know what). The planner keeps room for it
+   (about your usual size of that meal) and plans the rest around it. Kept in the plan (localStorage cutlog.plan, `later`). */
+const TIMES_DEF = { breakfast: 8, lunch: 12.5, dinner: 18.5, last: 20 };
+const LIGHT_KCAL = 450, LIGHT_PRO = 40, LIGHT_H = 1;
+const mealTimes = () => ({ ...TIMES_DEF, ...(S.targets?.times || {}) });
+function slotEnd(s) {          // a meal can still be planned for today until this hour
+  const t = mealTimes();
+  if (s === 'breakfast') return Math.min(t.breakfast + 3.5, t.lunch, t.last);
+  if (s === 'lunch') return Math.min(t.lunch + 3.5, t.dinner, t.last);
+  return t.last;
+}
+const lightFrom = () => { const t = mealTimes(); return Math.max(t.last - LIGHT_H, t.dinner + 0.5); };
+const hmOf = h => `${String(Math.floor(h)).padStart(2, '0')}:${String(Math.round((h % 1) * 60)).padStart(2, '0')}`;
+const hOf = s => { const m = /^(\d{1,2}):(\d{2})/.exec(s || ''); return m ? +m[1] + +m[2] / 60 : null; };
+/* your usual size of a meal (median of the days you had it in the last 4 weeks), or a share of your targets */
+function slotTypical(s) {
+  const T = S.targets, mid = (T.calLo + T.calHi) / 2, share = { breakfast: 0.25, lunch: 0.3, dinner: 0.35, snacks: 0.1 }[s];
+  const t = todayIso(), since = shift(t, -PLAN_DAYS), ks = [], ps = [];
+  Object.keys(S.log).filter(d => d >= since && d < t).forEach(d => { const g = (S.log[d] || []).filter(e => slotOf(e) === s);
+    if (g.length) { ks.push(g.reduce((a, e) => a + e.kcal, 0)); ps.push(g.reduce((a, e) => a + e.pro, 0)); } });
+  if (ks.length < 3) return { kcal: mid * share, pro: T.protein * share };
+  const med = a => { const b = [...a].sort((x, y) => x - y), n = b.length; return n % 2 ? b[(n - 1) / 2] : (b[n / 2 - 1] + b[n / 2]) / 2; };
+  return { kcal: Math.min(Math.max(med(ks), mid * 0.1), mid * 0.5), pro: Math.min(med(ps), T.protein * 0.5) };
+}
 /* everything the planner can use, with your usual amount and meal for each */
 function planCandidates() {
   const t = todayIso(), since = shift(t, -PLAN_DAYS), map = new Map(), daysLogged = new Set(), slotDays = { breakfast: new Set(), lunch: new Set(), dinner: new Set(), snacks: new Set() };
@@ -3855,22 +3888,32 @@ function planCtx(d) {
   const t = todayIso(), T = S.targets, isToday = d === t, es = isToday ? entriesFor(d) : [];
   const cands = planCandidates(), h = nowH();
   const done = isToday ? SLOTS.map(s => s[0]).filter(s => es.some(e => slotOf(e) === s)) : [];
-  const avail = SLOTS.map(s => s[0]).filter(s => !done.includes(s) && (!isToday || h < SLOT_END[s]));
+  const avail = SLOTS.map(s => s[0]).filter(s => !done.includes(s) && (!isToday || h < slotEnd(s)));
   const open = cands.slots.filter(s => avail.includes(s));
   const base = { kcal: es.reduce((a, e) => a + e.kcal, 0), pro: es.reduce((a, e) => a + e.pro, 0) };
-  return { d, isToday, T, es, cands, done, avail, open, base, closed: isToday && h >= PLAN_END_H };
+  const end = mealTimes().last;
+  return { d, isToday, T, es, cands, done, avail, open, base, closed: isToday && h >= end, light: isToday && h >= lightFrom() && h < end };
 }
 const planTk = T => `${T.calLo}|${T.calHi}|${T.protein}`;     // v74: the targets a plan was built for
 /* builds (or rebuilds) a day's plan. Locked meals stay exactly as they are; everything else is planned around them. */
 function makePlan(ctx, avoid) {
   const st = planStore(), recent = st.recent || [], old = st.plans?.[ctx.d];
-  const locked = (old?.items || []).filter(x => x.lock && ctx.avail.includes(x.slot)), lockedSlots = new Set(locked.map(x => x.slot));
-  const base = locked.reduce((a, x) => { const v = planVal(x); return { kcal: a.kcal + v.kcal, pro: a.pro + v.pro }; }, { ...ctx.base });
-  const slots = ctx.open.filter(s => !lockedSlots.has(s));
-  const r = slots.length ? buildPlan(ctx.cands, slots, base, ctx.T, recent, avoid, base.kcal >= ctx.T.calLo - 300 ? 0 : 1) : null;
+  const later = (old?.later || []).filter(s => ctx.avail.includes(s));     // v90: meals left "not planned yet"
+  const locked = (old?.items || []).filter(x => x.lock && ctx.avail.includes(x.slot) && !later.includes(x.slot)), lockedSlots = new Set(locked.map(x => x.slot));
+  let base = locked.reduce((a, x) => { const v = planVal(x); return { kcal: a.kcal + v.kcal, pro: a.pro + v.pro }; }, { ...ctx.base });
+  later.forEach(s => { const v = slotTypical(s); base = { kcal: base.kcal + v.kcal, pro: base.pro + v.pro }; });   // room kept for them
+  const slots = ctx.open.filter(s => !lockedSlots.has(s) && !later.includes(s));
+  let T = ctx.T, cands = ctx.cands, minPer = base.kcal >= ctx.T.calLo - 300 ? 0 : 1;
+  if (ctx.light) {    // v90: close to your latest meal: keep what's left light, however much is left
+    T = { calLo: Math.min(ctx.T.calLo, base.kcal + 150), calHi: Math.min(ctx.T.calHi, base.kcal + LIGHT_KCAL), protein: Math.min(ctx.T.protein, base.pro + LIGHT_PRO) };
+    cands = { ...ctx.cands, list: ctx.cands.list.filter(c => c.at[1] && c.at[1].kcal <= LIGHT_KCAL) }; minPer = 1;
+  }
+  const r = slots.length ? buildPlan(cands, slots, base, T, recent, avoid, minPer) : null;
   const items = [...locked, ...(r ? r.items.map(x => ({ slot: x.slot, food: x.c.food, qty: x.c.at[x.s].q, unit: x.c.unit, oil: x.c.oil, idea: x.c.idea })) : [])];
   st.plans = Object.fromEntries(Object.entries(st.plans || {}).filter(([k]) => k >= shift(todayIso(), -1)));
   st.plans[ctx.d] = { items, sig: r?.sig || '', at: Date.now(), tk: planTk(ctx.T) };
+  if (later.length) st.plans[ctx.d].later = later;
+  if (ctx.light) st.plans[ctx.d].light = true;
   st.recent = [...items.filter(x => !x.lock).map(x => x.food.id), ...recent.filter(k => !items.some(x => x.food.id === k))].slice(0, 24);
   planSave(st); return st.plans[ctx.d];
 }
@@ -3888,15 +3931,23 @@ function renderPlanBtn() {
 }
 const PL = { tab: 'today', rebuilt: false };
 function openPlan(tab) {
-  PL.tab = tab || (nowH() >= PLAN_END_H ? 'tomorrow' : 'today');
+  PL.tab = tab || (nowH() >= mealTimes().last ? 'tomorrow' : 'today');
   openSheet('Plan my day', '<div id="plWrap"></div>');
   renderPlan();
   sheetBody.onclick = e => {
     const t = e.target.closest('[data-pt]'), lg = e.target.closest('[data-pl]'), it = e.target.closest('[data-pi]');
     const ch = e.target.closest('[data-pc]'), lk = e.target.closest('[data-pk]'), rm = e.target.closest('[data-px]');
+    const lt = e.target.closest('[data-plt]'), pa = e.target.closest('[data-pa]');
     if (t && !t.disabled) { PL.tab = t.dataset.pt; haptic(); renderPlan(); return; }
     if (e.target.closest('#plShuffle') || e.target.closest('#plRedo')) { haptic(); const d = planDay(); makePlan(planCtx(d), planStore().plans?.[d]?.sig); renderPlan(); replay($('plWrap'), 'fade-in'); return; }
     if (lg) { logPlanSlot(lg.dataset.pl); return; }
+    if (lt) { haptic(); const s = lt.dataset.plt, d = planDay();      // v90: leave this meal for later, keep room for it
+      if (!planStore().plans?.[d]) makePlan(planCtx(d));
+      planEdit(d, p => { p.items = p.items.filter(x => x.slot !== s); p.later = [...new Set([...(p.later || []), s])]; });
+      makePlan(planCtx(d)); renderPlan(); toast(`${slotLabel(s)} left open. Room is kept for it.`); return; }
+    if (pa) { haptic(); const s = pa.dataset.pa, d = planDay();
+      planEdit(d, p => { p.later = (p.later || []).filter(x => x !== s); if (!p.later.length) delete p.later; });
+      makePlan(planCtx(d)); renderPlan(); toast(`${slotLabel(s)} planned`); return; }
     if (ch) { haptic(); openPlanPick(ch.dataset.pc); return; }
     if (lk) { haptic(); const s = lk.dataset.pk, d = planDay(); let on;
       planEdit(d, p => { const its = p.items.filter(x => x.slot === s); on = !its.every(x => x.lock); its.forEach(x => { x.lock = on; }); });
@@ -3925,7 +3976,8 @@ function openPlanPick(s) {
     <button class="btn ghost" id="plBack">Back to the plan</button>`);
   const put = (f, q, u) => {
     const st = planStore(); if (!st.plans?.[d]) makePlan(planCtx(d));
-    planEdit(d, p => { const keep = p.items.filter(x => x.slot === s && x.lock); p.items = [...p.items.filter(x => x.slot !== s), ...keep, { slot: s, food: f, qty: q, unit: u, oil: null, idea: f.source === 'idea', lock: true }]; });
+    planEdit(d, p => { const keep = p.items.filter(x => x.slot === s && x.lock); p.items = [...p.items.filter(x => x.slot !== s), ...keep, { slot: s, food: f, qty: q, unit: u, oil: null, idea: f.source === 'idea', lock: true }];
+      if (p.later) { p.later = p.later.filter(x => x !== s); if (!p.later.length) delete p.later; } });
     makePlan(planCtx(d)); openPlan(PL.tab); toast(`${f.name} is in ${label}, locked`);
   };
   pick = { label: `Put in ${label}`, title: `Choose ${label}`, onDone: (f, q, u) => put(f, q, u) };
@@ -3942,28 +3994,50 @@ function renderPlan() {
   let p = planStore().plans?.[d], rebuilt = false;
   if (!p && !ctx.closed) p = makePlan(ctx);
   else if (p && !ctx.closed && p.tk !== planTk(T)) { p = makePlan(ctx); rebuilt = true; }   // v74: targets changed since it was built
+  else if (p && !ctx.closed && !!p.light !== ctx.light && ctx.isToday) { p = makePlan(ctx); rebuilt = 'light'; }   // v90: it got late (or your meal times changed)
+  const later = (p?.later || []).filter(s => ctx.avail.includes(s));
   const items = (p?.items || []).map((x, i) => ({ ...x, i })).filter(x => ctx.avail.includes(x.slot));
   const tot = items.reduce((a, x) => { const v = planVal(x); return { kcal: a.kcal + v.kcal, pro: a.pro + v.pro }; }, { ...ctx.base });
   const tabs = `<div class="seg2 pl-tabs" id="plTabs" role="group" aria-label="Which day"><button type="button" data-pt="today" aria-pressed="${PL.tab === 'today'}">Today</button><button type="button" data-pt="tomorrow" aria-pressed="${PL.tab === 'tomorrow'}">Tomorrow</button></div>`;
   if (ctx.closed) {
-    box.innerHTML = tabs + `<p class="hint" id="plClosed">It's after 8 pm, so today's plan is done. Tomorrow's plan is ready when you are.</p>`; return;
+    box.innerHTML = tabs + `<p class="hint" id="plClosed">It's after ${esc(hourText(mealTimes().last))}, your latest meal time, so today's plan is done. Tomorrow's plan is ready when you are.</p>`; return;
   }
   const inR = Math.round(tot.kcal) >= T.calLo && Math.round(tot.kcal) <= T.calHi, proOk = Math.round(tot.pro) >= T.protein;
   const anyLock = items.some(x => x.lock);
+  /* v90: room kept for meals left for later, shared by their usual sizes (and kept light when it's late) */
+  const room = {}, typ = later.map(s => slotTypical(s)), tk = typ.reduce((a, v) => a + v.kcal, 0) || 1, tp = typ.reduce((a, v) => a + v.pro, 0) || 1;
+  later.forEach((s, i) => { let k = Math.max(0, ((T.calLo + T.calHi) / 2 - tot.kcal) * typ[i].kcal / tk), hi = Math.max(0, (T.calHi - tot.kcal) * typ[i].kcal / tk);
+    if (ctx.light) { k = Math.min(k, LIGHT_KCAL); hi = Math.min(hi, LIGHT_KCAL); }
+    room[s] = { kcal: k, hi, pro: Math.max(0, (T.protein - tot.pro) * typ[i].pro / tp) }; });
+  const roomK = Object.values(room).reduce((a, v) => a + v.kcal, 0);
+  const names = list => list.map(x => slotLabel(x).toLowerCase()).join(' and ');
   let note;
   if (ctx.isToday && ctx.base.kcal >= T.calHi) note = `<p class="gwarn" id="plNote">You're at the top of your range for today. One day like this is fine; the weekly trend decides.</p>`;
-  else if (!items.length && ctx.isToday) note = `<p class="hint" id="plNote">${ctx.open.length ? 'You’re set for today: nothing more is needed to hit your targets.' : 'No meals left to plan for today.'}</p>`;
-  else if (!inR || !proOk) {
+  else if (!items.length && !later.length && ctx.isToday) note = `<p class="hint" id="plNote">${ctx.open.length ? 'You’re set for today: nothing more is needed to hit your targets.' : 'No meals left to plan for today.'}</p>`;
+  else if (ctx.light) {
+    const left = T.calLo - tot.kcal - roomK, what = items.some(x => x.slot === 'dinner') || later.includes('dinner') ? 'dinner' : 'what’s left';
+    note = `<p class="hint" id="plNote"><span id="plLight">It’s close to your latest meal time (${esc(hourText(mealTimes().last))}), so ${what} is kept light, up to ${LIGHT_KCAL} kcal with protein first, to help you sleep.</span>${left >= 50 ? ` The other ${kc(left)} kcal ${mode() === 'gain' ? 'are short today; add them earlier tomorrow.' : 'stay in your weekly budget.'}` : ''}</p>`;
+  } else if (later.length) {
+    note = Math.round(tot.kcal) > T.calHi
+      ? `<p class="gwarn" id="plNote">Your planned meals already come to ${kc(tot.kcal)} kcal, so there’s no room left for ${names(later)}. Shuffle, or take something out.</p>`
+      : `<p class="hint" id="plNote">${rebuilt === true ? 'Re-planned for your new targets. ' : ''}The rest is planned around ${names(later)}, from what you’ve logged in the last 4 weeks. Log ${later.length > 1 ? 'them' : 'it'} as usual when you know what ${later.length > 1 ? 'they are' : 'it is'}.</p>`;
+  } else if (!inR || !proOk) {
     const why = !inR ? `comes to ${kc(tot.kcal)} kcal` : `reaches ${fmtG(tot.pro)}g protein`;
     note = ctx.isToday && ctx.done.length && p?.at < Math.max(...ctx.es.map(e => e.at || 0))
       ? `<p class="gwarn" id="plNote">With what you've logged, this plan now ${why}. Re-plan the rest to get back on target.</p><button class="btn" id="plRedo">Re-plan the rest</button>`
       : `<p class="hint" id="plNote">${proOk ? '' : `The most protein ${anyLock ? 'this plan can reach with your locked meals' : 'your foods reach in this range'} is about ${fmtG(tot.pro)}g. A shake or egg whites would close the gap. `}${inR ? '' : `This is as close to ${kc(T.calLo)}–${kc(T.calHi)} kcal as ${anyLock ? 'your locked meals leave room for' : 'your foods allow'}.`}</p>`;
-  } else note = `<p class="hint" id="plNote">${rebuilt ? 'Re-planned for your new targets. ' : ''}Built from the meals and foods you've logged in the last 4 weeks, at your usual amounts.</p>`;
-  const sum = `<div class="result" id="plSum"><div><span class="num">${kc(tot.kcal)}</span><small>kcal</small></div><div class="pro"><span class="num">${fmtG(tot.pro)}g</span><small>protein</small></div></div><p class="hint pl-target" id="plTarget">Your targets: ${kc(T.calLo)}–${kc(T.calHi)} kcal and ${T.protein}g protein${ctx.isToday && ctx.done.length ? ', counting what you’ve logged' : ''}.</p>`;
+  } else note = `<p class="hint" id="plNote">${rebuilt === true ? 'Re-planned for your new targets. ' : ''}Built from the meals and foods you've logged in the last 4 weeks, at your usual amounts.</p>`;
+  const pw = later.length ? ' planned' : '';
+  const sum = `<div class="result" id="plSum"><div><span class="num">${kc(tot.kcal)}</span><small>kcal${pw}</small></div><div class="pro"><span class="num">${fmtG(tot.pro)}g</span><small>protein${pw}</small></div></div><p class="hint pl-target" id="plTarget">Your targets: ${kc(T.calLo)}–${kc(T.calHi)} kcal and ${T.protein}g protein${ctx.isToday && ctx.done.length ? ', counting what you’ve logged' : ''}${later.length ? `, with room kept for ${names(later)}` : ''}.</p>`;
   const groups = SLOTS.map(([s, label]) => {
     if (ctx.done.includes(s)) { const g = ctx.es.filter(e => slotOf(e) === s), k = g.reduce((a, e) => a + e.kcal, 0), pr = g.reduce((a, e) => a + e.pro, 0);
       return `<div class="pl-slot pl-done" data-slot="${s}"><div class="mg-h"><span>${label}</span><span class="mg-t">Logged ✓ · ${kc(k)} kcal · ${fmtG(pr)}g</span></div></div>`; }
     if (!ctx.avail.includes(s)) return '';
+    if (later.includes(s)) { const r = room[s], lab = label.toLowerCase();
+      const pOk = r.pro >= 5, pg = Math.round(r.pro);
+      const txt = r.kcal >= 50 ? `Room for about <b>${kc(r.kcal)} kcal</b>${pOk ? ` and <b>${pg}g protein</b>` : ''}${r.hi - r.kcal >= 50 ? ` (up to ${kc(r.hi)} kcal keeps you in range)` : ''}.${pOk ? '' : ' The rest of the plan already covers your protein.'}${ctx.light ? ' Keep it light, it’s getting late.' : ''} Log whatever you have.` : `Your other meals already fill your range, so keep ${lab} light.`;
+      return `<div class="pl-slot pl-later" data-slot="${s}"><div class="mg-h"><span>${label}<i class="pl-tag">Not planned yet</i></span><span class="mg-t">${r.kcal >= 50 ? `~${kc(r.kcal)} kcal${pOk ? ` · ${pg}g` : ''}` : ''}</span></div><p class="hint pl-room" id="plRoom-${s}">${txt}</p>`
+        + `<div class="pl-acts"><button class="linkbtn" data-pc="${s}">Choose ${lab}</button><button class="linkbtn" data-pa="${s}">Plan it for me</button></div></div>`; }
     const g = items.filter(x => x.slot === s);
     if (!g.length) return `<div class="pl-slot pl-empty" data-slot="${s}"><div class="mg-h"><span>${label}</span><button class="linkbtn" data-pc="${s}">+ Add</button></div></div>`;
     const lock = g.every(x => x.lock), v = g.reduce((a, x) => { const y = planVal(x); return { kcal: a.kcal + y.kcal, pro: a.pro + y.pro }; }, { kcal: 0, pro: 0 });
@@ -3972,11 +4046,11 @@ function renderPlan() {
       return lock ? `<div class="meal-row">${btn}<button class="x" data-px="${x.i}" aria-label="Take ${esc(x.food.name)} out">${icon('i-x')}</button></div>` : btn; }).join('');
     return `<div class="pl-slot${lock ? ' pl-locked' : ''}" data-slot="${s}"><div class="mg-h"><span>${label}${lock ? '<i class="pl-tag pl-lock">🔒 Locked</i>' : ''}</span><span class="mg-t">${kc(v.kcal)} kcal · ${fmtG(v.pro)}g</span></div><div class="list">${rows}</div>`
       + (ctx.isToday ? `<button class="btn ghost pl-log" data-pl="${s}">Log ${label.toLowerCase()} · ${kc(v.kcal)} kcal</button>` : '')
-      + `<div class="pl-acts"><button class="linkbtn" data-pc="${s}">${lock ? `+ Add to ${label.toLowerCase()}` : `Choose ${label.toLowerCase()}`}</button><button class="linkbtn" data-pk="${s}">${lock ? 'Unlock' : '🔒 Lock'}</button></div></div>`;
+      + `<div class="pl-acts"><button class="linkbtn" data-pc="${s}">${lock ? `+ Add to ${label.toLowerCase()}` : `Choose ${label.toLowerCase()}`}</button><button class="linkbtn" data-plt="${s}">Plan later</button><button class="linkbtn" data-pk="${s}">${lock ? 'Unlock' : '🔒 Lock'}</button></div></div>`;
   }).join('');
   box.innerHTML = tabs + sum + note + groups
-    + (ctx.open.length && !(ctx.isToday && ctx.base.kcal >= T.calHi) ? `<button class="btn ghost" id="plShuffle">Shuffle${anyLock ? ' the unlocked meals' : ': another plan'}</button>` : '')
-    + `<p class="hint">${ctx.isToday ? 'Tap a food to change its amount before logging it, or log a whole meal with one tap.' : 'Tomorrow this plan opens on Today, so you can log each meal as you eat it.'} Choose a meal to plan it yourself, or lock one you like: locked meals stay put and the rest is planned around them. Shuffle mixes up the rest and rotates in a home idea or two.</p>`;
+    + (ctx.open.some(s => !later.includes(s)) && !(ctx.isToday && ctx.base.kcal >= T.calHi) ? `<button class="btn ghost" id="plShuffle">Shuffle${anyLock ? ' the unlocked meals' : ': another plan'}</button>` : '')
+    + `<p class="hint">${ctx.isToday ? 'Tap a food to change its amount before logging it, or log a whole meal with one tap.' : 'Tomorrow this plan opens on Today, so you can log each meal as you eat it.'} Choose a meal to plan it yourself, or lock one you like: locked meals stay put and the rest is planned around them. Not sure yet? Plan later keeps room for that meal. Shuffle mixes up the rest and rotates in a home idea or two.</p>`;
 }
 function logPlanSlot(s) {
   const p = planStore().plans?.[todayIso()]; if (!p || day !== todayIso()) return;
@@ -4134,6 +4208,10 @@ $('adjNo').onclick = () => adjClose(false);
    set the app up don't get it). Always available in You → Help. Last seen version: localStorage cutlog.seenV (per device).
    Every release adds an entry at the top, in plain words for everyone who uses Cut Log. */
 const CHANGELOG = [
+  { v: 90, d: '2026-11-05', items: [
+    'Set your own meal times in You → Meal times (breakfast, lunch, dinner and your latest meal). Plan my day plans around them.',
+    'Close to your latest meal, Plan my day keeps what\'s left light, protein first, however many calories are left, so a late meal doesn\'t hurt your sleep. The rest stays in your weekly budget.',
+    'Not sure what a meal will be yet? Tap Plan later in Plan my day: room is kept for it and the rest of the day is planned around it.'] },
   { v: 89, d: '2026-11-04', items: [
     'When it\'s time to change your calories, Cut Log now asks you with a pop-up: Yes updates your target, Not now leaves it. At most once a week.',
     'It also watches your weight trend: if you\'re losing or gaining much faster than your goal calls for, two weeks in a row, it suggests a 250 kcal change (or asks you to log a full week first).',
@@ -4253,6 +4331,25 @@ $('pScale').onclick = e => {
   const b = e.target.closest('[data-v]'); if (!b || b.dataset.v === scale()) return;
   S.scale = b.dataset.v; delete $('wForm').dataset.editing; touchMeta(); renderAll(); haptic();
   toast({ daily: 'Set to daily weigh-ins', weekly: 'Set to weekly weigh-ins', none: 'No scale: track your waist on Today' }[S.scale]);
+};
+/* v90: meal times */
+function openTimesEdit(open) {
+  if (open) { const mt = mealTimes(); $('tmB').value = hmOf(mt.breakfast); $('tmL').value = hmOf(mt.lunch); $('tmD').value = hmOf(mt.dinner); $('tmE').value = hmOf(mt.last); $('tmWarn').hidden = true; }
+  toggleEdit('timesView', 'timesForm', open); $('timesEdit').hidden = open; $('timesHint').hidden = open;
+}
+function timesProblem(t) {
+  if ([t.breakfast, t.lunch, t.dinner, t.last].some(x => x == null)) return 'Fill in all four times.';
+  if (t.breakfast < 4) return 'Breakfast needs to be 4 am or later.';
+  if (!(t.breakfast < t.lunch && t.lunch < t.dinner)) return 'Breakfast, lunch and dinner need to be in that order.';
+  if (t.last < t.dinner) return 'Your latest meal can’t be before dinner.';
+  return '';
+}
+$('timesEdit').onclick = () => openTimesEdit(true);
+$('tmCancel').onclick = () => openTimesEdit(false);
+$('tmSave').onclick = () => {
+  const t = { breakfast: hOf($('tmB').value), lunch: hOf($('tmL').value), dinner: hOf($('tmD').value), last: hOf($('tmE').value) };
+  const bad = timesProblem(t); $('tmWarn').hidden = !bad; $('tmWarn').textContent = bad; if (bad) return;
+  S.targets = { ...S.targets, times: t }; touchMeta(); openTimesEdit(false); renderAll(); haptic(); toast('Meal times saved');
 };
 $('pMode').onclick = e => {
   const b = e.target.closest('[data-v]'); if (!b) return;

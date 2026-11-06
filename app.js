@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '93';
+const APP_V = '94';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -3185,6 +3185,10 @@ function whRead(i) {
   const cur = $('whCur'); if (cur) { cur.setAttribute('transform', `translate(${p.x.toFixed(1)},0)`); $('whCurD').setAttribute('cy', p.y.toFixed(1)); cur.style.opacity = 1; }
   WH.i = i;
 }
+function whSpanTxt(d0) {
+  const n = daysBetween(d0, todayIso()) + 1, when = parseIso(d0).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  return `Change and rate: your trend line, ${when} to today (${n} days).`;
+}
 function renderWeightHistory() {
   const box = $('whWrap'); if (!box) return;
   const t = todayIso(), all = weightsArr().map(w => ({ date: w.date, lb: toW(w.lb) }));
@@ -3225,15 +3229,16 @@ function renderWeightHistory() {
   // the range in numbers
   const rate = WH.pts.length >= 3 && daysBetween(p0.date, pn.date) >= RATE_MIN_SPAN ? slopePerWeek(WH.pts.map(p => ({ date: p.date, lb: p.avg }))) : null, ch = pn.avg - p0.avg, low = WH.pts.reduce((a, p) => p.lb < a.lb ? p : a), Gd = G != null ? pn.avg - G : null;
   const tile = (v, k, cls) => `<div><span class="v${cls ? ' ' + cls : ''}">${v}</span><span class="k">${k}</span></div>`;
-  const stats = tile(signed(ch, n => n.toFixed(1)), `trend change, ${wU()}`, goodness(fromW(ch))) + tile(rate == null ? '–' : signed(rate, n => n.toFixed(1)), `${wU()} a week`, rate == null ? '' : goodness(fromW(rate)))
+  const stats = tile(signed(ch, n => n.toFixed(1)), `${wU()} change`, goodness(fromW(ch))) + tile(rate == null ? '–' : signed(rate, n => n.toFixed(1)), `${wU()} a week`, rate == null ? '' : goodness(fromW(rate)))
     + tile(low.lb.toFixed(1), `lowest, ${esc(parseIso(low.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }))}`) + tile(Gd == null ? '–' : Math.abs(Gd).toFixed(1), Gd == null ? 'to goal' : mode() === 'maintain' ? `${wU()} from goal` : `${wU()} to goal`);
   // months, newest first
   const months = []; all.forEach(w => { const m = ym(w.date), x = months[months.length - 1]; if (x && x.m === m) x.v.push(w.lb); else months.push({ m, v: [w.lb] }); });
   const mrows = months.map((x, i) => { const a = x.v.reduce((s, v) => s + v, 0) / x.v.length, b = i ? months[i - 1].v.reduce((s, v) => s + v, 0) / months[i - 1].v.length : null, d = b == null ? null : a - b;
-    return `<div class="whm"><b>${esc(monthName(x.m))}</b><span class="r"><b>${a.toFixed(1)}</b><small class="${d == null ? '' : goodness(fromW(d))}">${d == null ? `avg ${wU()}` : `${signed(d, n => n.toFixed(1))} ${wU()}`}</small></span><small>${x.v.length} weigh-in${x.v.length > 1 ? 's' : ''} · ${Math.min(...x.v).toFixed(1)}–${Math.max(...x.v).toFixed(1)}</small></div>`; }).reverse().join('');
+    return `<div class="whm"><b>${esc(monthName(x.m))}</b><span class="r"><b>${a.toFixed(1)}</b><small class="${d == null ? '' : goodness(fromW(d))}">${d == null ? `avg ${wU()}` : `avg · ${signed(d, n => n.toFixed(1))} ${wU()}`}</small></span><small>${x.v.length} weigh-in${x.v.length > 1 ? 's' : ''} · ${Math.min(...x.v).toFixed(1)}–${Math.max(...x.v).toFixed(1)}</small></div>`; }).reverse().join('');
   box.innerHTML = `<div class="wh-read" id="whRead" aria-live="polite"></div><div class="wh-chart" id="whChart">${svg}</div>`
     + `<p class="hint">Dots are weigh-ins; the line is your 7-day average${withG ? ' and the dashed line your goal' : ''}. Drag along the chart to read any day.</p>`
     + `<div class="hs-sum wh-stats" id="whStats">${stats}</div>`
+    + `<p class="hint" id="whSpan">${whSpanTxt(p0.date)}</p>`
     + `<h3 class="hs-h">By month</h3><div class="hs-months" id="whMonths">${mrows}</div>`;
   whRead(WH.pts.length - 1);
   // drag (or tap) along the chart to read the nearest weigh-in; arrow keys step through them
@@ -4229,6 +4234,9 @@ $('adjNo').onclick = () => adjClose(false);
    set the app up don't get it). Always available in You → Help. Last seen version: localStorage cutlog.seenV (per device).
    Every release adds an entry at the top, in plain words for everyone who uses Cut Log. */
 const CHANGELOG = [
+  { v: 94, d: '2026-11-06', items: [
+    'Weight history: the change tile now reads "lb change" on one line, a new line under the tiles says which days the change and weekly rate cover, and each month\'s number is labelled as its average.',
+  ] },
   { v: 93, d: '2026-11-06', items: [
     'Setting the weigh-in reminder time no longer closes the time picker while you\'re still scrolling it.',
   ] },

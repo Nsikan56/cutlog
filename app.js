@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '92';
+const APP_V = '93';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -4229,6 +4229,9 @@ $('adjNo').onclick = () => adjClose(false);
    set the app up don't get it). Always available in You → Help. Last seen version: localStorage cutlog.seenV (per device).
    Every release adds an entry at the top, in plain words for everyone who uses Cut Log. */
 const CHANGELOG = [
+  { v: 93, d: '2026-11-06', items: [
+    'Setting the weigh-in reminder time no longer closes the time picker while you\'re still scrolling it.',
+  ] },
   { v: 92, d: '2026-11-06', items: [
     'Time boxes (Meal times, the weigh-in reminder time) now stay inside their card on iPhone instead of spilling over the edge and the box next to them.',
     'Messages that pop up while a panel is open (like "Dinner left open") now sit at the bottom of the panel, and the panel makes room for them, so they never cover its buttons or text.',
@@ -4503,6 +4506,10 @@ function renderAlerts() {
   if (stale) $('ntWarn').textContent = `Couldn’t reach the alert server since ${shortDate(isoOf(new Date(ps.okAt || ps.failAt)))}. Alerts may be paused until it’s back.`;
   if (!show) return;
   const rows = ALERT_ROWS.filter(([k]) => k !== 'weigh' || scale() !== 'none');
+  /* v93: never rebuild the list under a box that's being changed. On iPhone the time wheel sends a change each time it settles,
+     and rebuilding the list replaced the box, which closed the wheel while Kan was still picking a time. Only the texts update. */
+  const busy = document.activeElement, editing = busy && /^(INPUT|SELECT)$/.test(busy.tagName) && $('ntList').contains(busy);
+  if (editing && rows.every(([k]) => $('ntW-' + k))) { rows.forEach(([k]) => { $('ntW-' + k).textContent = alertWhen(k); }); return; }
   $('ntList').innerHTML = rows.map(([k, name]) => `<div class="nt-row"><span class="nt-t"><b>${name}</b><small id="ntW-${k}">${esc(alertWhen(k))}</small></span><button type="button" class="nt-sw" role="switch" data-nt="${k}" aria-checked="${!!p[k]}" aria-label="${name}"></button></div>`
     + (k === 'weigh' && p.weigh ? `<div class="nt-weigh" id="ntWeigh"><label>Time<input type="time" id="ntWT" step="900" value="${hmOf(p.weighT)}"></label>${scale() === 'weekly' ? `<label>Day<select id="ntWD">${DAYS_LONG.map((d, i) => `<option value="${i}"${i === p.weighDay ? ' selected' : ''}>${d}</option>`).join('')}</select></label>` : ''}</div>` : '')).join('');
 }
@@ -4517,9 +4524,15 @@ $('ntList').onclick = e => {
   setAlertPref({ [k]: v }); haptic();
 };
 $('ntList').onchange = e => {
-  if (e.target.id === 'ntWT') { const h = hOf(e.target.value); if (h != null && h >= 3 && h <= 14) setAlertPref({ weighT: h }); else { toast('Pick a time between 3 AM and 2 PM'); renderAlerts(); } }
+  if (e.target.id === 'ntWT') { const h = hOf(e.target.value); if (h != null && h >= 3 && h <= 14) setAlertPref({ weighT: h }); }   // v93: a time out of range is only refused once you're done picking
   if (e.target.id === 'ntWD') setAlertPref({ weighDay: +e.target.value });
 };
+$('ntList').addEventListener('focusout', e => {
+  if (e.target.id !== 'ntWT') return;
+  const h = hOf(e.target.value);
+  if (!(h != null && h >= 3 && h <= 14)) toast('Pick a time between 3 AM and 2 PM');
+  setTimeout(() => safe(renderAlerts), 0);    // the box shows the saved time again
+});
 // Opening the app from an alert: ./?open=log&slot=lunch | plan | weigh | checkin
 function alertOpen(what, slot) {
   if (!S.onboarded || !what) return;

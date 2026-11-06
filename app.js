@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '91';
+const APP_V = '92';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -718,7 +718,7 @@ function pushRecent(f, qty, unit) {
 /* ---------- toast ---------- */
 let toastTimer, toastNext = null;
 function hideToast() { const t = $('toast'); t.classList.remove('in'); clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { t.hidden = true; if (toastNext) { const [m, a] = toastNext; toastNext = null; setTimeout(() => toast(m, a), 120); } }, 260); }
+  toastTimer = setTimeout(() => { t.hidden = true; toastRoom(); if (toastNext) { const [m, a] = toastNext; toastNext = null; setTimeout(() => toast(m, a), 120); } }, 260); }
 /* opts.wait (v53): if a message with a button (like Undo) is still up, show this one right after it instead of covering it */
 function toast(msg, action, opts) {
   const t = $('toast');
@@ -732,6 +732,22 @@ function toast(msg, action, opts) {
     t.appendChild(b);
   }
   toastTimer = setTimeout(hideToast, action ? 5000 : 2600);
+  toastRoom();
+}
+/* v92: a message shown while a panel is open docks at the panel's bottom edge, and the panel makes room for it (it grows by
+   the message's height, or its scrolling part gets that much shorter when it's already full height), so the message never sits on the panel's
+   buttons or text. Kan's screenshot: "Dinner left open" landed on the note under Shuffle in Plan my day, because the message
+   sat at the height of the hidden tab bar, in the middle of the panel's content. */
+function toastRoom() {
+  const t = $('toast'), on = SH.open && !t.hidden, root = document.documentElement;
+  const had = sheetEl.classList.contains('toast-room');
+  if (!on) { root.classList.remove('toast-sheet'); if (had) { const h0 = sheetEl.getBoundingClientRect().height; sheetEl.classList.remove('toast-room'); if (SH.open) glideSheet(h0); } return; }
+  const room = Math.ceil(t.getBoundingClientRect().height) + 24;     // the message, 14 px under it and 10 px above it
+  const h0 = sheetEl.getBoundingClientRect().height;
+  sheetEl.style.setProperty('--toast-room', room + 'px'); sheetEl.classList.add('toast-room');
+  const gap = WIDE_Q.matches ? Math.max(0, Math.round((innerHeight - sheetEl.offsetHeight) / 2)) : 0;   // laptop: a centred window
+  root.style.setProperty('--sheet-gap', gap + 'px'); root.classList.add('toast-sheet');
+  if (!had) glideSheet(h0);
 }
 /* When building a meal, food flows hand their result back here instead of logging it */
 let pick = null, draft = null;
@@ -776,7 +792,7 @@ function openSheet(title, html, cleanup) {
   sheetBody.innerHTML = html;
   if (swapping) { replay(sheetBody, 'swap-in'); replay($('sheetTitle'), 'swap-in'); glideSheet(h0); }
   sheetBody.scrollTop = 0;
-  watchAdd();
+  watchAdd(); if (!$('toast').hidden) requestAnimationFrame(toastRoom);   // v92
   onSheetClose = cleanup || null;
   sheetEl.style.pointerEvents = ''; scrimEl.style.pointerEvents = '';
   if (!SH.open) {
@@ -824,7 +840,7 @@ function closeSheet() {
   pick = null; draft = null; PUSH_SLOT = null;   // v91
   if (onSheetClose) { try { onSheetClose(); } catch (e) {} onSheetClose = null; }
   if (!SH.open) return;
-  SH.open = false; SH.drag = null;
+  SH.open = false; SH.drag = null; toastRoom();   // v92: the message goes back above the tab bar
   if (adjPending) setTimeout(() => safe(adjCheck), 700);   // v89: the calorie check-in waits for panels to close
   safe(renderTotals);   // v50: changes made in a panel (fixing a food, saving a meal) show on Today right away
   sheetEl.style.pointerEvents = 'none'; scrimEl.style.pointerEvents = 'none';
@@ -4213,6 +4229,10 @@ $('adjNo').onclick = () => adjClose(false);
    set the app up don't get it). Always available in You → Help. Last seen version: localStorage cutlog.seenV (per device).
    Every release adds an entry at the top, in plain words for everyone who uses Cut Log. */
 const CHANGELOG = [
+  { v: 92, d: '2026-11-06', items: [
+    'Time boxes (Meal times, the weigh-in reminder time) now stay inside their card on iPhone instead of spilling over the edge and the box next to them.',
+    'Messages that pop up while a panel is open (like "Dinner left open") now sit at the bottom of the panel, and the panel makes room for them, so they never cover its buttons or text.',
+  ] },
   { v: 91, d: '2026-11-06', items: [
     'Notifications, in You → Notifications. A lunch or dinner check comes only when that meal isn\'t logged yet, and a last call 30 minutes before your latest meal tells you what\'s left for today.',
     'Weigh-in reminders at the time you pick: every morning if you weigh in daily, or on your chosen day if you weigh in weekly.',

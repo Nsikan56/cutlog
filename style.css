@@ -99,6 +99,11 @@ svg{display:block}
 .empty{color:var(--muted);font-size:14px;padding:2px 0;margin:0}
 input,select{font:inherit;font-size:16px;width:100%;min-width:0;padding:12px;border-radius:12px;border:1px solid var(--line);background:var(--raised);color:var(--ink)}
 label{display:flex;flex-direction:column;gap:5px;font-size:13px;color:var(--muted);font-weight:500}
+/* v92: iPhone Safari draws time and date boxes at a fixed native width and ignores width:100%, so in a narrow card they
+   poked out past the edge and over the box next to them (Meal times, the weigh-in time). Without the native look they
+   follow the width like every other box. */
+input[type=time],input[type=date]{-webkit-appearance:none;appearance:none;display:block;min-width:0;max-width:100%;min-height:calc(1.25em + 26px)}
+input[type=time]::-webkit-date-and-time-value,input[type=date]::-webkit-date-and-time-value{min-width:0}
 .btn{padding:12px 16px;border-radius:12px;background:var(--accent);color:var(--on-accent);font-weight:700;text-align:center;transition:transform .12s}
 .btn:active{transform:scale(.98)}
 .btn.ghost{background:var(--raised);color:var(--ink);border:1px solid var(--line)}
@@ -122,7 +127,8 @@ details summary::after{content:"+";font-size:20px;color:var(--muted);font-weight
 details[open] summary::after{content:"–";transform:rotate(180deg)}
 details.shut summary::after{content:"+";transform:none}
 .settings{display:flex;flex-direction:column;gap:10px;margin-top:14px}
-.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.grid2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px}
+.grid2>*{min-width:0}
 .mlist .mrow{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--line);font-size:14px}
 .mlist .mrow:first-child{border-top:0}
 .mlist .mrow span{min-width:0;overflow-wrap:anywhere}
@@ -185,7 +191,7 @@ details.shut summary::after{content:"+";transform:none}
 .err{color:var(--warn);font-size:14px;margin:0}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(22px + env(safe-area-inset-bottom,0px));z-index:30;
   background:var(--ink);color:var(--bg);padding:11px 18px;border-radius:999px;font-size:14px;font-weight:600;max-width:calc(100% - 32px);box-shadow:0 8px 24px rgba(0,0,0,.25);animation:fade .2s}
-@media (max-width:370px){.ring-n{font-size:32px}.grid2{grid-template-columns:1fr}}
+@media (max-width:370px){.ring-n{font-size:32px}.grid2{grid-template-columns:minmax(0,1fr)}}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
 
 /* views + tab bar */
@@ -279,6 +285,10 @@ details.shut summary::after{content:"+";transform:none}
   box-shadow:0 10px 30px rgba(0,0,0,.35);font-size:15px;font-weight:600;overflow:hidden}
 .toast-msg{flex:1;min-width:0;padding:14px 16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .toast-act{flex:none;align-self:stretch;padding:0 18px;border-left:1px solid var(--line);font-size:14px;letter-spacing:.04em}
+/* v92: over an open panel the message docks in a strip the panel keeps free at its bottom (outside the part that scrolls), so it
+   never covers the panel's content: a short panel grows by that much, a full-height one scrolls in a slightly smaller window */
+html.toast-sheet .toast{bottom:calc(var(--sheet-gap,0px) + 14px + env(safe-area-inset-bottom,0px))}
+.sheet.toast-room{padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--toast-room,0px))}
 
 .sheet-head{touch-action:none;cursor:grab}
 html{background:#000}
@@ -322,7 +332,7 @@ html{background:#000}
 @keyframes swapIn{from{opacity:0;transform:translateX(14px)}}
 .swap-in{animation:swapIn .26s var(--out)}
 /* toast slides up */
-.toast{transform:translateY(calc(100% + 30px));opacity:0;transition:transform .38s var(--spring),opacity .25s;animation:none}
+.toast{transform:translateY(calc(100% + 30px));opacity:0;transition:transform .38s var(--spring),opacity .25s,bottom .3s var(--spring);animation:none}
 .toast.in{transform:none;opacity:1}
 /* segmented control with sliding highlight */
 .seg{position:relative;--i:1}

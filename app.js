@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '96';
+const APP_V = '97';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -701,6 +701,7 @@ function addEntry(name, kcal, pro, detail, src, slot) {
   const e = { id: uid(), name, kcal: r1(kcal), pro: r1(pro), detail: detail || '', at: Date.now(), slot: slot || defaultSlot(src?.food?.id) };
   if (src) { e.food = src.food; e.qty = src.qty; e.unit = src.unit; setFib(e, src.fib); if (src.oil) e.oil = src.oil; if (src.adds?.length) e.adds = src.adds; }
   (S.log[day] ||= []).push(e);
+  if (e.food?.id && day === todayIso()) flLogged(e.food.id);   // v97: logged from What fits
   touchDay(day); renderTotals(); renderRows(); haptic();
   return e;
 }
@@ -1132,6 +1133,7 @@ function openAmount(f, preset, opts = {}) {
       same.qty = r1(same.qty + q); same.kcal = r1(same.kcal + v.kcal); same.pro = r1(same.pro + v.pro);
       setFib(same, had != null && v.fib != null ? had + v.fib : null);   // only known when both parts are known
       same.detail = `${fmtQty(same.qty)} ${unitWord(f, unit, same.qty)}${oilD}`;
+      if (day === todayIso()) flLogged(f.id);     // v97
       touchDay(day); renderTotals(); renderRows(); haptic(); closeSheet();
       replay(document.querySelector(`.row[data-id="${CSS.escape(same.id)}"]`), 'row-bump');
       toast(`Now ${same.detail} · ${Math.round(same.kcal)} kcal`, { label: 'Undo', fn: () => { Object.assign(same, prev); setFib(same, prevFib); touchDay(day); renderTotals(); renderRows(); } });
@@ -2891,6 +2893,7 @@ const GUIDE = [
   ['The Today screen', `
     <p>The left ring is calories, with a small mark where your range starts. The right ring is protein. <b>Tap the rings</b> to switch between what you've eaten and what's <b>left</b> for the day; tap again to switch back.</p>
     <p>Below the rings: how your day is going, a <b>protein nudge</b> if protein falls behind your calories, <b>What fits</b> (foods from your own list that fit what's left, in a row you can swipe; its last tile is <b>More ideas</b>: simple high-protein meals to make at home and McDonald's, Tim Hortons and Subway items that fit, lighter picks first in the evening; Subway subs and salads are counted without sauce or cheese, so pick yours on How much?, and a salad gets a double portion of sauce) and <b>This week</b> (calories banked or over across the week, and how much you can eat today and stay on budget). Only days you logged count; days with nothing logged are named underneath so you know they're left out.</p>
+    <p><b>What fits</b> learns. It suggests foods that fit what's left today, and keeps track (on this phone) of what you tap and log from it: things you log come back more, things you keep passing over fade, and now and then it slips in a <b>New</b> idea from the built-in foods or home ideas. Your picks stay put for a visit, then change.</p>
     <p><b>Plan my day</b>, under the logging buttons, builds a day of meals from what you actually eat (your saved meals and the foods you've logged in the last 4 weeks, at your usual amounts) plus a rotating home idea or two, aiming for your calorie range and protein target. <b>Today</b> plans the meals still ahead, following your <b>meal times</b> (You → Meal times; nothing after your latest meal, 8 pm unless you change it). In the hour before your latest meal it keeps what's left <b>light</b> (protein first, up to 450 kcal) however many calories are left, so a late meal doesn't hurt your sleep; the rest stays in your weekly budget. <b>Tomorrow</b> plans a whole day. Not sure what dinner will be yet? Tap <b>Plan later</b>: it's left open, with room kept for it (about your usual dinner), and the rest is planned around it. Log it as usual when you know. Log a meal with one tap, or tap a food to change its amount first. Logged something by mistake (say, just the chicken while you meant the whole dinner)? Logged meals list their foods in the plan: tap a food's <b>×</b> to take it back out, and that meal's plan comes back. The "Added" message after any log also has an <b>Undo</b>. Ate something else? It offers to <b>re-plan the rest</b>. Already made tomorrow's breakfast? <b>Choose breakfast</b> and pick it (your meals, usual foods, home ideas or any food); it's <b>locked</b> in and the rest of the day is planned around it. Lock any planned meal you like the same way. <b>Shuffle</b> changes only what isn't locked and avoids repeating your last few plans. Change your targets and the plan re-plans itself to match. It shows up once you've logged a few days.</p>
     <p>Open This week and tap <b>See past weeks and months</b> for your <b>History</b>: a calendar of each month with every day's calories (green in range, orange over, blue under), what each week banked, and every month's averages. Swipe it for other months, and tap a day to open it.</p>
     <p>Once you've logged two or more meals, the Eaten header shows which meal is the biggest ("Breakfast 48%", or a 🏆 when a meal sets your protein record) with a thin bar under it of how your day splits between breakfast, lunch, dinner and snacks; each meal heading has a dot in its colour. Tap either for <b>When you eat</b>: each meal's share and average over 4 weeks, 3 months or all time, your heaviest and lightest meal, what time you usually finish eating, <b>the morning after</b> (how the next weigh-in moves after bigger vs lighter dinners; that's mostly food and water, not fat) your meal split <b>week by week</b>, <b>records</b>, and <b>badges</b> to earn (like done eating by 8 pm 7 days in a row, or 30g+ protein at every main meal). It's also on Trends under Calories. The morning after waits for about two weeks of daily weigh-ins and only calls it a link when the gap is clearly bigger than your normal day-to-day swing.</p>
@@ -3683,18 +3686,104 @@ function fitsCandidates() {
   S.foods.forEach(f => { const us = unitsFor(f), u = us.find(x => x.key === 'serving') || us.find(x => x.key === 'piece') || us.find(x => x.key === 'g'); if (u) add(f, u.key === 'g' ? 100 : 1, u.key); });
   return out;
 }
-function pickFits(left) {
-  const c = fitsCandidates().filter(x => x.kcal <= left).sort((p, q) => q.pro / q.kcal - p.pro / p.kcal || q.pro - p.pro);
-  const picks = []; let k = left;
-  for (const x of c) { if (picks.length >= 2) break; if (x.kcal <= k) { picks.push(x); k -= x.kcal; } }
+/* v97: What fits learns (Kan, 6 Nov: "I keep seeing the same thing... I wanted the app to learn and give me other options").
+   Before, it sorted the same list the same way every time, so the same two picks came back. Now it's a small multi-armed
+   bandit run on the phone (Thompson sampling): every food keeps a running score of how often it was shown, tapped and then
+   logged. Each visit it draws a guess from each food's score (foods you log after seeing them tend to win, foods you keep
+   passing over fade, and something untried gets a fair chance now and then), times how well the food fits right now
+   (protein per calorie, the protein still needed, a sensible share of the calories left, light picks late in the evening).
+   Next to your own foods it can put one new idea from the built-in foods or the home ideas, tagged "New".
+   Scores fade by half every FL_HALF days, so tastes can change. Kept on this phone only (localStorage cutlog.fitsLearn),
+   never in saved data or sync. Picks stay put for a visit (FL_KEEP, or until the calories left move or you log one). */
+const FL_KEY = 'cutlog.fitsLearn', FL_HALF = 14, FL_KEEP = 45 * 6e4, FL_MAX = 300;
+const FITS = { explore: (() => { try { return localStorage.getItem('cutlog.fitsFixed') !== '1'; } catch (e) { return true; } })() };   // e2e's ready() sets cutlog.fitsFixed for the old fixed order
+const flLoad = () => { try { return JSON.parse(localStorage.getItem(FL_KEY)) || {}; } catch (e) { return {}; } };
+const flSave = o => { try { localStorage.setItem(FL_KEY, JSON.stringify(o)); } catch (e) {} };
+function flStat(st, id) {
+  const x = st.items?.[id]; if (!x) return { s: 0, t: 0, l: 0 };
+  const k = Math.pow(0.5, Math.max(0, Date.now() - x.at) / 864e5 / FL_HALF);
+  return { s: x.s * k, t: x.t * k, l: x.l * k };
+}
+function flBump(id, field, st = flLoad()) {
+  const o = flStat(st, id); o[field] += 1; o.at = Date.now(); (st.items ||= {})[id] = o;
+  const ids = Object.keys(st.items); if (ids.length > FL_MAX) ids.sort((a, b) => st.items[a].at - st.items[b].at).slice(0, ids.length - FL_MAX).forEach(i => delete st.items[i]);
+  flSave(st); return st;
+}
+/* a food from the row was logged: count it, and let the row move on */
+function flLogged(id) {
+  const st = flLoad(); if (!st.cur || st.cur.d !== todayIso() || !st.cur.ids.some(x => x.id === id)) return;
+  flBump(id, 'l', st); delete st.cur; flSave(st);
+}
+function gammaS(a) {          // Marsaglia and Tsang
+  if (a < 1) return gammaS(a + 1) * Math.pow(Math.random() || 1e-12, 1 / a);
+  const d = a - 1 / 3, c = 1 / Math.sqrt(9 * d);
+  for (;;) { let x, v; do { const u1 = Math.random() || 1e-12, u2 = Math.random(); x = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2); v = 1 + c * x; } while (v <= 0);
+    v = v * v * v; const u = Math.random(); if (u < 1 - 0.0331 * x ** 4 || Math.log(u) < 0.5 * x * x + d * (1 - v + Math.log(v))) return d * v; }
+}
+const betaS = (a, b) => { const x = gammaS(a), y = gammaS(b); return x / (x + y); };
+/* new ideas: home ideas, and built-in foods that are ready to eat and high in protein, at an everyday amount */
+function fitsNew() {
+  const out = [], seen = new Set();
+  ideaFoods().forEach(f => out.push({ f, qty: 1, unit: 'serving' }));
+  BUILTIN_FOODS.forEach(f => {
+    if (!f.kcal100 || f.state === 'raw' || f.state === 'dry' || (f.pro100 || 0) / f.kcal100 < 0.08 || seen.has(f.name)) return; seen.add(f.name);
+    const u = f.piece ? 'piece' : f.cup ? 'cup' : 'g', q = u === 'g' ? 100 : 1, v = calc(f, q, u);
+    if (v.kcal >= 60 && v.kcal <= 600) out.push({ f, qty: q, unit: u });
+  });
+  return out.map(x => { const v = calc(x.f, x.qty, x.unit); return { ...x, kcal: v.kcal, pro: v.pro, isNew: true }; });
+}
+function pickFits(left, proLeft = 0) {
+  const own = fitsCandidates().filter(x => x.kcal <= left), ownIds = new Set(own.map(x => x.f.id)), st = flLoad();
+  const since = shift(todayIso(), -28), freq = {};
+  Object.keys(S.log).filter(d => d >= since).forEach(d => new Set(S.log[d].map(e => e.food?.id).filter(Boolean)).forEach(id => { freq[id] = (freq[id] || 0) + 1; }));
+  const fresh = FITS.explore ? fitsNew().filter(x => !ownIds.has(x.f.id) && x.kcal <= left && x.pro >= IDEA_MIN_PRO && x.pro / x.kcal * 100 >= IDEA_MIN_DENS) : [];
+  const late = lateNow(), need = Math.max(20, Math.min(proLeft || 40, 40));
+  const score = x => {
+    const dens = Math.min(1, x.pro / Math.max(x.kcal, 1) * 100 / 12), got = Math.min(1, x.pro / need), size = 1 - Math.abs(Math.min(x.kcal / left, 1) - 0.45);
+    const base = (0.45 * dens + 0.35 * got + 0.2 * size) * (late && x.kcal > 350 ? 0.5 : 1);
+    const o = flStat(st, x.f.id), fam = x.isNew ? 0 : Math.min(freq[x.f.id] || 0, 8) * 0.25;
+    const a = 1 + o.t + 3 * o.l + fam, b = (x.isNew ? 1.5 : 1) + Math.max(0, o.s - o.t - o.l) * 0.6;
+    return base * (0.4 + (FITS.explore ? betaS(a, b) : a / (a + b)));
+  };
+  const scored = list => list.map(x => ({ x, v: score(x) })).sort((p, q) => q.v - p.v);
+  if (!FITS.explore) {          // the old fixed order (tests): most protein per calorie first, your own foods only
+    const c = own.slice().sort((p, q) => q.pro / q.kcal - p.pro / p.kcal || q.pro - p.pro), picks = []; let k = left;
+    for (const x of c) { if (picks.length >= 2) break; if (x.kcal <= k) { picks.push(x); k -= x.kcal; } }
+    return picks;
+  }
+  const so = scored(own), sn = scored(fresh), picks = []; let k = left;
+  const fits = y => y.x.kcal <= k && !picks.some(p => p.f.id === y.x.f.id);
+  const take = y => { picks.push(y.x); k -= y.x.kcal; };
+  const o1 = so.find(fits); if (o1) take(o1);                  // your own best first
+  /* the second tile: a new idea about half the time, more often the more your top pick gets passed over (up to 85%);
+     otherwise whichever scores higher, your next food or the best new idea, so a food you keep skipping steps aside */
+  const top = picks[0] && flStat(st, picks[0].f.id), ign = top ? Math.max(0, top.s - top.t - 2 * top.l) : 0;
+  const n1 = sn.find(fits), o2 = so.find(fits);
+  if (n1 && (!o2 || Math.random() < Math.min(0.85, 0.5 + 0.05 * ign) || n1.v > o2.v * 1.5)) take(n1);   // your own foods get an edge
+  else if (o2) take(o2);
+  if (!picks.length) { const n = sn.find(fits); if (n) take(n); }
+  return picks.slice(0, 2);
+}
+/* the row for this visit: kept while the day, the calories left (to 50) and the protein left (to 10 g) stay the same */
+function fitsForNow(left, proLeft) {
+  const st = flLoad(), key = `${todayIso()}|${Math.round(left / 50)}|${Math.round(proLeft / 10)}|${FITS.explore ? 1 : 0}`, c = st.cur;
+  if (c && c.key === key && Date.now() - c.at < FL_KEEP) {
+    const pool = [...fitsCandidates(), ...(FITS.explore ? fitsNew() : [])];
+    const got = c.ids.map(y => { const z = pool.find(x => x.f.id === y.id && x.unit === y.unit); return z && { ...z, qty: y.qty, ...calcKP(z.f, y.qty, y.unit), isNew: y.isNew }; });
+    if (got.every(Boolean) && got.reduce((a, x) => a + x.kcal, 0) <= left) return got;
+  }
+  const picks = pickFits(left, proLeft);
+  picks.forEach(x => flBump(x.f.id, 's', st));
+  st.cur = { d: todayIso(), key, at: Date.now(), ids: picks.map(x => ({ id: x.f.id, qty: x.qty, unit: x.unit, isNew: !!x.isNew })) }; flSave(st);
   return picks;
 }
+const calcKP = (f, q, u) => { const v = calc(f, q, u); return { kcal: v.kcal, pro: v.pro }; };
 let fitPicks = [];
 function renderFits() {
   const el = $('fits'), T = S.targets, es = entriesFor(day);
   const cal = es.reduce((s, e) => s + e.kcal, 0), pro = es.reduce((s, e) => s + e.pro, 0), left = Math.round(T.calHi - cal);
   const on = day === todayIso() && es.length && left >= 150;
-  fitPicks = on ? pickFits(left) : [];
+  fitPicks = on ? fitsForNow(left, Math.max(0, Math.round(T.protein - pro))) : [];
   const mi = on ? moreIdeas(left) : null, more = !!mi && mi.count > 0;      // v67: ideas beyond your own foods
   el.hidden = !fitPicks.length && !more;
   /* v68: while the picks show, they say what the "under your range, room for a snack" line said, so that line steps aside
@@ -3705,14 +3794,14 @@ function renderFits() {
   const moreSub = mi && `${mi.count} that fit`;
   /* v68: one swipeable row, full names, with More ideas as its last tile (was two cut-off tiles plus a separate button) */
   el.innerHTML = `<span class="fits-k">Fits the ${kc(left)} kcal${proLeft ? ` and ${proLeft}g protein` : ''} left</span>`
-    + `<div class="fits-row" id="fitsRow">${fitPicks.map((x, i) => `<button class="fit" data-fit="${i}"><b>${esc(x.f.name)}</b><small>${Math.round(x.kcal)} kcal · ${fmtG(x.pro)}g</small></button>`).join('')}`
+    + `<div class="fits-row" id="fitsRow">${fitPicks.map((x, i) => `<button class="fit" data-fit="${i}"${x.isNew ? ' data-new="1"' : ''}><b>${x.isNew ? '<i class="fit-new">New</i>' : ''}${esc(x.f.name)}</b><small>${Math.round(x.kcal)} kcal · ${fmtG(x.pro)}g</small></button>`).join('')}`
     + (more ? `<button class="fit fit-more" id="fitsMore" type="button"><b>More ideas${CHEV_R}</b><small>${esc(moreSub)}</small></button>` : '') + '</div>';
   const row = $('fitsRow'), fade = () => row.classList.toggle('more', row.scrollLeft + row.clientWidth < row.scrollWidth - 4);
   row.addEventListener('scroll', fade, { passive: true }); requestAnimationFrame(fade);
 }
 $('fits').onclick = e => {
   if (e.target.closest('#fitsMore')) { haptic(); openMoreIdeas(); return; }
-  const b = e.target.closest('[data-fit]'); if (!b) return; const x = fitPicks[+b.dataset.fit]; if (x) { haptic(); openAmount(x.f, { qty: x.qty, unit: x.unit }); }
+  const b = e.target.closest('[data-fit]'); if (!b) return; const x = fitPicks[+b.dataset.fit]; if (x) { haptic(); flBump(x.f.id, 't'); openAmount(x.f, { qty: x.qty, unit: x.unit }); }   // v97: a tap counts
 };
 
 /* =================== v67: MORE IDEAS (beyond your own foods) ===================
@@ -4281,6 +4370,9 @@ $('adjNo').onclick = () => adjClose(false);
    set the app up don't get it). Always available in You → Help. Last seen version: localStorage cutlog.seenV (per device).
    Every release adds an entry at the top, in plain words for everyone who uses Cut Log. */
 const CHANGELOG = [
+  { v: 97, d: '2026-11-06', items: [
+    'What fits now learns what you like. It notices what you tap and log from it and suggests those more, lets things you keep skipping fade, and mixes in a "New" idea from the built-in foods and home ideas, so it isn\'t the same two picks every time.',
+  ] },
   { v: 96, d: '2026-11-06', items: [
     'Drinks can now be logged in ml or fl oz (and a 250 ml cup): milk, juice, almond drinks, soup, and anything whose serving is given in ml. Switching units keeps the amount, so 1 serving of 250 ml becomes 250 ml.',
   ] },

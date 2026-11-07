@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '99';
+const APP_V = '100';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -4622,7 +4622,7 @@ function renderRecap() {
   const tabs = `<div class="seg2 rc-tabs" id="rcTabs" role="group" aria-label="Which recap">${['week', 'month', 'year'].map(k => `<button type="button" data-rk="${k}" aria-pressed="${k === RC.kind}"${!stats[k] || stats[k].n < RC_MIN ? ' disabled' : ''}>${esc(P[k].tab)}</button>`).join('')}</div>`;
   if (!st || st.n < RC_MIN) { box.innerHTML = tabs + `<p class="hint" id="rcEmpty">Log at least ${RC_MIN} days in a week or a month and your recap shows up here, ready to share.</p>`; RC.files = null; return; }
   const sw = `<div class="rc-pals" id="rcPals" role="group" aria-label="Colours">${Object.entries(RC_PAL).map(([k, x]) => `<button type="button" class="rc-pal" data-rp="${k}" aria-pressed="${k === palKey}" style="background:${x.blobs.slice(0, 3).map((b, i) => `radial-gradient(70% 70% at ${[20, 85, 40][i]}% ${[20, 30, 90][i]}%, ${b[0]} 0%, transparent 75%)`).join(', ')}, ${x.base}"><span>${esc(x.name)}</span></button>`).join('')}</div>`;
-  const cards = [0, 1, 2, 3].map(c => `<div class="rc-card" data-card="${c}"><div class="rc-bg" aria-hidden="true" style="background:${pal.blobs.map(([col, x, y]) => `radial-gradient(52% 44% at ${15 + x * 70}% ${15 + y * 70}%, ${col} 0%, transparent 74%)`).join(', ')}"></div><canvas role="img"></canvas></div>`).join('');
+  const cards = [0, 1, 2, 3].map(c => `<div class="rc-card" data-card="${c}"><div class="rc-bg" aria-hidden="true">${pal.blobs.map(([col, x, y]) => `<i style="--c:${col};left:${15 + x * 70}%;top:${15 + y * 70}%"></i>`).join('')}</div><canvas role="img"></canvas></div>`).join('');
   const wt = st.w ? `<div class="rc-sw"><span><b>Show my actual weights</b><small id="rcWs">${weights ? `${fW(st.w.w0)} → ${fW(st.w.w1)} ${wU()} is shown` : `Off: only the change (${rcW(st.w.ch)}) is shown`}</small></span><button type="button" class="nt-sw" id="rcW" role="switch" aria-checked="${weights}" aria-label="Show my actual weights"></button></div>` : '';
   box.innerHTML = tabs
     + `<p class="hint" id="rcSub">${esc(P[RC.kind].sub)} · ${st.n} day${st.n === 1 ? '' : 's'} logged${st.n < st.total ? ` of ${st.total}` : ''}</p>`
@@ -4754,6 +4754,9 @@ $('adjNo').onclick = () => adjClose(false);
    set the app up don't get it). Always available in You → Help. Last seen version: localStorage cutlog.seenV (per device).
    Every release adds an entry at the top, in plain words for everyone who uses Cut Log. */
 const CHANGELOG = [
+  { v: 100, d: '2026-11-07', items: [
+    'Your recap: the colours behind the cards now really flow, each colour drifting on its own path (they stay still if your phone has Reduce Motion on). The shared picture is unchanged.',
+  ] },
   { v: 99, d: '2026-11-07', items: [
     'Free day: plan a day each week (or every other week) to eat more, in You → Free day. Choose how much extra (+300 to +1,000 kcal, or no limit) and how it’s paid for: budgeted (the other days are a little lower so the week still lands on target) or free (not paid back). Protein stays the same. It counts as on plan in your check-in and History, Plan my day plans the bigger day, and you can skip one from Today. For Cutting and Maintaining.',
   ] },

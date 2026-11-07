@@ -584,11 +584,20 @@ details.shut>:not(summary){opacity:0;transform:translateY(-4px);transition:opaci
 #rcOne,#rcSlides{width:100%}
 .rc-row::-webkit-scrollbar{display:none}
 .rc-card{position:relative;isolation:isolate;flex:0 0 min(66%,250px);aspect-ratio:9/16;border-radius:18px;overflow:hidden;background:var(--rc-base);scroll-snap-align:start;box-shadow:0 6px 24px rgba(0,0,0,.18)}
-.rc-bg{position:absolute;inset:-30%;z-index:-1;filter:blur(10px);animation:rcDrift 16s ease-in-out infinite alternate}
-.rc-card:nth-child(2) .rc-bg{animation-delay:-4s}.rc-card:nth-child(3) .rc-bg{animation-delay:-8s}.rc-card:nth-child(4) .rc-bg{animation-delay:-12s}
+/* v100: the colours flow. v98 moved the whole blurred layer a few percent over 16 s (about 3 px a second on a phone card, which
+   read as still on Kan's iPhone). Now each palette colour is its own soft blob on its own loop, crossing about a third of the card. */
+.rc-bg{position:absolute;inset:-20%;z-index:-1;pointer-events:none}
+.rc-bg i{position:absolute;width:90%;aspect-ratio:1;margin:-45% 0 0 -45%;border-radius:50%;background:radial-gradient(closest-side,var(--c),transparent);will-change:transform;animation:rcFlow1 16s ease-in-out infinite}
+.rc-bg i:nth-child(2){animation-name:rcFlow2;animation-duration:19s}
+.rc-bg i:nth-child(3){animation-name:rcFlow3;animation-duration:22s}
+.rc-bg i:nth-child(4){animation-name:rcFlow4;animation-duration:17s}
+.rc-card:nth-child(2) .rc-bg i{animation-delay:-4s}.rc-card:nth-child(3) .rc-bg i{animation-delay:-8s}.rc-card:nth-child(4) .rc-bg i{animation-delay:-12s}
+@keyframes rcFlow1{0%,100%{transform:translate3d(0,0,0) scale(1)}33%{transform:translate3d(32%,22%,0) scale(1.18)}66%{transform:translate3d(-10%,38%,0) scale(.92)}}
+@keyframes rcFlow2{0%,100%{transform:translate3d(0,0,0) scale(1)}33%{transform:translate3d(-34%,26%,0) scale(.9)}66%{transform:translate3d(-18%,-20%,0) scale(1.15)}}
+@keyframes rcFlow3{0%,100%{transform:translate3d(0,0,0) scale(1)}33%{transform:translate3d(28%,-30%,0) scale(1.12)}66%{transform:translate3d(36%,10%,0) scale(.95)}}
+@keyframes rcFlow4{0%,100%{transform:translate3d(0,0,0) scale(1)}33%{transform:translate3d(-30%,-24%,0) scale(1.1)}66%{transform:translate3d(12%,-36%,0) scale(.9)}}
 .rc-card canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
-@keyframes rcDrift{0%{transform:translate(0,0) rotate(0) scale(1)}50%{transform:translate(7%,-5%) rotate(9deg) scale(1.1)}100%{transform:translate(-6%,6%) rotate(-7deg) scale(1.03)}}
-@media (prefers-reduced-motion: reduce){.rc-bg{animation:none}}
+@media (prefers-reduced-motion: reduce){.rc-bg i,.rc-bg i:nth-child(n){animation:none}}   /* :nth-child(n) outranks the per-colour rules above */
 #rcWrap{display:flex;flex-direction:column;gap:12px}#rcWrap>*{flex-shrink:0}
 .rc-pals{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
 .rc-pal{height:56px;border-radius:14px;display:flex;align-items:flex-end;padding:6px 10px;color:#fff;font-weight:600;font-size:13px;border:2px solid transparent;text-shadow:0 1px 3px rgba(0,0,0,.45)}

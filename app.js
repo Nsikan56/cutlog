@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '94';
+const APP_V = '95';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -680,6 +680,14 @@ function addEntry(name, kcal, pro, detail, src, slot) {
   if (src) { e.food = src.food; e.qty = src.qty; e.unit = src.unit; setFib(e, src.fib); if (src.oil) e.oil = src.oil; if (src.adds?.length) e.adds = src.adds; }
   (S.log[day] ||= []).push(e);
   touchDay(day); renderTotals(); renderRows(); haptic();
+  return e;
+}
+/* v95: take a just-logged entry back out (the Undo on "Added …") */
+function unlogEntry(id, d) {
+  const list = S.log[d] || [], i = list.findIndex(x => x.id === id); if (i < 0) return null;
+  const [gone] = list.splice(i, 1); if (!list.length) delete S.log[d];
+  touchDay(d); renderTotals(); renderRows(); if (SH.open && $('sheetTitle').textContent === 'Plan my day') renderPlan();
+  return { gone, i };
 }
 function removeEntry(id) {
   const el = document.querySelector(`.row[data-id="${CSS.escape(id)}"]`);
@@ -1099,8 +1107,8 @@ function openAmount(f, preset, opts = {}) {
       toast(`Now ${same.detail} · ${Math.round(same.kcal)} kcal`, { label: 'Undo', fn: () => { Object.assign(same, prev); setFib(same, prevFib); touchDay(day); renderTotals(); renderRows(); } });
       return;
     }
-    addEntry(f.name, v.kcal, v.pro, detail, { food: f, qty: q, unit, fib: v.fib, oil, adds }, slot);
-    closeSheet(); toast(`Added ${Math.round(v.kcal)} kcal · ${fmtG(v.pro)}g protein`);
+    const ne = addEntry(f.name, v.kcal, v.pro, detail, { food: f, qty: q, unit, fib: v.fib, oil, adds }, slot), nd = day;
+    closeSheet(); toast(`Added ${Math.round(v.kcal)} kcal · ${fmtG(v.pro)}g protein`, { label: 'Undo', fn: () => unlogEntry(ne.id, nd) });   // v95
   };
 }
 
@@ -2852,7 +2860,7 @@ const GUIDE = [
   ['The Today screen', `
     <p>The left ring is calories, with a small mark where your range starts. The right ring is protein. <b>Tap the rings</b> to switch between what you've eaten and what's <b>left</b> for the day; tap again to switch back.</p>
     <p>Below the rings: how your day is going, a <b>protein nudge</b> if protein falls behind your calories, <b>What fits</b> (foods from your own list that fit what's left, in a row you can swipe; its last tile is <b>More ideas</b>: simple high-protein meals to make at home and McDonald's, Tim Hortons and Subway items that fit, lighter picks first in the evening; Subway subs and salads are counted without sauce or cheese, so pick yours on How much?, and a salad gets a double portion of sauce) and <b>This week</b> (calories banked or over across the week, and how much you can eat today and stay on budget). Only days you logged count; days with nothing logged are named underneath so you know they're left out.</p>
-    <p><b>Plan my day</b>, under the logging buttons, builds a day of meals from what you actually eat (your saved meals and the foods you've logged in the last 4 weeks, at your usual amounts) plus a rotating home idea or two, aiming for your calorie range and protein target. <b>Today</b> plans the meals still ahead, following your <b>meal times</b> (You → Meal times; nothing after your latest meal, 8 pm unless you change it). In the hour before your latest meal it keeps what's left <b>light</b> (protein first, up to 450 kcal) however many calories are left, so a late meal doesn't hurt your sleep; the rest stays in your weekly budget. <b>Tomorrow</b> plans a whole day. Not sure what dinner will be yet? Tap <b>Plan later</b>: it's left open, with room kept for it (about your usual dinner), and the rest is planned around it. Log it as usual when you know. Log a meal with one tap, or tap a food to change its amount first. Ate something else? It offers to <b>re-plan the rest</b>. Already made tomorrow's breakfast? <b>Choose breakfast</b> and pick it (your meals, usual foods, home ideas or any food); it's <b>locked</b> in and the rest of the day is planned around it. Lock any planned meal you like the same way. <b>Shuffle</b> changes only what isn't locked and avoids repeating your last few plans. Change your targets and the plan re-plans itself to match. It shows up once you've logged a few days.</p>
+    <p><b>Plan my day</b>, under the logging buttons, builds a day of meals from what you actually eat (your saved meals and the foods you've logged in the last 4 weeks, at your usual amounts) plus a rotating home idea or two, aiming for your calorie range and protein target. <b>Today</b> plans the meals still ahead, following your <b>meal times</b> (You → Meal times; nothing after your latest meal, 8 pm unless you change it). In the hour before your latest meal it keeps what's left <b>light</b> (protein first, up to 450 kcal) however many calories are left, so a late meal doesn't hurt your sleep; the rest stays in your weekly budget. <b>Tomorrow</b> plans a whole day. Not sure what dinner will be yet? Tap <b>Plan later</b>: it's left open, with room kept for it (about your usual dinner), and the rest is planned around it. Log it as usual when you know. Log a meal with one tap, or tap a food to change its amount first. Logged something by mistake (say, just the chicken while you meant the whole dinner)? Logged meals list their foods in the plan: tap a food's <b>×</b> to take it back out, and that meal's plan comes back. The "Added" message after any log also has an <b>Undo</b>. Ate something else? It offers to <b>re-plan the rest</b>. Already made tomorrow's breakfast? <b>Choose breakfast</b> and pick it (your meals, usual foods, home ideas or any food); it's <b>locked</b> in and the rest of the day is planned around it. Lock any planned meal you like the same way. <b>Shuffle</b> changes only what isn't locked and avoids repeating your last few plans. Change your targets and the plan re-plans itself to match. It shows up once you've logged a few days.</p>
     <p>Open This week and tap <b>See past weeks and months</b> for your <b>History</b>: a calendar of each month with every day's calories (green in range, orange over, blue under), what each week banked, and every month's averages. Swipe it for other months, and tap a day to open it.</p>
     <p>Once you've logged two or more meals, the Eaten header shows which meal is the biggest ("Breakfast 48%", or a 🏆 when a meal sets your protein record) with a thin bar under it of how your day splits between breakfast, lunch, dinner and snacks; each meal heading has a dot in its colour. Tap either for <b>When you eat</b>: each meal's share and average over 4 weeks, 3 months or all time, your heaviest and lightest meal, what time you usually finish eating, <b>the morning after</b> (how the next weigh-in moves after bigger vs lighter dinners; that's mostly food and water, not fat) your meal split <b>week by week</b>, <b>records</b>, and <b>badges</b> to earn (like done eating by 8 pm 7 days in a row, or 30g+ protein at every main meal). It's also on Trends under Calories. The morning after waits for about two weeks of daily weigh-ins and only calls it a link when the gap is clearly bigger than your normal day-to-day swing.</p>
     <p><b>More nutrients</b>, under your food list, shows your <b>carbs and fat</b> and how your calories split between protein, carbs and fat. There's no carb target: with calories and protein set, carbs and fat are what's left. A big carb day can show up as water weight the next morning, not fat. Carbs come from packaged foods, the built-in foods and labels you type in (chain menu items don't have them yet); foods without them aren't counted, and it says how many foods it's from. Totals only show once foods with carb data make up most of the day's calories; until then it lists the foods missing them, and a tap adds the numbers from the label (scanned foods fill in by themselves).</p>
@@ -3902,8 +3910,13 @@ function buildPlan(cands, slots, base, T, recent, avoidSig, minPer = 1) {
     }
     const g = sig(cur); if (!found.has(g)) found.set(g, { items: cur, sc: best });
   }
-  const ranked = [...found.entries()].filter(([g]) => g !== avoidSig).sort((a, b) => a[1].sc - b[1].sc);
+  let ranked = [...found.entries()].filter(([g]) => g !== avoidSig).sort((a, b) => a[1].sc - b[1].sc);
   if (!ranked.length) return null;
+  /* v95: the scores lean this way, but now and then a near-best plan had as many home ideas as own foods (2 and 2), or a main
+     meal without a 15 g protein; when any plan keeps the rules, pick among those (else the closest, as before) */
+  const keeps = it => { const id = it.filter(y => y.c.idea).length, by = {}; it.forEach(y => (by[y.slot] ||= []).push(y));
+    return id <= 2 && it.length - id > id && Object.entries(by).every(([sl, g]) => sl === 'snacks' || g.some(y => y.c.at[y.s].pro >= 15)); };
+  const good = ranked.filter(([, x]) => keeps(x.items)); if (good.length) ranked = good;
   const top = ranked.filter(([, x]) => x.sc <= ranked[0][1].sc + 35).slice(0, 4);
   const [g, x] = rnd(top);
   return { sig: g, items: x.items };
@@ -3963,7 +3976,9 @@ function openPlan(tab) {
   sheetBody.onclick = e => {
     const t = e.target.closest('[data-pt]'), lg = e.target.closest('[data-pl]'), it = e.target.closest('[data-pi]');
     const ch = e.target.closest('[data-pc]'), lk = e.target.closest('[data-pk]'), rm = e.target.closest('[data-px]');
-    const lt = e.target.closest('[data-plt]'), pa = e.target.closest('[data-pa]');
+    const lt = e.target.closest('[data-plt]'), pa = e.target.closest('[data-pa]'), un = e.target.closest('[data-pu]');
+    if (un) { haptic(); const d = todayIso(), r = unlogEntry(un.dataset.pu, d); if (!r) return;   // v95: logged by mistake? take it back out
+      toast(`Removed from ${slotLabel(slotOf(r.gone)).toLowerCase()}`, { label: 'Undo', fn: () => { (S.log[d] ||= []).splice(r.i, 0, r.gone); touchDay(d); renderTotals(); renderRows(); if (SH.open && $('sheetTitle').textContent === 'Plan my day') renderPlan(); } }); return; }
     if (t && !t.disabled) { PL.tab = t.dataset.pt; haptic(); renderPlan(); return; }
     if (e.target.closest('#plShuffle') || e.target.closest('#plRedo')) { haptic(); const d = planDay(); makePlan(planCtx(d), planStore().plans?.[d]?.sig); renderPlan(); replay($('plWrap'), 'fade-in'); return; }
     if (lg) { logPlanSlot(lg.dataset.pl); return; }
@@ -4057,7 +4072,8 @@ function renderPlan() {
   const sum = `<div class="result" id="plSum"><div><span class="num">${kc(tot.kcal)}</span><small>kcal${pw}</small></div><div class="pro"><span class="num">${fmtG(tot.pro)}g</span><small>protein${pw}</small></div></div><p class="hint pl-target" id="plTarget">Your targets: ${kc(T.calLo)}–${kc(T.calHi)} kcal and ${T.protein}g protein${ctx.isToday && ctx.done.length ? ', counting what you’ve logged' : ''}${later.length ? `, with room kept for ${names(later)}` : ''}.</p>`;
   const groups = SLOTS.map(([s, label]) => {
     if (ctx.done.includes(s)) { const g = ctx.es.filter(e => slotOf(e) === s), k = g.reduce((a, e) => a + e.kcal, 0), pr = g.reduce((a, e) => a + e.pro, 0);
-      return `<div class="pl-slot pl-done" data-slot="${s}"><div class="mg-h"><span>${label}</span><span class="mg-t">Logged ✓ · ${kc(k)} kcal · ${fmtG(pr)}g</span></div></div>`; }
+      const lr = g.map(e => `<div class="meal-row"><div class="item"><span class="nm">${esc(e.name)}<small>${esc(e.detail || '')}</small></span><span class="meta">${kc(e.kcal)} kcal · ${fmtG(e.pro)}g</span></div><button class="x" data-pu="${esc(e.id)}" aria-label="Take ${esc(e.name)} back out">${icon('i-x')}</button></div>`).join('');   // v95
+      return `<div class="pl-slot pl-done" data-slot="${s}"><div class="mg-h"><span>${label}</span><span class="mg-t">Logged ✓ · ${kc(k)} kcal · ${fmtG(pr)}g</span></div><div class="list pl-logged">${lr}</div></div>`; }
     if (!ctx.avail.includes(s)) return '';
     if (later.includes(s)) { const r = room[s], lab = label.toLowerCase();
       const pOk = r.pro >= 5, pg = Math.round(r.pro);
@@ -4076,7 +4092,7 @@ function renderPlan() {
   }).join('');
   box.innerHTML = tabs + sum + note + groups
     + (ctx.open.some(s => !later.includes(s)) && !(ctx.isToday && ctx.base.kcal >= T.calHi) ? `<button class="btn ghost" id="plShuffle">Shuffle${anyLock ? ' the unlocked meals' : ': another plan'}</button>` : '')
-    + `<p class="hint">${ctx.isToday ? 'Tap a food to change its amount before logging it, or log a whole meal with one tap.' : 'Tomorrow this plan opens on Today, so you can log each meal as you eat it.'} Choose a meal to plan it yourself, or lock one you like: locked meals stay put and the rest is planned around them. Not sure yet? Plan later keeps room for that meal. Shuffle mixes up the rest and rotates in a home idea or two.</p>`;
+    + `<p class="hint">${ctx.isToday ? 'Tap a food to change its amount before logging it, or log a whole meal with one tap. Logged something by mistake? Tap its × to take it back out.' : 'Tomorrow this plan opens on Today, so you can log each meal as you eat it.'} Choose a meal to plan it yourself, or lock one you like: locked meals stay put and the rest is planned around them. Not sure yet? Plan later keeps room for that meal. Shuffle mixes up the rest and rotates in a home idea or two.</p>`;
 }
 function logPlanSlot(s) {
   const p = planStore().plans?.[todayIso()]; if (!p || day !== todayIso()) return;
@@ -4234,6 +4250,11 @@ $('adjNo').onclick = () => adjClose(false);
    set the app up don't get it). Always available in You → Help. Last seen version: localStorage cutlog.seenV (per device).
    Every release adds an entry at the top, in plain words for everyone who uses Cut Log. */
 const CHANGELOG = [
+  { v: 95, d: '2026-11-06', items: [
+    'Logged something by mistake? The "Added" message after a log now has an Undo.',
+    'Plan my day: meals you\'ve logged now list their foods, each with an × to take it back out. That meal\'s plan comes back, ready to log properly.',
+    'Plan my day also sticks more closely to its own rules: your own foods always outnumber home ideas, and every main meal has a real protein.',
+  ] },
   { v: 94, d: '2026-11-06', items: [
     'Weight history: the change tile now reads "lb change" on one line, a new line under the tiles says which days the change and weekly rate cover, and each month\'s number is labelled as its average.',
   ] },

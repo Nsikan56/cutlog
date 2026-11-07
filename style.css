@@ -854,6 +854,15 @@ details.shut>:not(summary){opacity:0;transform:translateY(-4px);transition:opaci
 .pl-room b{color:var(--ink);font-weight:700}
 .pl-acts .linkbtn{white-space:nowrap}
 .pl-tag{font-style:normal;font-size:11px;font-weight:700;color:var(--accent);background:var(--accent-soft);padding:1px 7px;border-radius:999px;margin-left:6px;vertical-align:1px}
+/* v102: off days. Meal times shows work and off-day times side by side; Plan my day has a Work day / Off day switch; a planned meal past its time stays as "Late" */
+#tvHead[hidden]+.prow{border-top:0}
+.tm2 .pv{display:grid;grid-template-columns:repeat(2,minmax(66px,auto));column-gap:14px;text-align:right}
+.tm-head{padding:0 0 4px}
+.tm-head .pv{font-size:12px;font-weight:700;color:var(--muted)}
+.tm2 #tvDays .pv{display:block}
+.tm-offbox{display:flex;flex-direction:column;gap:12px}
+.pl-day{display:flex;flex-direction:column;gap:6px}
+.pl-late .pl-tag{color:var(--warn);background:var(--warn-soft)}
 /* v75: Subway sauce and cheese chips: compact, wrapping, so twelve sauces don't make How much? too long on a phone */
 .adds .chips.wrap{gap:6px}
 .adds .chip{padding:7px 11px;font-size:13px}

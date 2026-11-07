@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>Cut Log</title>
-<meta name="app-v" content="101">
+<meta name="app-v" content="102">
 <!-- v63: only lets the page load code and data from the places Cut Log really uses (Firebase, the scanner and label reader, Open Food Facts, Google fonts). If the theme script just below changes, its sha256 here must change too (test AY checks). -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-cxglE2uldCp/ybpBoYGJlEJKfTyNB39uAaDq3zqChpA=' https://cdn.jsdelivr.net https://fastly.jsdelivr.net https://www.gstatic.com 'wasm-unsafe-eval'; worker-src 'self' blob: https://cdn.jsdelivr.net https://fastly.jsdelivr.net; connect-src 'self' https://*.supabase.co https://world.openfoodfacts.org https://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com https://cdn.jsdelivr.net https://fastly.jsdelivr.net https://www.gstatic.com data: blob:; img-src 'self' data: blob:; media-src 'self' blob: mediastream:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; frame-src https://cutlog-5ab4e.firebaseapp.com; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
 <script>/* apply Light/Dark before the page draws, so it never flashes the wrong colors */
@@ -21,7 +21,7 @@ try { var cla = localStorage.getItem('cutlog.appearance'); if (cla === 'light' |
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Barlow:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="style.css?v=101">
+<link rel="stylesheet" href="style.css?v=102">
 </head>
 <body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -341,18 +341,34 @@ try { var cla = localStorage.getItem('cutlog.appearance'); if (cla === 'light' |
     <section class="card" id="timesCard">
       <div class="card-h"><h2>Meal times</h2><button class="edit" id="timesEdit">Edit</button></div>
       <div class="plist" id="timesView">
-        <div class="prow"><span class="pk">Breakfast</span><span class="pv" id="tvB">–</span></div>
-        <div class="prow"><span class="pk">Lunch</span><span class="pv" id="tvL">–</span></div>
-        <div class="prow"><span class="pk">Dinner</span><span class="pv" id="tvD">–</span></div>
-        <div class="prow"><span class="pk">Latest meal</span><span class="pv" id="tvE">–</span></div>
+        <div class="prow tm-head" id="tvHead" hidden><span class="pk"></span><span class="pv"><span>Work days</span><span>Off days</span></span></div>
+        <div class="prow"><span class="pk">Breakfast</span><span class="pv"><span id="tvB">–</span><span class="tvo" id="tvoB" hidden></span></span></div>
+        <div class="prow"><span class="pk">Lunch</span><span class="pv"><span id="tvL">–</span><span class="tvo" id="tvoL" hidden></span></span></div>
+        <div class="prow"><span class="pk">Dinner</span><span class="pv"><span id="tvD">–</span><span class="tvo" id="tvoD" hidden></span></span></div>
+        <div class="prow"><span class="pk">Latest meal</span><span class="pv"><span id="tvE">–</span><span class="tvo" id="tvoE" hidden></span></span></div>
+        <div class="prow" id="tvDays" hidden><span class="pk">Usual off days</span><span class="pv" id="tvDaysV">–</span></div>
       </div>
       <p class="hint" id="timesHint">Plan my day plans your meals around these. In the hour before your latest meal, it keeps what's left light so it doesn't affect your sleep.</p>
       <div class="pform" id="timesForm" hidden>
+        <div class="ob-label" id="tmWorkL" hidden>Work-day times</div>
         <div class="grid2">
           <label>Breakfast<input id="tmB" type="time" step="900"></label>
           <label>Lunch<input id="tmL" type="time" step="900"></label>
           <label>Dinner<input id="tmD" type="time" step="900"></label>
           <label>Latest meal<input id="tmE" type="time" step="900"></label>
+        </div>
+        <div class="nt-row tm-sw"><span class="nt-t"><b>Different times on off days</b><small>Like a later breakfast on days you're not working.</small></span><button class="nt-sw" id="tmOffSw" type="button" role="switch" aria-checked="false" aria-label="Different times on off days"></button></div>
+        <div class="tm-offbox" id="tmOffBox" hidden>
+          <div class="ob-label">Usual off days</div>
+          <div class="seg2 fd-days" id="tmDays" role="group" aria-label="Usual off days"><button type="button" data-v="1">Mon</button><button type="button" data-v="2">Tue</button><button type="button" data-v="3">Wed</button><button type="button" data-v="4">Thu</button><button type="button" data-v="5">Fri</button><button type="button" data-v="6">Sat</button><button type="button" data-v="0">Sun</button></div>
+          <div class="ob-label">Off-day times</div>
+          <div class="grid2">
+            <label>Breakfast<input id="tmB2" type="time" step="900"></label>
+            <label>Lunch<input id="tmL2" type="time" step="900"></label>
+            <label>Dinner<input id="tmD2" type="time" step="900"></label>
+            <label>Latest meal<input id="tmE2" type="time" step="900"></label>
+          </div>
+          <p class="hint" id="tmOffHint">Off on a different day this week? Switch that day to Off day in Plan my day.</p>
         </div>
         <p class="gwarn" id="tmWarn" hidden></p>
         <div class="pform-btns"><button class="btn" id="tmSave" type="button">Save</button><button class="btn ghost" id="tmCancel" type="button">Cancel</button></div>
@@ -436,8 +452,8 @@ try { var cla = localStorage.getItem('cutlog.appearance'); if (cla === 'light' |
 <div class="toast" id="toast" role="status" hidden></div>
 <input type="file" id="photoIn" accept="image/*" capture="environment" hidden>
 
-<script src="firebase-config.js?v=101"></script>
-<script src="foods.js?v=101"></script>
-<script src="app.js?v=101"></script>
+<script src="firebase-config.js?v=102"></script>
+<script src="foods.js?v=102"></script>
+<script src="app.js?v=102"></script>
 </body>
 </html>

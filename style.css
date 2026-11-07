@@ -564,6 +564,23 @@ details.shut>:not(summary){opacity:0;transform:translateY(-4px);transition:opaci
 .fit-more b svg{width:15px;height:15px;flex:none;fill:none;stroke:currentColor;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
 .fit small{font-size:12px;color:var(--hero-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .fit b .fit-new{display:inline-block;font-style:normal;font-size:9.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;line-height:1;padding:3px 5px;margin-right:6px;border-radius:6px;vertical-align:2px;background:rgba(255,255,255,.18);color:var(--hero-ink)}   /* v97: a new idea in What fits (the hero is dark in every theme) */
+/* v98: recap cards. The colour blobs drift behind a canvas that holds the words; Reduce Motion stops them */
+.rc-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}
+.rc-row{display:flex;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;padding:2px 0 6px;scrollbar-width:none}
+#rcOne,#rcSlides{width:100%}
+.rc-row::-webkit-scrollbar{display:none}
+.rc-card{position:relative;isolation:isolate;flex:0 0 min(66%,250px);aspect-ratio:9/16;border-radius:18px;overflow:hidden;background:var(--rc-base);scroll-snap-align:start;box-shadow:0 6px 24px rgba(0,0,0,.18)}
+.rc-bg{position:absolute;inset:-30%;z-index:-1;filter:blur(10px);animation:rcDrift 16s ease-in-out infinite alternate}
+.rc-card:nth-child(2) .rc-bg{animation-delay:-4s}.rc-card:nth-child(3) .rc-bg{animation-delay:-8s}.rc-card:nth-child(4) .rc-bg{animation-delay:-12s}
+.rc-card canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+@keyframes rcDrift{0%{transform:translate(0,0) rotate(0) scale(1)}50%{transform:translate(7%,-5%) rotate(9deg) scale(1.1)}100%{transform:translate(-6%,6%) rotate(-7deg) scale(1.03)}}
+@media (prefers-reduced-motion: reduce){.rc-bg{animation:none}}
+#rcWrap{display:flex;flex-direction:column;gap:12px}#rcWrap>*{flex-shrink:0}
+.rc-pals{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.rc-pal{height:56px;border-radius:14px;display:flex;align-items:flex-end;padding:6px 10px;color:#fff;font-weight:600;font-size:13px;border:2px solid transparent;text-shadow:0 1px 3px rgba(0,0,0,.45)}
+.rc-pal[aria-pressed="true"]{border-color:var(--ink);box-shadow:0 0 0 2px var(--surface) inset}
+.rc-sw{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:14px;background:var(--raised)}
+.rc-sw span{display:flex;flex-direction:column;gap:2px;flex:1;min-width:0}.rc-sw small{font-size:13px;color:var(--muted)}
 .fit:active{transform:scale(.96)}
 /* v67: More ideas panel */
 .mi-tabs button small{font-size:12px;font-weight:600;opacity:.65;margin-left:3px}

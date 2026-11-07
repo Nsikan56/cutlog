@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '97';
+const APP_V = '98';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -438,7 +438,7 @@ function renderTotals() {
   else if (cal < T.calLo) st.textContent = mode() === 'gain' ? `${(T.calLo - cal).toLocaleString()} kcal to go to reach your range. Room for another meal.` : `${(T.calLo - cal).toLocaleString()} kcal under your range. Room for a high-protein snack.`;
   else if (cal <= T.calHi) { st.className = 'status ok'; st.textContent = 'In your range for today.'; }
   else { st.className = 'status hi'; st.textContent = `${(cal - T.calHi).toLocaleString()} kcal over your range. One day like this is fine; the weekly trend decides.`; }
-  safe(renderFits); safe(renderWeek); safe(renderCiBanner); safe(renderNudge); safe(renderNut); safe(renderGuideBanner); safe(renderEstBanner); safe(renderPlanBtn);
+  safe(renderFits); safe(renderWeek); safe(renderCiBanner); safe(renderRcBanner); safe(renderNudge); safe(renderNut); safe(renderGuideBanner); safe(renderEstBanner); safe(renderPlanBtn);
 }
 let shownRows = { day: null, ids: new Set() };
 function renderRows() {
@@ -2893,6 +2893,7 @@ const GUIDE = [
   ['The Today screen', `
     <p>The left ring is calories, with a small mark where your range starts. The right ring is protein. <b>Tap the rings</b> to switch between what you've eaten and what's <b>left</b> for the day; tap again to switch back.</p>
     <p>Below the rings: how your day is going, a <b>protein nudge</b> if protein falls behind your calories, <b>What fits</b> (foods from your own list that fit what's left, in a row you can swipe; its last tile is <b>More ideas</b>: simple high-protein meals to make at home and McDonald's, Tim Hortons and Subway items that fit, lighter picks first in the evening; Subway subs and salads are counted without sauce or cheese, so pick yours on How much?, and a salad gets a double portion of sauce) and <b>This week</b> (calories banked or over across the week, and how much you can eat today and stay on budget). Only days you logged count; days with nothing logged are named underneath so you know they're left out.</p>
+    <p><b>Your recap</b>: a Spotify-style card of your week, month or year to share in Messages, WhatsApp or Instagram. It shows up on Today in the first week of a month (and in January for the year), and from the weekly check-in and History. Share it as <b>one picture</b> or as <b>3 slides</b> (weight, protein, habits), pick its colours, and choose whether it shows your <b>actual weights</b> or only the change. In the app its colours drift slowly; the shared picture is a still frame. Nothing is uploaded anywhere.</p>
     <p><b>What fits</b> learns. It suggests foods that fit what's left today, and keeps track (on this phone) of what you tap and log from it: things you log come back more, things you keep passing over fade, and now and then it slips in a <b>New</b> idea from the built-in foods or home ideas. Your picks stay put for a visit, then change.</p>
     <p><b>Plan my day</b>, under the logging buttons, builds a day of meals from what you actually eat (your saved meals and the foods you've logged in the last 4 weeks, at your usual amounts) plus a rotating home idea or two, aiming for your calorie range and protein target. <b>Today</b> plans the meals still ahead, following your <b>meal times</b> (You → Meal times; nothing after your latest meal, 8 pm unless you change it). In the hour before your latest meal it keeps what's left <b>light</b> (protein first, up to 450 kcal) however many calories are left, so a late meal doesn't hurt your sleep; the rest stays in your weekly budget. <b>Tomorrow</b> plans a whole day. Not sure what dinner will be yet? Tap <b>Plan later</b>: it's left open, with room kept for it (about your usual dinner), and the rest is planned around it. Log it as usual when you know. Log a meal with one tap, or tap a food to change its amount first. Logged something by mistake (say, just the chicken while you meant the whole dinner)? Logged meals list their foods in the plan: tap a food's <b>×</b> to take it back out, and that meal's plan comes back. The "Added" message after any log also has an <b>Undo</b>. Ate something else? It offers to <b>re-plan the rest</b>. Already made tomorrow's breakfast? <b>Choose breakfast</b> and pick it (your meals, usual foods, home ideas or any food); it's <b>locked</b> in and the rest of the day is planned around it. Lock any planned meal you like the same way. <b>Shuffle</b> changes only what isn't locked and avoids repeating your last few plans. Change your targets and the plan re-plans itself to match. It shows up once you've logged a few days.</p>
     <p>Open This week and tap <b>See past weeks and months</b> for your <b>History</b>: a calendar of each month with every day's calories (green in range, orange over, blue under), what each week banked, and every month's averages. Swipe it for other months, and tap a day to open it.</p>
@@ -3164,6 +3165,7 @@ function openHistory(m) {
     if (d && !d.disabled) { if (HS.swiped) return; closeSheet(); day = d.dataset.hd; showTab('today'); renderAll(); return; }
     if (mm) { HS.m = mm.dataset.hm; haptic(); renderHistory(); sheetBody.scrollTo({ top: 0, behavior: REDUCED ? 'auto' : 'smooth' }); return; }
     if (nav && !nav.disabled) historyMove(+nav.dataset.hn);
+    if (e.target.closest('#hsShare')) { haptic(); openRecap('month', HS.m); }   // v98
   };
 }
 function historyMove(n) {
@@ -3199,6 +3201,7 @@ function renderHistory(dir) {
   box.innerHTML = `<div class="hs-nav"><button type="button" data-hn="-1" aria-label="Earlier month"${m <= historyStart() ? ' disabled' : ''}>${CHEV_L}</button><b id="hsMonth">${esc(monthName(m))}</b><button type="button" data-hn="1" aria-label="Later month"${cur ? ' disabled' : ''}>${CHEV_R}</button></div>`
     + `<div class="hs-sum" id="hsSum">${tile(s.kcal != null ? kc(s.kcal) : '–', 'avg kcal')}${tile(s.pro != null ? Math.round(s.pro) + '<small>g</small>' : '–', 'avg protein')}${tile(s.n ? `${s.inRange}<small>/${s.n}</small>` : '–', 'days in range')}${tile(s.wavg != null ? fW(s.wavg) : '–', wch != null ? `avg ${wU()}, <span class="${goodness(wch)}">${signed(wch, fW)}</span>` : `avg ${wU()}`)}</div>`
     + `<p class="hint" id="hsNote">${esc(note)}</p>`
+    + (!cur && s.n >= RC_MIN ? `<button class="linkbtn" id="hsShare" type="button">Share ${esc(monthName(m))} as a recap</button>` : '')
     + `<div class="hs-cal" id="hsCal" role="group" aria-label="${esc(monthName(m))}">${historyCal(m)}</div>`
     + `<div class="hs-leg"><span><i class="ok"></i>In range</span><span><i class="over"></i>Over</span><span><i class="under"></i>Under</span><span><i class="miss"></i>Not logged</span><span><i class="dot"></i>Protein hit</span></div>`
     + `<p class="hint">Tap a day to open it. <b>Week</b> is what that week banked (green) or went over (orange) against ${kc(mode() === 'gain' ? T.calLo : T.calHi)} a day, counting only days you logged, like This week. Swipe the calendar for other months.</p>`
@@ -4036,7 +4039,7 @@ function buildPlan(cands, slots, base, T, recent, avoidSig, minPer = 1) {
      meal without a 15 g protein; when any plan keeps the rules, pick among those (else the closest, as before) */
   const keeps = it => { const id = it.filter(y => y.c.idea).length, by = {}; it.forEach(y => (by[y.slot] ||= []).push(y));
     return id <= 2 && it.length - id > id && Object.entries(by).every(([sl, g]) => sl === 'snacks' || g.some(y => y.c.at[y.s].pro >= 15)); };
-  const good = ranked.filter(([, x]) => keeps(x.items)); if (good.length) ranked = good;
+  const good = ranked.filter(([, x]) => keeps(x.items) && x.sc <= ranked[0][1].sc + 60); if (good.length) ranked = good;   // v98: only among plans close to the best, so calories and protein never pay for it
   const top = ranked.filter(([, x]) => x.sc <= ranked[0][1].sc + 35).slice(0, 4);
   const [g, x] = rnd(top);
   return { sig: g, items: x.items };
@@ -4274,7 +4277,8 @@ function renderCheckin() {
       <div><span class="v">${w.proHit}/${w.n}</span><span class="k">protein days</span></div>
       <div><span class="v">${w.n}/7</span><span class="k">days logged</span></div>
     </div>
-    <p class="ci-verdict">${esc(verdict)}</p>${w.low ? `<p class="hint" id="ciLow">${w.low === 1 ? '1 day was' : `${w.low} days were`} under ${kc(T.calLo - LOW_GAP)} kcal. Now and then is fine; eating that little often can cost muscle and energy.</p>` : ''}${adj}`;
+    <p class="ci-verdict">${esc(verdict)}</p>${w.n >= RC_MIN ? '<button class="linkbtn" id="ciShare" type="button">Share your week as a recap</button>' : ''}${w.low ? `<p class="hint" id="ciLow">${w.low === 1 ? '1 day was' : `${w.low} days were`} under ${kc(T.calLo - LOW_GAP)} kcal. Now and then is fine; eating that little often can cost muscle and energy.</p>` : ''}${adj}`;
+  if ($('ciShare')) $('ciShare').onclick = () => { haptic(); openRecap('week'); };   // v98
   if ($('ciUse')) $('ciUse').onclick = () => {
     const old = { ...S.targets };
     S.targets = { ...S.targets, calLo: sug.lo, calHi: sug.hi, adjWk: weekStart(todayIso()) }; touchMeta(); renderAll(); renderTrends(); haptic();
@@ -4288,6 +4292,306 @@ function renderCiBanner() {
   b.hidden = !show; if (show) $('ciBannerS').textContent = `${rangeTxt(w.ws, w.we)} · ${w.n} days logged`;
 }
 $('ciBanner').onclick = () => { haptic(); showTab('trends'); requestAnimationFrame(() => $('ciCard').scrollIntoView({ behavior: REDUCED ? 'auto' : 'smooth', block: 'start' })); };
+
+/* ===================== v98: RECAP CARDS ===================== */
+/* Kan (6 Nov): a Spotify-style recap of a week, a month or a year to share in Messages, WhatsApp or Instagram. He chose both a
+   single image and swipeable slides, a switch between actual weights and change only, three vivid palettes picked when sharing,
+   colours that drift slowly in the app and a still frame when shared, tinted (not plain white) text, and no web address on the
+   cards. The card's words and numbers are drawn on a canvas (1080 x 1920, an Instagram story), the same drawing for the preview
+   and the shared picture; behind the preview the palette's colour blobs drift in CSS, and the shared picture gets the same blobs
+   drawn still. Shared through the iPhone share sheet (navigator.share with files); without it the picture is downloaded.
+   Only finished days count. Nothing is stored in saved data: the palette picks and the weights switch are kept on this phone
+   (localStorage cutlog.recap), and which recap banner was seen in cutlog.recapSeen. */
+const RC_W = 1080, RC_H = 1920, RC_MIN = 3;
+const RC_PAL = {
+  aurora: { name: 'Aurora', base: '#140F3D', blobs: [['#7B4DFF', .18, .18], ['#2F7BFF', .88, .28], ['#15C6A4', .25, .82], ['#FF4FA3', .92, .92]], num: ['#D2C4FF', '#8EEBFF'], ink: '#EFEAFF', soft: '#D6CCFF' },
+  lagoon: { name: 'Lagoon', base: '#061F33', blobs: [['#0FB5C9', .2, .15], ['#2C6BFF', .85, .35], ['#19D18B', .25, .85], ['#7A5CFF', .9, .92]], num: ['#A6F7E2', '#A9CBFF'], ink: '#E6FCF7', soft: '#C2F1EA' },
+  sunset: { name: 'Sunset', base: '#2A0E2E', blobs: [['#FF6A3D', .15, .2], ['#FF3E8A', .85, .3], ['#8A4DFF', .3, .85], ['#FFB23F', .9, .9]], num: ['#FFD9A0', '#FFB3D4'], ink: '#FFF0E6', soft: '#FFD9C8' },
+};
+const RC_DEF = { week: 'lagoon', month: 'aurora', year: 'sunset' };
+const rcPrefs = () => { try { return JSON.parse(localStorage.getItem('cutlog.recap')) || {}; } catch (e) { return {}; } };
+const rcSavePrefs = p => { try { localStorage.setItem('cutlog.recap', JSON.stringify(p)); } catch (e) {} };
+const RC = { kind: 'month', m: null, files: null, tok: 0 };
+/* the three recaps on offer now: last full week, a month (last month unless one is asked for), and the year (from December this
+   year so far, in January last year) */
+function recapPeriods(m) {
+  const t = todayIso(), ws = shift(weekStart(t), -7), lm = m || addMonth(ym(t), -1), md = monthDays(lm), y = +t.slice(0, 4), mo = +t.slice(5, 7);
+  const yr = mo === 12 ? y : mo === 1 ? y - 1 : null;
+  return {
+    week: { kind: 'week', from: ws, to: shift(ws, 6), tab: 'Week', head: 'My week', sub: rangeTxt(ws, shift(ws, 6)) },
+    month: { kind: 'month', m: lm, from: md[0], to: md[md.length - 1], tab: parseIso(lm + '-01').toLocaleDateString(undefined, { month: 'long' }), head: `My ${parseIso(lm + '-01').toLocaleDateString(undefined, { month: 'long' })}`, sub: monthName(lm) },
+    year: yr ? { kind: 'year', from: `${yr}-01-01`, to: `${yr}-12-31`, tab: String(yr), head: `My ${yr}`, sub: String(yr) } : { kind: 'year', none: true, tab: 'Year · Dec', head: '', sub: '' },
+  };
+}
+function recapStats(p) {
+  if (!p || p.none) return null;
+  const t = todayIso(), T = S.targets, first = [firstLogDay(), weightsArr()[0]?.date].filter(Boolean).sort()[0];
+  if (!first) return { n: 0 };
+  const from = p.from > first ? p.from : first, ds = [];
+  for (let d = from; d <= p.to && d < t; d = shift(d, 1)) ds.push(d);
+  const logged = ds.filter(d => dayTotals(d)), n = logged.length;
+  const tot = logged.map(d => ({ d, ...dayTotals(d) }));
+  const avg = k => n ? tot.reduce((a, x) => a + x[k], 0) / n : 0;
+  const best = tot.reduce((a, x) => !a || x.pro > a.pro ? x : a, null);
+  let run = 0, streak = 0; ds.forEach(d => { run = dayTotals(d) ? run + 1 : 0; streak = Math.max(streak, run); });
+  const last = mealTimes().last;
+  const early = logged.filter(d => { const es = S.log[d].filter(e => e.at && iso(new Date(e.at)) === d); if (!es.length) return false;
+    const x = new Date(Math.max(...es.map(e => e.at))); return x.getHours() + x.getMinutes() / 60 < last; }).length;
+  const cnt = new Map();
+  logged.forEach(d => S.log[d].forEach(e => { if (e.detail === 'quick add') return; const k = e.food?.id || e.name, c = cnt.get(k) || { name: e.food?.name || e.name, n: 0 }; c.n++; cnt.set(k, c); }));
+  const top = [...cnt.values()].sort((a, b) => b.n - a.n).slice(0, 2);
+  const arr = weightsArr(), win = arr.filter(w => w.date >= from && w.date <= p.to && w.date < t);
+  let w = null;
+  if (win.length >= 2 && daysBetween(win[0].date, win[win.length - 1].date) >= 3) {
+    const tr = trendPts(win, arr), w0 = tr[0].lb, w1 = tr[tr.length - 1].lb, days = daysBetween(win[0].date, win[win.length - 1].date);
+    w = { w0, w1, ch: w1 - w0, days, rate: (w1 - w0) / days * 7, pts: win, trend: tr, d0: win[0].date, d1: win[win.length - 1].date };
+  }
+  const good = mode() === 'lose' ? tot.filter(x => kcalOnTarget(x.kcal)).length : tot.filter(x => kcalIn(x.kcal)).length;
+  return { p, n, total: ds.length, kcal: avg('kcal'), pro: avg('pro'), proDays: tot.filter(x => proHit(x.pro)).length, best, streak, early, top, w, good,
+    days: tot, from, to: ds[ds.length - 1] || from, protein: T.protein, calLo: T.calLo, calHi: T.calHi };
+}
+/* ---- drawing ---- */
+const RCF = { d: '"Barlow Condensed", "Arial Narrow", system-ui, sans-serif', b: 'Barlow, system-ui, -apple-system, sans-serif' };
+function rcBg(ctx, pal) {
+  ctx.fillStyle = pal.base; ctx.fillRect(0, 0, RC_W, RC_H);
+  pal.blobs.forEach(([c, x, y]) => { const g = ctx.createRadialGradient(x * RC_W, y * RC_H, 0, x * RC_W, y * RC_H, RC_W * 0.78);
+    g.addColorStop(0, c); g.addColorStop(1, c + '00'); ctx.fillStyle = g; ctx.fillRect(0, 0, RC_W, RC_H); });
+  rcScrim(ctx);
+}
+function rcScrim(ctx) {
+  const s = ctx.createLinearGradient(0, 0, 0, RC_H);
+  s.addColorStop(0, 'rgba(6,7,24,.22)'); s.addColorStop(.55, 'rgba(6,7,24,.38)'); s.addColorStop(1, 'rgba(6,7,24,.62)');
+  ctx.fillStyle = s; ctx.fillRect(0, 0, RC_W, RC_H);
+}
+/* every piece of text goes through here: it is drawn tinted (never plain white) and listed, so the card can be read aloud */
+function rcText(ctx, txt, x, y, o) {
+  txt = String(txt); ctx.font = `${o.w || 700} ${o.size}px ${o.f === 'b' ? RCF.b : RCF.d}`; ctx.textAlign = o.align || 'left'; ctx.textBaseline = 'alphabetic';
+  if ('letterSpacing' in ctx) ctx.letterSpacing = o.ls ? `${o.ls}px` : '0px';
+  let t = txt;
+  if (o.max && ctx.measureText(t).width > o.max) {      // shrink to fit first (down to 60%), only then shorten with …
+    const sz = Math.max(o.size * 0.6, o.size * o.max / ctx.measureText(t).width); ctx.font = `${o.w || 700} ${sz}px ${o.f === 'b' ? RCF.b : RCF.d}`;
+    while (t.length > 1 && ctx.measureText(t).width > o.max) t = t.slice(0, -2) + '…';
+  }
+  if (o.grad) { const wd = ctx.measureText(t).width, x0 = o.align === 'center' ? x - wd / 2 : o.align === 'right' ? x - wd : x;
+    const g = ctx.createLinearGradient(x0, y - o.size, x0 + wd, y); g.addColorStop(0, o.grad[0]); g.addColorStop(1, o.grad[1]); ctx.fillStyle = g; }
+  else ctx.fillStyle = o.c;
+  ctx.fillText(t, x, y); (ctx._rc ||= []).push({ t, fill: o.grad ? 'grad' : o.c });
+  return ctx.measureText(t).width;
+}
+function rcWrap(ctx, txt, x, y, o, lines = 2) {        // up to two lines, the last one shortened with …
+  ctx.font = `${o.w || 700} ${o.size}px ${o.f === 'b' ? RCF.b : RCF.d}`;
+  const words = String(txt).split(/\s+/), out = []; let cur = '';
+  words.forEach(wd => { const t = cur ? cur + ' ' + wd : wd; if (ctx.measureText(t).width > o.max && cur) { out.push(cur); cur = wd; } else cur = t; });
+  if (cur) out.push(cur);
+  const keep = out.slice(0, lines); if (out.length > lines) keep[lines - 1] = out.slice(lines - 1).join(' ');
+  keep.forEach((l, i) => rcText(ctx, l, x, y + i * o.lh, o)); return keep.length;
+}
+function rcBox(ctx, x, y, w, h, r = 42) {
+  ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x, y, w, h, r) : ctx.rect(x, y, w, h);
+  ctx.fillStyle = 'rgba(8,10,32,.34)'; ctx.fill(); ctx.strokeStyle = 'rgba(255,255,255,.16)'; ctx.lineWidth = 3; ctx.stroke();
+}
+function rcTile(ctx, pal, x, y, w, v, k) { rcBox(ctx, x, y, w, 186); rcText(ctx, v, x + 42, y + 100, { size: 102, w: 800, grad: pal.num, max: w - 70 }); rcText(ctx, k, x + 42, y + 160, { size: 39, w: 500, f: 'b', c: pal.soft, max: w - 70 }); }
+function rcLogo(ctx, pal) {
+  ctx.lineWidth = 12; ctx.strokeStyle = 'rgba(255,255,255,.25)'; ctx.beginPath(); ctx.arc(105, 105, 27, 0, Math.PI * 2); ctx.stroke();
+  ctx.strokeStyle = pal.num[0]; ctx.lineCap = 'round'; ctx.beginPath(); ctx.arc(105, 105, 27, -Math.PI / 2, Math.PI * 1.15); ctx.stroke(); ctx.lineCap = 'butt';
+  rcText(ctx, 'Cut Log', 150, 123, { size: 51, c: pal.ink });
+}
+function rcFoot(ctx, pal) { rcText(ctx, 'Tracked with Cut Log', RC_W / 2, RC_H - 72, { size: 42, c: pal.soft, align: 'center', ls: 3 }); }
+function rcDots(ctx, i) { const w = (RC_W - 144 - 24) / 3; for (let k = 0; k < 3; k++) { ctx.fillStyle = k === i ? 'rgba(255,255,255,.95)' : k < i ? 'rgba(255,255,255,.6)' : 'rgba(255,255,255,.25)'; ctx.fillRect(72 + k * (w + 12), 66, w, 9); } }
+const rcW = (lb, o) => `${(lb < 0 ? '−' : lb > 0 ? '+' : '') + fW(Math.abs(lb))} ${wU()}`;
+function rcWeightLine(st, show) {
+  const w = st.w; if (!w) return '';
+  return show ? `${fW(w.w0)} → ${fW(w.w1)} ${wU()}` : `over ${w.days} days on my trend`;
+}
+function rcBig(st) {        // the headline number: the weight change when there is one, else protein days
+  if (st.w && Math.abs(st.w.ch) >= 0.05) return { k: 'Weight, on my 7-day trend', v: rcW(st.w.ch) };
+  if (st.w) return { k: 'Weight, on my 7-day trend', v: `±0 ${wU()}` };
+  return { k: `Protein target hit`, v: `${st.proDays} day${st.proDays === 1 ? '' : 's'}` };
+}
+function rcDrawOne(ctx, st, pal, o) {
+  rcLogo(ctx, pal); rcText(ctx, st.p.head.toUpperCase(), RC_W - 72, 123, { size: 39, c: pal.soft, align: 'right', ls: 5, max: 520 });
+  const big = rcBig(st);
+  rcText(ctx, big.k.toUpperCase(), 72, 290, { size: 39, c: pal.soft, ls: 5 });
+  rcText(ctx, big.v, 66, 540, { size: 276, w: 800, grad: pal.num, max: RC_W - 140 });
+  if (st.w) rcText(ctx, rcWeightLine(st, o.weights), 72, 618, { size: 48, w: o.weights ? 600 : 500, f: 'b', c: o.weights ? pal.ink : pal.soft, max: RC_W - 144 });
+  const tw = (RC_W - 144 - 30) / 2, y0 = 690;
+  rcTile(ctx, pal, 72, y0, tw, st.w ? String(st.proDays) : `${kc(st.pro)} g`, st.w ? `days I hit ${st.protein} g protein` : 'protein a day on average');
+  rcTile(ctx, pal, 102 + tw, y0, tw, st.best ? `${Math.round(st.best.pro)} g` : '–', 'best protein day');
+  rcTile(ctx, pal, 72, y0 + 216, tw, `${st.n}/${st.total}`, 'days logged');
+  rcTile(ctx, pal, 102 + tw, y0 + 216, tw, kc(st.kcal), 'kcal a day on average');
+  rcTile(ctx, pal, 72, y0 + 432, tw, String(st.streak), 'days in a row logged');
+  rcTile(ctx, pal, 102 + tw, y0 + 432, tw, String(st.early), `nights done by ${hourText(mealTimes().last).replace(':00', '').toLowerCase()}`);
+  if (st.top[0]) { const y = 1370; rcBox(ctx, 72, y, RC_W - 144, 340);
+    rcText(ctx, 'MY TOP FOOD', 114, y + 78, { size: 39, c: pal.soft, ls: 5 });
+    const nl = rcWrap(ctx, st.top[0].name, 114, y + 158, { size: 72, c: pal.ink, max: RC_W - 228, lh: 76 });
+    rcText(ctx, `logged ${st.top[0].n} time${st.top[0].n === 1 ? '' : 's'}`, 114, y + 158 + nl * 76 - 8, { size: 39, w: 500, f: 'b', c: pal.soft }); }
+  rcFoot(ctx, pal);
+}
+function rcChart(ctx, pal, st, y, h) {          // daily weigh-ins (thin) and the 7-day trend (thick)
+  const w = st.w, d0 = parseIso(st.from), span = Math.max(1, daysBetween(st.from, st.to));
+  const all = [...w.pts.map(p => p.lb), ...w.trend.map(p => p.lb)], lo = Math.min(...all), hi = Math.max(...all), r = Math.max(hi - lo, 0.5);
+  const X = d => 72 + daysBetween(st.from, d) / span * (RC_W - 144), Y = lb => y + 20 + (hi - lb) / r * (h - 40);
+  ctx.strokeStyle = 'rgba(255,255,255,.14)'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(72, y + h); ctx.lineTo(RC_W - 72, y + h); ctx.stroke();
+  const line = (pts, wdt, col) => { ctx.lineWidth = wdt; ctx.strokeStyle = col; ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.beginPath(); pts.forEach((p, i) => i ? ctx.lineTo(X(p.date), Y(p.lb)) : ctx.moveTo(X(p.date), Y(p.lb))); ctx.stroke(); };
+  line(w.pts, 6, 'rgba(255,255,255,.32)');
+  const g = ctx.createLinearGradient(72, 0, RC_W - 72, 0); g.addColorStop(0, pal.num[0]); g.addColorStop(1, pal.num[1]); line(w.trend, 14, g);
+  const lp = w.trend[w.trend.length - 1]; ctx.fillStyle = pal.num[1]; ctx.beginPath(); ctx.arc(X(lp.date), Y(lp.lb), 18, 0, Math.PI * 2); ctx.fill(); ctx.lineCap = 'butt';
+  const f = { month: 'short', day: 'numeric' };
+  rcText(ctx, parseIso(st.from).toLocaleDateString(undefined, f), 72, y + h + 60, { size: 39, w: 500, f: 'b', c: pal.soft });
+  rcText(ctx, parseIso(st.to).toLocaleDateString(undefined, f), RC_W - 72, y + h + 60, { size: 39, w: 500, f: 'b', c: pal.soft, align: 'right' });
+}
+function rcBars(ctx, pal, vals, line, y, h, okFn) {
+  const n = vals.length, gap = n > 60 ? 2 : n > 20 ? 6 : 15, bw = Math.max(2, (RC_W - 144 - gap * (n - 1)) / n), top = Math.max(line * 1.25, ...vals), lo = 0;
+  const Y = v => y + h - (v - lo) / (top - lo) * h;
+  vals.forEach((v, i) => { ctx.fillStyle = okFn(v) ? 'rgba(255,255,255,.95)' : 'rgba(255,255,255,.38)'; const yy = Y(v); ctx.beginPath(); ctx.roundRect ? ctx.roundRect(72 + i * (bw + gap), yy, bw, y + h - yy, [Math.min(12, bw / 2), Math.min(12, bw / 2), 0, 0]) : ctx.rect(72 + i * (bw + gap), yy, bw, y + h - yy); ctx.fill(); });
+  ctx.setLineDash([18, 14]); ctx.strokeStyle = pal.num[0]; ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(72, Y(line)); ctx.lineTo(RC_W - 72, Y(line)); ctx.stroke(); ctx.setLineDash([]);
+}
+/* every day of the stretch as a dot: filled when logged (a brighter ring when the protein target was hit too) */
+function rcDays(ctx, pal, st, y) {
+  const ds = []; for (let d = st.from; d <= st.to; d = shift(d, 1)) ds.push(d);
+  const n = ds.length, cols = n <= 10 ? n : n <= 35 ? 8 : n <= 100 ? 14 : 26, rows = Math.ceil(n / cols), gw = RC_W - 228;
+  const boxH = Math.min(560, 210 + rows * Math.min(gw / cols, 120));          // the box fits its dots
+  rcBox(ctx, 72, y, RC_W - 144, boxH); rcText(ctx, 'EVERY DAY I LOGGED', 114, y + 78, { size: 39, c: pal.soft, ls: 5 });
+  const gh = boxH - 210, cell = Math.min(gw / cols, gh / rows), r = cell * 0.36, x0 = 114 + (gw - cell * cols) / 2, y0 = y + 120;
+  const byD = new Map(st.days.map(x => [x.d, x]));
+  ds.forEach((d, i) => { const cx = x0 + (i % cols + 0.5) * cell, cy = y0 + (Math.floor(i / cols) + 0.5) * cell, t = byD.get(d);
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    if (t) { const g = ctx.createLinearGradient(cx - r, cy - r, cx + r, cy + r); g.addColorStop(0, pal.num[0]); g.addColorStop(1, pal.num[1]); ctx.fillStyle = g; ctx.fill();
+      if (proHit(t.pro)) { ctx.lineWidth = Math.max(3, r * 0.22); ctx.strokeStyle = pal.ink; ctx.beginPath(); ctx.arc(cx, cy, r + ctx.lineWidth * 1.4, 0, Math.PI * 2); ctx.stroke(); } }
+    else { ctx.lineWidth = Math.max(2, r * 0.16); ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.stroke(); } });
+  rcText(ctx, `${st.n} of ${n} days logged · ringed: protein target hit`, 114, y + boxH - 34, { size: 36, w: 500, f: 'b', c: pal.soft, max: RC_W - 228 });
+}
+function rcHead(ctx, st, pal, i, title) {
+  rcDots(ctx, i); rcText(ctx, `${st.p.head.toUpperCase()} · ${i + 1} OF 3`, 72, 160, { size: 39, c: pal.soft, ls: 5 });
+  rcText(ctx, title, 72, 262, { size: 102, c: pal.ink, max: RC_W - 144 });
+}
+function rcDrawSlide(ctx, st, pal, i, o) {
+  const f = { month: 'short', day: 'numeric' }, gainMode = mode() === 'gain';
+  if (i === 0 && st.w) {
+    const ch = st.w.ch, title = Math.abs(ch) < 0.3 ? 'Holding steady' : (ch < 0) !== gainMode ? 'The scale moved' : 'The scale went the other way';
+    rcHead(ctx, st, pal, 0, title);
+    rcText(ctx, Math.abs(ch) < 0.05 ? '±0' : (ch < 0 ? '−' : '+') + fW(Math.abs(ch)), 60, 600, { size: 312, w: 800, grad: pal.num });
+    rcText(ctx, `${wU()} on my 7-day trend`, 72, 680, { size: 72, c: pal.ink });
+    if (o.weights) rcText(ctx, `${fW(st.w.w0)} → ${fW(st.w.w1)} ${wU()}`, 72, 760, { size: 54, w: 600, f: 'b', c: pal.soft });
+    rcChart(ctx, pal, st, 840, 520);
+    const rt = Math.abs(st.w.rate);
+    rcWrap(ctx, `${rt >= 0.05 ? `About ${fW(rt)} ${wU()} a week${S.targets.goal ? `, heading for ${parseFloat(fW(S.targets.goal))}` : ''}.` : 'Steady through the whole stretch.'} Thin line: weigh-ins. Thick line: the trend.`, 72, 1560, { size: 46, w: 500, f: 'b', c: pal.soft, max: RC_W - 144, lh: 62 }, 3);
+  } else if (i === 0) {      // no weigh-ins: calories instead
+    rcHead(ctx, st, pal, 0, 'My calories');
+    rcText(ctx, kc(st.kcal), 60, 600, { size: 312, w: 800, grad: pal.num });
+    rcText(ctx, 'kcal a day on average', 72, 680, { size: 72, c: pal.ink });
+    rcBars(ctx, pal, st.days.map(x => x.kcal), st.calHi, 800, 520, v => kcalIn(v) || (mode() === 'lose' && kcalOnTarget(v)));
+    rcText(ctx, `${st.good} of ${st.n} days ${mode() === 'lose' ? 'on target' : 'in range'}`, 72, 1440, { size: 54, w: 600, f: 'b', c: pal.ink });
+  } else if (i === 1) {
+    rcHead(ctx, st, pal, 1, 'Protein, day after day');
+    rcText(ctx, String(st.proDays), 60, 600, { size: 312, w: 800, grad: pal.num });
+    const bw = ctx.measureText(String(st.proDays)).width;
+    rcText(ctx, `of ${st.n} days`, 90 + bw, 520, { size: 72, c: pal.ink }); rcText(ctx, `at ${st.protein} g+`, 90 + bw, 600, { size: 72, c: pal.ink });
+    rcBars(ctx, pal, st.days.map(x => x.pro), st.protein, 720, 600, v => proHit(v));
+    rcText(ctx, parseIso(st.from).toLocaleDateString(undefined, f), 72, 1380, { size: 39, w: 500, f: 'b', c: pal.soft });
+    rcText(ctx, `dashed line: ${st.protein} g`, RC_W / 2, 1380, { size: 39, w: 500, f: 'b', c: pal.soft, align: 'center' });
+    rcText(ctx, parseIso(st.to).toLocaleDateString(undefined, f), RC_W - 72, 1380, { size: 39, w: 500, f: 'b', c: pal.soft, align: 'right' });
+    const tw = (RC_W - 144 - 30) / 2;
+    rcTile(ctx, pal, 72, 1450, tw, st.best ? `${Math.round(st.best.pro)} g` : '–', st.best ? `best day, ${parseIso(st.best.d).toLocaleDateString(undefined, f)}` : 'best day');
+    rcTile(ctx, pal, 102 + tw, 1450, tw, `${Math.round(st.pro)} g`, 'a day on average');
+  } else {
+    rcHead(ctx, st, pal, 2, 'How I did it');
+    if (st.top[0]) { rcBox(ctx, 72, 330, RC_W - 144, 360);
+      rcText(ctx, 'TOP FOOD', 114, 408, { size: 39, c: pal.soft, ls: 5 });
+      const nl = rcWrap(ctx, st.top[0].name, 114, 494, { size: 84, grad: pal.num, max: RC_W - 228, lh: 86 });
+      rcText(ctx, `${st.top[0].n} times${st.top[1] ? ` · 2nd: ${st.top[1].name}, ${st.top[1].n}` : ''}`, 114, 494 + nl * 86 - 6, { size: 42, w: 500, f: 'b', c: pal.soft, max: RC_W - 228 }); }
+    const tw = (RC_W - 144 - 30) / 2, y = 700;
+    rcTile(ctx, pal, 72, y, tw, String(st.streak), 'days in a row logged');
+    rcTile(ctx, pal, 102 + tw, y, tw, String(st.early), `nights done by ${hourText(mealTimes().last).replace(':00', '').toLowerCase()}`);
+    rcTile(ctx, pal, 72, y + 216, tw, kc(st.kcal), 'kcal a day on average');
+    rcTile(ctx, pal, 102 + tw, y + 216, tw, `${st.good}/${st.n}`, mode() === 'lose' ? 'days on target' : 'days in range');
+    rcDays(ctx, pal, st, 1150);
+  }
+  rcFoot(ctx, pal);
+}
+/* draws one card (0 = the single image, 1-3 = slides) onto a canvas; bg: also paint the still background (for sharing) */
+function rcPaint(cv, st, pal, card, o, bg) {
+  cv.width = RC_W; cv.height = RC_H; const ctx = cv.getContext('2d'); ctx._rc = [];
+  ctx.clearRect(0, 0, RC_W, RC_H);
+  if (bg) rcBg(ctx, pal); else rcScrim(ctx);
+  if (card === 0) rcDrawOne(ctx, st, pal, o); else rcDrawSlide(ctx, st, pal, card - 1, o);
+  const said = ctx._rc.map(x => x.t).join('. ');
+  cv.setAttribute('aria-label', said); cv._rc = ctx._rc; return said;
+}
+let rcFontsP = null;
+const rcFonts = () => rcFontsP ||= Promise.race([Promise.all(['800 100px "Barlow Condensed"', '700 100px "Barlow Condensed"', '500 40px Barlow', '600 40px Barlow'].map(f => document.fonts?.load(f).catch(() => null))), new Promise(r => setTimeout(r, 1500))]);
+/* ---- the panel ---- */
+function openRecap(kind, m) {
+  RC.kind = kind || 'month'; RC.m = m || null;
+  openSheet('Your recap', '<div id="rcWrap"></div>', wideSheet());
+  renderRecap();
+  sheetBody.onclick = e => {
+    const k = e.target.closest('[data-rk]'), pp = e.target.closest('[data-rp]');
+    if (k && !k.disabled) { RC.kind = k.dataset.rk; haptic(); renderRecap(); return; }
+    if (pp) { const pr = rcPrefs(); (pr.pal ||= {})[RC.kind] = pp.dataset.rp; rcSavePrefs(pr); haptic(); renderRecap(); return; }
+    if (e.target.closest('#rcW')) { const pr = rcPrefs(); pr.weights = !pr.weights; rcSavePrefs(pr); haptic(); renderRecap(); return; }
+    if (e.target.closest('#rcOne')) { rcShare([0]); return; }
+    if (e.target.closest('#rcSlides')) { rcShare([1, 2, 3]); return; }
+  };
+}
+function renderRecap() {
+  const box = $('rcWrap'); if (!box) return;
+  const P = recapPeriods(RC.m), stats = { week: recapStats(P.week), month: recapStats(P.month), year: recapStats(P.year) };
+  if (!stats[RC.kind] || stats[RC.kind].n < RC_MIN) RC.kind = ['month', 'week', 'year'].find(k => stats[k] && stats[k].n >= RC_MIN) || RC.kind;
+  const st = stats[RC.kind], pr = rcPrefs(), palKey = pr.pal?.[RC.kind] || RC_DEF[RC.kind], pal = RC_PAL[palKey] || RC_PAL.aurora, weights = !!pr.weights;
+  const tabs = `<div class="seg2 rc-tabs" id="rcTabs" role="group" aria-label="Which recap">${['week', 'month', 'year'].map(k => `<button type="button" data-rk="${k}" aria-pressed="${k === RC.kind}"${!stats[k] || stats[k].n < RC_MIN ? ' disabled' : ''}>${esc(P[k].tab)}</button>`).join('')}</div>`;
+  if (!st || st.n < RC_MIN) { box.innerHTML = tabs + `<p class="hint" id="rcEmpty">Log at least ${RC_MIN} days in a week or a month and your recap shows up here, ready to share.</p>`; RC.files = null; return; }
+  const sw = `<div class="rc-pals" id="rcPals" role="group" aria-label="Colours">${Object.entries(RC_PAL).map(([k, x]) => `<button type="button" class="rc-pal" data-rp="${k}" aria-pressed="${k === palKey}" style="background:${x.blobs.slice(0, 3).map((b, i) => `radial-gradient(70% 70% at ${[20, 85, 40][i]}% ${[20, 30, 90][i]}%, ${b[0]} 0%, transparent 75%)`).join(', ')}, ${x.base}"><span>${esc(x.name)}</span></button>`).join('')}</div>`;
+  const cards = [0, 1, 2, 3].map(c => `<div class="rc-card" data-card="${c}"><div class="rc-bg" aria-hidden="true" style="background:${pal.blobs.map(([col, x, y]) => `radial-gradient(52% 44% at ${15 + x * 70}% ${15 + y * 70}%, ${col} 0%, transparent 74%)`).join(', ')}"></div><canvas role="img"></canvas></div>`).join('');
+  const wt = st.w ? `<div class="rc-sw"><span><b>Show my actual weights</b><small id="rcWs">${weights ? `${fW(st.w.w0)} → ${fW(st.w.w1)} ${wU()} is shown` : `Off: only the change (${rcW(st.w.ch)}) is shown`}</small></span><button type="button" class="nt-sw" id="rcW" role="switch" aria-checked="${weights}" aria-label="Show my actual weights"></button></div>` : '';
+  box.innerHTML = tabs
+    + `<p class="hint" id="rcSub">${esc(P[RC.kind].sub)} · ${st.n} day${st.n === 1 ? '' : 's'} logged${st.n < st.total ? ` of ${st.total}` : ''}</p>`
+    + `<div class="rc-row" id="rcRow" style="--rc-base:${pal.base}">${cards}</div>`
+    + `<p class="hint rc-cap">First the single picture, then the 3 slides. Swipe to see them.</p>`
+    + sw + wt
+    + `<button class="btn" id="rcOne">Share as one picture</button><button class="btn ghost" id="rcSlides">Share as 3 slides</button>`
+    + `<p class="hint">Opens your iPhone's share sheet: Messages, WhatsApp, Instagram Stories, or Save Image. Nothing is uploaded anywhere.</p>`;
+  const tok = ++RC.tok; RC.files = null; RC.st = st; RC.pal = pal; RC.palKey = palKey; RC.weights = weights;
+  const o = { weights };
+  const paintAll = () => { if (tok !== RC.tok) return; box.querySelectorAll('.rc-card').forEach(el => rcPaint(el.querySelector('canvas'), st, pal, +el.dataset.card, o, false)); };
+  paintAll(); rcFonts().then(() => { paintAll(); rcPrepare(tok); });
+}
+/* the pictures to share are made ahead, so a tap can open the share sheet straight away (iPhone needs it right after the tap) */
+async function rcPrepare(tok) {
+  const st = RC.st, pal = RC.pal, o = { weights: RC.weights }, out = [];
+  for (const c of [0, 1, 2, 3]) {
+    const cv = document.createElement('canvas'); rcPaint(cv, st, pal, c, o, true);
+    const blob = await new Promise(r => cv.toBlob(r, 'image/png')); if (tok !== RC.tok || !blob) return;
+    out.push(new File([blob], `cut-log-${RC.kind}-${st.p.kind === 'month' ? st.p.m : st.from}${c ? `-${c}` : ''}.png`, { type: 'image/png' }));
+  }
+  if (tok === RC.tok) RC.files = out;
+}
+async function rcShare(which) {
+  haptic();
+  if (!RC.files) { toast('Getting your pictures ready…'); for (let i = 0; i < 40 && !RC.files; i++) await new Promise(r => setTimeout(r, 100)); }
+  const files = (RC.files || []).filter((f, i) => which.includes(i)); if (!files.length) return;
+  RC.shared = files;
+  if (navigator.canShare && navigator.share && navigator.canShare({ files })) {
+    try { await navigator.share({ files }); } catch (e) { if (e && e.name !== 'AbortError') toast('Sharing didn’t work. Try again.'); }
+    return;
+  }
+  files.forEach(f => { const a = document.createElement('a'); a.href = URL.createObjectURL(f); a.download = f.name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000); });
+  toast(files.length > 1 ? `Saved ${files.length} pictures` : 'Saved the picture');
+}
+/* ---- ways in: a Today banner in the first week of a month (and January for the year), the check-in card, History ---- */
+function rcBannerKind() {
+  const t = todayIso(), dd = +t.slice(8, 10), mo = +t.slice(5, 7), P = recapPeriods();
+  let seen = ''; try { seen = localStorage.getItem('cutlog.recapSeen') || ''; } catch (e) {}
+  if (mo === 1 && dd <= 7) { const s = recapStats(P.year); if (s && s.n >= RC_MIN && seen !== 'year:' + P.year.tab) return { kind: 'year', key: 'year:' + P.year.tab, label: P.year.tab }; }
+  if (dd <= 7) { const s = recapStats(P.month); if (s && s.n >= RC_MIN && seen !== 'month:' + P.month.m) return { kind: 'month', key: 'month:' + P.month.m, label: P.month.tab }; }
+  return null;
+}
+function renderRcBanner() {
+  const b = $('rcBanner'); if (!b) return;
+  const k = day === todayIso() ? rcBannerKind() : null; b.hidden = !k;
+  if (k) { $('rcBannerT').textContent = `Your ${k.label} recap is ready`; b.dataset.k = k.kind; b.dataset.key = k.key; }
+}
+$('rcBanner').onclick = () => { const b = $('rcBanner'); try { localStorage.setItem('cutlog.recapSeen', b.dataset.key); } catch (e) {} haptic(); b.hidden = true; openRecap(b.dataset.k); };
 
 /* ===================== v89: CALORIE CHECK-IN POP-UP AND WHAT'S NEW ===================== */
 /* Kan (4 Nov): target steps shouldn't be a light nudge. When it's time to move your calories, a box pops up on its own (at most
@@ -4370,6 +4674,9 @@ $('adjNo').onclick = () => adjClose(false);
    set the app up don't get it). Always available in You → Help. Last seen version: localStorage cutlog.seenV (per device).
    Every release adds an entry at the top, in plain words for everyone who uses Cut Log. */
 const CHANGELOG = [
+  { v: 98, d: '2026-11-07', items: [
+    'Your recap: a colourful card of your week, month or year (weight change, protein days, best day, top food, streaks) to share in Messages, WhatsApp or Instagram, as one picture or 3 slides. Pick its colours, and choose whether it shows your actual weights or only the change. Find it on Today at the start of a month, in the weekly check-in, and in History.',
+  ] },
   { v: 97, d: '2026-11-06', items: [
     'What fits now learns what you like. It notices what you tap and log from it and suggests those more, lets things you keep skipping fade, and mixes in a "New" idea from the built-in foods and home ideas, so it isn\'t the same two picks every time.',
   ] },

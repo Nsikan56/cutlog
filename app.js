@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '100';
+const APP_V = '101';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -4754,6 +4754,9 @@ $('adjNo').onclick = () => adjClose(false);
    set the app up don't get it). Always available in You → Help. Last seen version: localStorage cutlog.seenV (per device).
    Every release adds an entry at the top, in plain words for everyone who uses Cut Log. */
 const CHANGELOG = [
+  { v: 101, d: '2026-11-07', items: [
+    'Rows you swipe sideways (What fits, the unit and meal chips, your recap cards) now fade softly at both ends while there’s more to see, instead of cutting off at the left.',
+  ] },
   { v: 100, d: '2026-11-07', items: [
     'Your recap: the colours behind the cards now really flow, each colour drifting on its own path (they stay still if your phone has Reduce Motion on). The shared picture is unchanged.',
   ] },
@@ -5378,5 +5381,20 @@ if (!S.onboarded) showOnboarding(1);
 else if (!REDUCED) document.body.classList.add('launch');
 if (ALERT_LAUNCH) setTimeout(() => safe(() => alertOpen(ALERT_LAUNCH.what, ALERT_LAUNCH.slot)), 500);   // v91: opened from an alert (What's new waits for the next launch)
 else { setTimeout(() => safe(newsOnLaunch), 800); setTimeout(() => safe(adjCheck), 1600); }   // v89
+/* v101: SIDEWAYS ROWS FADE AT BOTH ENDS. Kan, 7 Nov: What fits swiped to More ideas cut the first tile off hard at the left edge,
+   while the right edge faded. Every row that scrolls sideways (.chips: units, meals, ranges; the What fits row; the recap cards) now
+   gets .less while there's more to its left and .more while there's more to its right; style.css fades whichever ends apply.
+   One scroll listener (capture, since scroll doesn't bubble) and one observer for rows that appear or change. */
+var EDGE_SEL = '.chips, .fits-row, .rc-row', edgeRaf = 0;
+function edgeFade(el) {
+  const room = el.scrollWidth - el.clientWidth;
+  el.classList.toggle('less', room > 4 && el.scrollLeft > 4);
+  el.classList.toggle('more', room > 4 && el.scrollLeft < room - 4);
+}
+function edgeFadeAll() { document.querySelectorAll(EDGE_SEL).forEach(edgeFade); }
+function edgeSoon() { if (!edgeRaf) edgeRaf = requestAnimationFrame(() => { edgeRaf = 0; edgeFadeAll(); }); }
+document.addEventListener('scroll', e => { const t = e.target; if (t && t.matches && t.matches(EDGE_SEL)) edgeFade(t); }, { capture: true, passive: true });
+new MutationObserver(edgeSoon).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['hidden', 'open'] });
+addEventListener('resize', edgeSoon); edgeSoon();
 initSync();
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});

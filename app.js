@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '95';
+const APP_V = '96';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -195,6 +195,21 @@ function cookedOf(p, pp = pkgPair(p)) {
 const stateOf = x => x.state || pkgPair(x)?.raw.state || 'raw';
 /* the last time you logged this package, was it cooked? Then open it that way again */
 const lastCooked = id => S.recent.find(r => r.food && (r.food.id === id || r.food.cookOf === id))?.food.cookOf === id;
+/* v96: drinks (Kan, 6 Nov, his Silk almond & cashew drink: "measure liquids in ml too"). A food counts as a liquid when its
+   serving is given in ml, L or fl oz (Open Food Facts' "250 ml"), a built-in is marked liquid, or its name says it's a drink
+   (milk, juice, kefir... in English or French) without saying it's a powder, bar, cheese and so on. Packaged drinks' "per 100 g"
+   numbers are really per 100 ml (labels list them per 250 ml), so 1 ml counts as 1 g, unless the food has its own density
+   (milk 1.03, oil 0.92). */
+const LIQ_NAME = /\b(milk|lait|juice|jus|beverage|boisson|drink|kefir|kombucha|lemonade|limonade|soda|cola|latte|coffee|cafe|broth|bouillon|smoothie|nectar|eggnog|zobo)\b/;
+const LIQ_NOT = /\b(powder|poudre|chocolate|chocolat|bars?|barres?|cheese|fromage|ice cream|creme glacee|mix|cereal|cereales|cookies?|biscuits?|crackers?|bread|pain|beans?|grains?|ground|moulu|instant|pods?|capsules?|chips|candy|bonbons?)\b/;
+const LIQ_SERV = /\d\s*(ml|cl|l|fl\.?\s*oz)\b/i;
+function isLiquid(f) {
+  if (!f || f.kcal100 == null) return false;
+  if (f.liquid) return true;
+  if (LIQ_SERV.test(f.servingLabel || '')) return true;
+  const nm = pkgName(f.name); return LIQ_NAME.test(nm) && !LIQ_NOT.test(nm);
+}
+const LIQ_UNITS = ['ml', 'floz'];
 function unitsFor(f) {
   const u = [];
   if (f.kcalServ != null || f.servingG) u.push({ key: 'serving', label: 'serving', long: f.servingLabel ? `serving (${f.servingLabel})` : 'serving', g: f.servingG || null });
@@ -202,6 +217,12 @@ function unitsFor(f) {
   if (dish) u.push({ key: 'pieceS', label: `small ${f.pieceLabel}`, long: PLATE_HINT[f.pieceLabel].s, g: f.piece * 0.6 });
   if (f.piece) u.push({ key: 'piece', label: f.pieceLabel || 'piece', long: dish ? PLATE_HINT[f.pieceLabel].m : undefined, g: f.piece });
   if (dish) u.push({ key: 'pieceL', label: `large ${f.pieceLabel}`, long: PLATE_HINT[f.pieceLabel].l, g: f.piece * 1.5 });
+  if (isLiquid(f)) {     // v96
+    const d = f.dens || 1;
+    u.push({ key: 'ml', label: 'ml', long: d === 1 ? 'millilitres' : `millilitres (${d} g per ml)`, g: d });
+    u.push({ key: 'floz', label: 'fl oz', long: 'fluid ounce, about 30 ml', g: 29.57 * d });
+    if (!f.cup && d >= 1) u.push({ key: 'cup', label: 'cup', long: 'cup, 250 ml', g: 250 * d });   // (not for oil)
+  }
   if (f.kcal100 != null) {
     u.push({ key: 'g', label: 'grams', g: 1 });
     // hand portions: no scale needed (fist ≈ 1 cup, so it uses the food's cup weight when known)
@@ -210,7 +231,7 @@ function unitsFor(f) {
     u.push({ key: 'cupped', label: 'cupped hand', long: 'about ½ cup', g: (f.cup || 150) / 2 });
     u.push({ key: 'tbsp', label: 'tbsp', long: 'tablespoon', g: 15 });
     u.push({ key: 'tsp', label: 'tsp', long: 'teaspoon', g: 5 });
-    if (f.cup) u.push({ key: 'cup', label: 'cup', g: f.cup });
+    if (f.cup) u.push({ key: 'cup', label: 'cup', g: f.cup });   // (a drink without a cup got a 250 ml one above)
     u.push({ key: 'oz', label: 'oz (weight)', long: 'ounce by weight, 28 g', g: 28.35 });
   }
   return u;
@@ -346,7 +367,7 @@ const nsBadge = (f, long) => nsOk(f?.nutri) ? `<span class="ns ns-${f.nutri}" ti
 function unitWord(f, unitKey, qty) {
   const u = unitsFor(f).find(x => x.key === unitKey);
   if (!u) return '';
-  const short = { g: 'g', tbsp: 'tbsp', tsp: 'tsp', oz: 'oz', cup: qty === 1 ? 'cup' : 'cups', serving: qty === 1 ? 'serving' : 'servings' }[u.key];
+  const short = { g: 'g', ml: 'ml', floz: 'fl oz', tbsp: 'tbsp', tsp: 'tsp', oz: 'oz', cup: qty === 1 ? 'cup' : 'cups', serving: qty === 1 ? 'serving' : 'servings' }[u.key];
   if (short) return short;
   if (qty === 1 || /s$/.test(u.label)) return u.label;
   return /o$/.test(u.label) ? u.label + 'es' : u.label + 's';
@@ -364,7 +385,8 @@ function perLine(f) {
   if (f.kcalServ != null) return `${Math.round(f.kcalServ)} kcal · ${r1(f.proServ || 0)}g protein per serving`;
   return '';
 }
-function stepFor(unit) { return unit === 'g' ? 10 : unit === 'piece' ? 1 : 0.5; }
+const bigUnit = u => u === 'g' || u === 'ml';      // v96: amounts in the tens and hundreds
+function stepFor(unit) { return unit === 'g' ? 10 : unit === 'ml' ? 25 : unit === 'piece' ? 1 : 0.5; }
 const HAND = ['palm', 'fist', 'cupped'];
 
 /* ---------- rendering ---------- */
@@ -933,7 +955,7 @@ function openAmount(f, preset, opts = {}) {
   if (!units.length) { toast('This food has no calorie data. Try the label photo instead.'); return; }
   let unit = preset?.unit && units.some(u => u.key === preset.unit) ? preset.unit
     : (units.find(u => u.key === 'piece') || units.find(u => u.key === 'serving') || units[0]).key;
-  const startQty = preset?.qty ?? (unit === 'g' ? 100 : 1);
+  const startQty = preset?.qty ?? (unit === 'g' ? 100 : unit === 'ml' ? 250 : 1);
   const dayName = $('dayLabel').textContent;
   const editing = opts.editId, picking = pick;
   const editEntry = editing ? entriesFor(day).find(x => x.id === editing) : null;
@@ -1005,10 +1027,18 @@ function openAmount(f, preset, opts = {}) {
   $('aQty').oninput = upd;
   $('aUnits').onclick = e => {
     const b = e.target.closest('[data-u]'); if (!b) return;
+    const prev = unit, q0 = parseFloat($('aQty').value);
     unit = b.dataset.u; haptic();
     [...$('aUnits').children].forEach(c => c.setAttribute('aria-pressed', c.dataset.u === unit));
-    if (unit === 'g' && parseFloat($('aQty').value) < 10) $('aQty').value = 100;
-    if (unit !== 'g' && parseFloat($('aQty').value) >= 10) $('aQty').value = 1;
+    /* v96: to or from ml / fl oz, keep the same amount (1 serving of 250 ml -> 250 ml -> 8.5 fl oz) */
+    const us = unitsFor(f), ua = us.find(x => x.key === prev), ub = us.find(x => x.key === unit);
+    if ((LIQ_UNITS.includes(unit) || LIQ_UNITS.includes(prev)) && q0 > 0 && ua?.g && ub?.g) {
+      const x = q0 * ua.g / ub.g;
+      $('aQty').value = fmtQty(unit === 'ml' ? Math.max(5, Math.round(x / 5) * 5) : unit === 'g' ? Math.max(1, Math.round(x)) : Math.max(0.1, Math.round(x * 10) / 10));
+    } else {
+      if (bigUnit(unit) && parseFloat($('aQty').value) < 10) $('aQty').value = unit === 'ml' ? 250 : 100;
+      if (!bigUnit(unit) && parseFloat($('aQty').value) >= 10) $('aQty').value = 1;
+    }
     upd();
   };
   upd(); enrichFood(f); recheckServing(f, editing);
@@ -2848,6 +2878,7 @@ const GUIDE = [
     <p><b>Snap label</b> reads a Nutrition Facts photo on your phone. Check the numbers it found before saving.</p>
     <p><b>Search</b> covers whole foods, Nigerian and Canadian dishes, your saved foods, and packaged foods online. Nothing fits? Use <b>Enter a food by hand</b>, or <b>Quick add</b> for just calories and protein (good for samples or a meal out).</p>
     <p>On <b>How much?</b> pick an amount in pieces, servings, grams, cups or spoons. No scale? Use your hand: a <b>palm</b> of meat (about 100 g), a <b>fist</b> of rice or pasta (about a cup), a <b>cupped hand</b> of snacks, a <b>thumb</b> of oil or peanut butter. Dishes come in <b>small, regular and large</b> plates or bowls, with a picture guide.</p>
+    <p>Drinks (milk, juice, almond drinks, soup, anything whose serving is in ml) also take <b>ml</b>, <b>fl oz</b> and a 250 ml <b>cup</b>. Switching between serving, ml and fl oz keeps the same amount, so 1 serving of 250 ml becomes 250 ml. For packaged drinks, 1 ml counts as 1 g, the way their labels are written.</p>
     <p>Staples like chicken, rice and pasta have a <b>Raw weight / Cooked</b> switch: pick how it was when you measured it. Your own packs of chicken, beef, fish, rice, pasta and oats get it too, whether the name is in English or French: the package numbers are for raw or dry food, and Cooked works out what they come to after cooking (it opens cooked next time if that's how you logged it last). Food you cook yourself asks <b>Cooked with oil or butter?</b> Oil is the most common hidden source of calories.</p>
     <p>Tap the <b>★</b> on a food to pin it: pinned foods sit at the top of search. Under the amount, <b>Usual</b> shows the amounts you log most, one tap each. Search results show <b>protein per 100 kcal</b>; green means a lean, high-protein choice.</p>
     <p>If a food's numbers are wrong, tap <b>Numbers look wrong? Fix them</b> (it works on the Cooked view too, fixing the pack). Food you already logged keeps its old numbers until you tap <b>Recount</b> when Cut Log offers it, so past days never change by surprise.</p>
@@ -3860,11 +3891,11 @@ function planCandidates() {
 function mkCand(food, qty, unit, oil, slots, freq, idea) {
   const base = calc(food, qty, unit); if (!(base.kcal >= PLAN_MIN_KCAL)) return null;
   const small = (unit === 'serving' || unit === 'piece') && qty <= 1 && base.kcal <= 250 && food.source !== 'meal' && !idea;
-  const scales = idea || food.source === 'meal' ? [1] : unit === 'g' ? [0.75, 1, 1.25, 1.5] : small ? [1, 2] : HAND.includes(unit) || unit === 'cup' ? [1, 1.5] : [1];
+  const scales = idea || food.source === 'meal' ? [1] : bigUnit(unit) ? [0.75, 1, 1.25, 1.5] : small ? [1, 2] : HAND.includes(unit) || unit === 'cup' ? [1, 1.5] : [1];
   const at = {}; scales.forEach(s => { const q = planQty(qty * s, unit), v = calc(food, q, unit); at[s] = { q, kcal: v.kcal + (OIL[oil]?.k || 0), pro: v.pro }; });
   return { key: food.id, food, qty, unit, oil, slots, freq, idea, scales, at };
 }
-const planQty = (q, unit) => unit === 'g' ? Math.max(5, Math.round(q / 5) * 5) : Math.round(q * 4) / 4;
+const planQty = (q, unit) => bigUnit(unit) ? Math.max(5, Math.round(q / 5) * 5) : Math.round(q * 4) / 4;
 /* a plan: [{c, s, slot}]. Lower score is better. */
 function planScore(items, base, T, recent, pairs) {
   let k = base.kcal, p = base.pro, ideas = 0, fam = 0; const per = {};
@@ -4250,6 +4281,9 @@ $('adjNo').onclick = () => adjClose(false);
    set the app up don't get it). Always available in You → Help. Last seen version: localStorage cutlog.seenV (per device).
    Every release adds an entry at the top, in plain words for everyone who uses Cut Log. */
 const CHANGELOG = [
+  { v: 96, d: '2026-11-06', items: [
+    'Drinks can now be logged in ml or fl oz (and a 250 ml cup): milk, juice, almond drinks, soup, and anything whose serving is given in ml. Switching units keeps the amount, so 1 serving of 250 ml becomes 250 ml.',
+  ] },
   { v: 95, d: '2026-11-06', items: [
     'Logged something by mistake? The "Added" message after a log now has an Undo.',
     'Plan my day: meals you\'ve logged now list their foods, each with an × to take it back out. That meal\'s plan comes back, ready to log properly.',

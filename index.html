@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>Cut Log</title>
-<meta name="app-v" content="98">
+<meta name="app-v" content="99">
 <!-- v63: only lets the page load code and data from the places Cut Log really uses (Firebase, the scanner and label reader, Open Food Facts, Google fonts). If the theme script just below changes, its sha256 here must change too (test AY checks). -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-cxglE2uldCp/ybpBoYGJlEJKfTyNB39uAaDq3zqChpA=' https://cdn.jsdelivr.net https://fastly.jsdelivr.net https://www.gstatic.com 'wasm-unsafe-eval'; worker-src 'self' blob: https://cdn.jsdelivr.net https://fastly.jsdelivr.net; connect-src 'self' https://*.supabase.co https://world.openfoodfacts.org https://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com https://cdn.jsdelivr.net https://fastly.jsdelivr.net https://www.gstatic.com data: blob:; img-src 'self' data: blob:; media-src 'self' blob: mediastream:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; frame-src https://cutlog-5ab4e.firebaseapp.com; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
 <script>/* apply Light/Dark before the page draws, so it never flashes the wrong colors */
@@ -21,7 +21,7 @@ try { var cla = localStorage.getItem('cutlog.appearance'); if (cla === 'light' |
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Barlow:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="style.css?v=98">
+<link rel="stylesheet" href="style.css?v=99">
 </head>
 <body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -80,6 +80,7 @@ try { var cla = localStorage.getItem('cutlog.appearance'); if (cla === 'light' |
       </div>
     </div>
     <p class="status" id="status"></p>
+    <button class="fd-line" id="fdayLine" type="button" hidden><span id="fdayLineT"></span><svg aria-hidden="true"><use href="#i-chev-r"/></svg></button>
     <p class="nudge" id="nudge" hidden></p>
     <div class="fits" id="fits" hidden></div>
     <div class="wk" id="wk" hidden></div>
@@ -124,6 +125,7 @@ try { var cla = localStorage.getItem('cutlog.appearance'); if (cla === 'light' |
         <span class="wdone-tag"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span id="wTag">Logged today</span></span>
         <span class="wdone-delta" id="wDelta"></span>
         <span class="wdone-next" id="wNext" hidden></span>
+        <span class="wdone-next wfree" id="wFree" hidden></span>
       </div>
       <button class="edit" id="wEdit">Edit</button>
     </div>
@@ -300,6 +302,31 @@ try { var cla = localStorage.getItem('cutlog.appearance'); if (cla === 'light' |
       </form>
       </div>
     </section>
+    <section class="card" id="freeCard" hidden>
+      <div class="card-h"><h2>Free day</h2><button class="edit" id="fdayEdit" hidden>Edit</button></div>
+      <div class="plist" id="fdayView" hidden>
+        <div class="prow"><span class="pk">When</span><span class="pv" id="fdayvWhen">–</span></div>
+        <div class="prow"><span class="pk">Extra</span><span class="pv" id="fdayvExtra">–</span></div>
+        <div class="prow"><span class="pk">Paid by</span><span class="pv" id="fdayvPay">–</span></div>
+        <div class="prow"><span class="pk">Next one</span><span class="pv" id="fdayvNext">–</span></div>
+      </div>
+      <p class="hint" id="fdayHint"></p>
+      <button class="btn ghost" id="fdayStart" type="button" hidden>Set up a free day</button>
+      <div class="pform" id="fdayForm" hidden>
+        <div class="ob-label">Day</div>
+        <div class="seg2 fd-days" id="fdayDay" role="group" aria-label="Day of the week"><button type="button" data-v="1">Mon</button><button type="button" data-v="2">Tue</button><button type="button" data-v="3">Wed</button><button type="button" data-v="4">Thu</button><button type="button" data-v="5">Fri</button><button type="button" data-v="6">Sat</button><button type="button" data-v="0">Sun</button></div>
+        <div class="ob-label">How often</div>
+        <div class="seg2" id="fdayEvery" role="group" aria-label="How often"><button type="button" data-v="1">Every week</button><button type="button" data-v="2">Every other week</button></div>
+        <div class="ob-label">How much extra</div>
+        <div class="seg2 fd-extra" id="fdayExtra" role="group" aria-label="How much extra"><button type="button" data-v="300">+300</button><button type="button" data-v="500">+500</button><button type="button" data-v="750">+750</button><button type="button" data-v="1000">+1,000</button><button type="button" data-v="0">No limit</button></div>
+        <div class="ob-label">How it’s paid for</div>
+        <div class="seg2" id="fdayPay" role="group" aria-label="How it's paid for"><button type="button" data-v="budget">Budgeted</button><button type="button" data-v="free">Free</button></div>
+        <p class="hint" id="fdayPayHint"></p>
+        <p class="fd-prev" id="fdayPrev"></p>
+        <div class="pform-btns"><button class="btn" id="fdaySave" type="button">Save</button><button class="btn ghost" id="fdayCancel" type="button">Cancel</button></div>
+        <button class="linkbtn fd-off" id="fdayOff" type="button" hidden>Turn off free days</button>
+      </div>
+    </section>
     <section class="card">
       <div class="card-h"><h2>Weigh-ins and units</h2></div>
       <div class="seg2" id="pScale" role="group" aria-label="How often you weigh in">
@@ -409,8 +436,8 @@ try { var cla = localStorage.getItem('cutlog.appearance'); if (cla === 'light' |
 <div class="toast" id="toast" role="status" hidden></div>
 <input type="file" id="photoIn" accept="image/*" capture="environment" hidden>
 
-<script src="firebase-config.js?v=98"></script>
-<script src="foods.js?v=98"></script>
-<script src="app.js?v=98"></script>
+<script src="firebase-config.js?v=99"></script>
+<script src="foods.js?v=99"></script>
+<script src="app.js?v=99"></script>
 </body>
 </html>

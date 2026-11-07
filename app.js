@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '98';
+const APP_V = '99';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -409,7 +409,8 @@ function renderRingNums(cal, pro, T) {
     animateNum($('proNum'), pro); $('proU').textContent = 'g protein'; return;
   }
   const kl = T.calHi - cal, pl = T.protein - pro;
-  animateNum($('calNum'), Math.abs(kl)); $('calU').textContent = kl >= 0 ? 'kcal left' : 'kcal over';
+  if (!isFinite(kl)) { animateNum($('calNum'), cal); $('calU').textContent = 'kcal'; }   // v99: a free day with no limit has nothing "left"
+  else { animateNum($('calNum'), Math.abs(kl)); $('calU').textContent = kl >= 0 ? 'kcal left' : 'kcal over'; }
   animateNum($('proNum'), Math.max(0, pl)); $('proU').textContent = pl > 0 ? 'g left' : 'target hit';
 }
 $('rings').onclick = () => {
@@ -420,15 +421,15 @@ $('rings').onclick = () => {
 $('rings').onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('rings').click(); } };
 function renderTotals() {
   alertsKick();   // v91: the alarm clock's note for today follows the log
-  const T = S.targets, es = entriesFor(day);
+  const T = dayT(day), es = entriesFor(day), noLim = !isFinite(T.calHi), ringHi = noLim ? S.targets.calHi : T.calHi;   // v99: the day's own targets
   const cal = Math.round(es.reduce((a, e) => a + e.kcal, 0));
   const pro = Math.round(es.reduce((a, e) => a + e.pro, 0));
   renderRingNums(cal, pro, T);
-  setArc($('calArc'), cal / T.calHi);
+  setArc($('calArc'), cal / ringHi);
   $('calRing').classList.toggle('over', cal > T.calHi);
   const tick = $('calTick'), tl = 1.2;   // short mark where the range starts
-  tick.style.strokeDasharray = `${tl} ${RING_C}`; tick.style.strokeDashoffset = -(RING_C * T.calLo / T.calHi) + tl / 2;
-  $('calSub').textContent = `of ${T.calLo.toLocaleString()}–${T.calHi.toLocaleString()}`;
+  tick.style.strokeDasharray = `${tl} ${RING_C}`; tick.style.strokeDashoffset = -(RING_C * T.calLo / ringHi) + tl / 2;
+  $('calSub').textContent = noLim ? (day === todayIso() ? 'no limit today' : 'no limit') : `of ${T.calLo.toLocaleString()}–${T.calHi.toLocaleString()}`;
   setArc($('proArc'), pro / T.protein);
   $('proSub').textContent = ringLeft ? `of ${T.protein}g protein` : pro >= T.protein ? `${T.protein}g target hit` : `${T.protein - pro}g ${day === todayIso() ? 'to go' : 'short'}`;
   const st = $('status'), before = st.textContent; st.className = 'status';
@@ -436,9 +437,10 @@ function renderTotals() {
   if (!es.length) st.textContent = 'Scan, snap or search what you eat and the rings fill up.';
   else if (cal < T.calLo && day !== todayIso()) st.textContent = `Finished ${(T.calLo - cal).toLocaleString()} kcal under your range.`;   // v84: past days don't suggest a snack
   else if (cal < T.calLo) st.textContent = mode() === 'gain' ? `${(T.calLo - cal).toLocaleString()} kcal to go to reach your range. Room for another meal.` : `${(T.calLo - cal).toLocaleString()} kcal under your range. Room for a high-protein snack.`;
-  else if (cal <= T.calHi) { st.className = 'status ok'; st.textContent = 'In your range for today.'; }
+  else if (noLim) { st.className = 'status ok'; st.textContent = `Free day, no limit${day === todayIso() ? '' : ' that day'}. Protein still counts.`; }   // v99
+  else if (cal <= T.calHi) { st.className = 'status ok'; st.textContent = T.fday ? 'In your free day range.' : 'In your range for today.'; }
   else { st.className = 'status hi'; st.textContent = `${(cal - T.calHi).toLocaleString()} kcal over your range. One day like this is fine; the weekly trend decides.`; }
-  safe(renderFits); safe(renderWeek); safe(renderCiBanner); safe(renderRcBanner); safe(renderNudge); safe(renderNut); safe(renderGuideBanner); safe(renderEstBanner); safe(renderPlanBtn);
+  safe(renderFits); safe(renderFreeLine); safe(renderWeek); safe(renderCiBanner); safe(renderRcBanner); safe(renderNudge); safe(renderNut); safe(renderGuideBanner); safe(renderEstBanner); safe(renderPlanBtn);
 }
 let shownRows = { day: null, ids: new Set() };
 function renderRows() {
@@ -522,6 +524,7 @@ function renderWeights() {
   const loggedDate = sc === 'daily' ? (S.weights[t] != null ? t : null) : (last && daysBetween(last.date, t) <= 6 ? last.date : null);
   const logged = !!loggedDate && !editing && !noneMode;
   if (!noneMode) { f.hidden = logged; $('wDateRow').hidden = logged; $('wDone').hidden = !logged; }
+  if (!logged) $('wFree').hidden = true;
   if (logged) {
     const lw = S.weights[loggedDate];
     $('wNum').textContent = fW(lw);
@@ -534,6 +537,9 @@ function renderWeights() {
       dl.textContent = Math.abs(x) < 0.05 ? `Same as ${when}` : `${x > 0 ? '+' : '−'}${fW(Math.abs(x))} ${wU()} vs ${when}`;
       dl.classList.add(goodness(x));
     } else dl.textContent = 'Your first weigh-in. The trend starts here.';
+    const yd = shift(loggedDate, -1), up = prev && lw - prev.lb >= 0.1;   // v99: up the morning after a free day: say why
+    $('wFree').hidden = !(up && freeOf(yd) && dayTotals(yd));
+    if (!$('wFree').hidden) $('wFree').textContent = 'Up after your free day? That’s water and salt from the extra food, not fat. It settles in 2–3 days.';
     const nx = $('wNext'); nx.hidden = sc !== 'weekly';
     if (sc === 'weekly') { const nd = shift(loggedDate, 7); nx.textContent = nd <= t ? 'Next weigh-in: today' : `Next weigh-in: ${shortDate(nd)}`; }
     f.dataset.date = loggedDate;
@@ -619,6 +625,7 @@ function renderSettings() {
   $('pScaleHint').textContent = SCALE_HINT[scale()];
   { const mt = mealTimes(); [['tvB', 'breakfast'], ['tvL', 'lunch'], ['tvD', 'dinner'], ['tvE', 'last']].forEach(([id, k]) => { $(id).textContent = hourText(mt[k]); }); }   // v90
   safe(renderAlerts); alertsKick();   // v91
+  safe(renderFreeCard);   // v99
   $('foodCount').textContent = S.foods.length ? `${S.foods.length}` : '';
   renderHeader();
   const nf = S.foods.length;
@@ -2060,6 +2067,69 @@ function dayTotals(d) {
   const es = S.log[d]; if (!es || !es.length) return null;
   return { kcal: es.reduce((a, e) => a + e.kcal, 0), pro: es.reduce((a, e) => a + e.pro, 0) };
 }
+
+/* =================== v99: FREE DAY ===================
+   Kan, 6-7 Nov 2026: a planned day to eat more, for Cutting and Maintaining only, named "free day". He chose to make both
+   choices settings: how it's paid for (budgeted: the other days of that week drop a little so the week still lands on target;
+   free: not paid back, so that week's loss is a bit slower) and how big it is (a set extra, +300 to +1,000 kcal, or no limit).
+   Protein never changes. Stored in S.targets.free (synced inside targets, like adjWk and times; nothing new at the top level):
+     { on, dow (0 = Sunday), every (1 or 2 weeks), pay ('budget' | 'free'), extra (kcal, 0 = no limit),
+       from (first date the current settings apply), skip: [dates], past: { date: {p, x, c, s} } }.
+   Past free days are kept in `past` when the settings change, are turned off or the goal changes, so History, the check-in and
+   Trends never re-colour old days. One free day per Mon-Sun week. dayT(d) = the targets for that day: the free day's top goes up
+   (Infinity with no limit), and with budgeted + a set extra the other days of the week from `s` on are `c` kcal lower.
+   `bankHi` is what the free day counts as in the weekly budget (null = no limit, not paid back: going over is forgiven). */
+var FREE_EXTRAS = [300, 500, 750, 1000, 0], FREE_MIN_PAY = 4, FREE_DAYS = [1, 2, 3, 4, 5, 6, 0];
+function freeCfg() { return (S.targets && S.targets.free) || null; }
+function freeOn(f) { f = f === undefined ? freeCfg() : f; return !!(f && f.on) && mode() !== 'gain'; }
+function freeCut(extra, n) { return n > 0 && extra > 0 ? Math.round(extra / n / 10) * 10 : 0; }
+/* the free day of the week that starts on Monday ws: a kept past one first, else the current schedule. null if none. */
+function freeOfWeek(ws, withSkipped) {
+  const f = freeCfg(); if (!f) return null;
+  const we = shift(ws, 6);
+  for (const [d, v] of Object.entries(f.past || {})) if (d >= ws && d <= we) return { d, pay: v.p, extra: v.x, cut: v.c || 0, s: v.s || ws, past: true };
+  if (!freeOn(f) || !f.from) return null;
+  const d = shift(ws, (f.dow + 6) % 7);
+  if (d < f.from) return null;
+  if (f.every === 2 && Math.round(daysBetween(weekStart(f.from), ws) / 7) % 2) return null;
+  const skipped = (f.skip || []).includes(d); if (skipped && !withSkipped) return null;
+  const s0 = f.from > ws ? f.from : ws, n = 6 - daysBetween(ws, s0);     // the paying days: the rest of the week from the start
+  return { d, pay: f.pay, extra: f.extra, cut: f.pay === 'budget' ? freeCut(f.extra, n) : 0, s: s0, skipped };
+}
+function freeOf(d) { const fi = d && freeOfWeek(weekStart(d)); return fi && fi.d === d ? fi : null; }
+/* the targets for one day */
+function dayT(d) {
+  const T = S.targets, fi = d && freeOfWeek(weekStart(d));
+  if (!fi) return T;
+  if (fi.d === d) { const hi = fi.extra > 0 ? T.calHi + fi.extra : Infinity;
+    return { ...T, calHi: hi, fday: fi, bankHi: fi.extra > 0 ? hi : fi.pay === 'budget' ? T.calHi : null }; }
+  if (fi.cut && d >= fi.s) { const lo = Math.max(1200, T.calLo - fi.cut); return { ...T, calLo: lo, calHi: Math.max(lo + 100, T.calHi - fi.cut), pays: fi }; }
+  return T;
+}
+/* the same with a number for the top on a no-limit day (for planning, What fits and alerts, which need one) */
+function dayTf(d) { const T = dayT(d); return isFinite(T.calHi) ? T : { ...T, calHi: S.targets.calHi }; }
+/* where the current settings start: today, or next Monday when a budgeted free day this week would leave fewer than 4 days to pay */
+function freeStart(f, t) {
+  if (f.pay === 'budget' && f.extra > 0) { const ws = weekStart(t), d = shift(ws, (f.dow + 6) % 7);
+    if (d >= t && 6 - daysBetween(ws, t) < FREE_MIN_PAY) return shift(ws, 7); }
+  return t;
+}
+/* keeps the free days before `upto` as they were (called before any change that would re-schedule them) */
+function freeKeepPast(upto) {
+  const f = freeCfg(); if (!f) return null;
+  const past = { ...(f.past || {}) };
+  if (freeOn(f) && f.from) for (let ws = weekStart(f.from); ws <= upto; ws = shift(ws, 7)) {
+    const fi = freeOfWeek(ws); if (fi && !fi.past && fi.d < upto) past[fi.d] = { p: fi.pay, x: fi.extra, c: fi.cut, s: fi.s };
+  }
+  const keys = Object.keys(past).sort(); keys.slice(0, Math.max(0, keys.length - 120)).forEach(k => delete past[k]);
+  return { ...f, past, skip: (f.skip || []).filter(x => x >= shift(upto, -14)) };
+}
+function DAY_NAME(d) { return parseIso(d).toLocaleDateString(undefined, { weekday: 'long' }); }
+function DAY_SHORT(d) { return parseIso(d).toLocaleDateString(undefined, { weekday: 'short' }); }
+function freeWhen(d) {
+  const t = todayIso(), n = daysBetween(t, d);
+  return n === 0 ? 'today' : n === 1 ? 'tomorrow' : n === -1 ? 'yesterday' : parseIso(d).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
+}
 /* v59: the weekly rate comes from the trend line (each weigh-in's 7-day average), not the raw dots, and only once the
    weigh-ins used span a week. Kan's first few days (210.0 to 212.6) were read as +1.7 lb/week from the raw dots, which set off
    "not moving toward your goal". The fit looks back at least 14 days so the 7-day view has enough to go on. */
@@ -2103,7 +2173,7 @@ function barChart(days, vals, opts) {
   vals.forEach((v, i) => {
     if (v == null) return;
     const x = L + i * bw + bw * 0.15, w = Math.max(1.5, bw * 0.7);
-    const col = opts.colorFor(v);
+    const col = opts.colorFor(v, days[i]);
     svg += `<rect class="bar" style="animation-delay:${Math.min(i * 14, 420)}ms;cursor:pointer" data-day="${days[i]}" x="${x.toFixed(1)}" y="${Y(v).toFixed(1)}" width="${w.toFixed(1)}" height="${(H - B - Y(v)).toFixed(1)}" rx="${Math.min(3, w / 2)}" fill="${col}"/>`;
   });
   if (opts.line != null) svg += `<line x1="${L}" x2="${W - R}" y1="${Y(opts.line)}" y2="${Y(opts.line)}" stroke="var(--protein)" stroke-width="2" stroke-dasharray="5 4"/>`;
@@ -2276,7 +2346,7 @@ function renderTrends() {
   const empty = '<p class="empty">Days you log food will show up here.</p>';
   $('tCalChart').innerHTML = logged.length ? barChart(days, tots.map(t => t && t.kcal), {
     lo: T.calLo, hi: T.calHi, ticks: [1000, 2000, 3000, 4000], label: 'Daily calories',
-    colorFor: v => kcalOver(v) ? 'var(--warn)' : kcalIn(v) ? 'var(--protein)' : 'var(--accent)' }) : empty;
+    colorFor: (v, d) => { const D = dayT(d); return kcalOver(v, D) ? 'var(--warn)' : kcalIn(v, D) ? 'var(--protein)' : 'var(--accent)'; } }) : empty;
   $('tProChart').innerHTML = logged.length ? barChart(days, tots.map(t => t && t.pro), {
     line: T.protein, ticks: [50, 100, 150, 200, 250], label: 'Daily protein',
     colorFor: v => proHit(v) ? 'var(--protein)' : 'var(--accent)' }) : empty;
@@ -2284,7 +2354,7 @@ function renderTrends() {
   safe(() => renderFibChart(days)); safe(() => renderMacChart(days));
   $('tProNote').textContent = logged.length ? `Dashed line is your ${T.protein}g target.` : '';
   $('tProHist').hidden = !logged.length;   // v87
-  const inRange = logged.filter(t => kcalIn(t.kcal)).length, hit = logged.filter(t => proHit(t.pro)).length;
+  const inRange = days.filter((d, i) => tots[i] && kcalIn(tots[i].kcal, dayT(d))).length, hit = logged.filter(t => proHit(t.pro)).length;
   $('tDays').textContent = `last ${range} days`;
   $('tInRange').textContent = logged.length ? `${inRange}/${logged.length}` : '–';
   $('tProHit').textContent = logged.length ? `${hit}/${logged.length}` : '–';
@@ -2703,7 +2773,7 @@ function nudgeFor(cal, pro, T) {
 function renderNudge() {
   const el = $('nudge'), es = entriesFor(day);
   const cal = es.reduce((a, e) => a + e.kcal, 0), pro = es.reduce((a, e) => a + e.pro, 0);
-  const msg = day === todayIso() && es.length ? nudgeFor(cal, pro, S.targets) : null;
+  const msg = day === todayIso() && es.length ? nudgeFor(cal, pro, dayTf(day)) : null;   // v99
   const was = !el.hidden; el.hidden = !msg; if (!msg) return;
   el.textContent = msg; if (!was) replay(el, 'fade-in');
 }
@@ -2915,6 +2985,7 @@ const GUIDE = [
   ['Your settings', `
     <p>In <b>You</b>: your name, goal (Cutting, Maintaining or Building) with suggested targets, weigh-in frequency, lb or kg, <b>meal times</b> (when you usually have breakfast, lunch and dinner, and your latest meal; Plan my day plans around them), eight app colours (Cobalt, Ember, Teal, Violet, Rose, Gold, Graphite, Sky), Light or Dark, your saved foods, and a backup file you can keep in iCloud Drive.</p>
     <p><b>Notifications</b> (You → Notifications): a lunch or dinner check that only comes when that meal isn't logged yet, a last call 30 minutes before your latest meal with what's left for today, and a weigh-in reminder at your own time (every morning, or your chosen day if you weigh in weekly). Breakfast and Monday check-in alerts are there too, off to start. They need Cut Log on your Home Screen and Cloud sync sign-in, and they're set separately on each phone. Tap an alert to open the right screen.</p>
+    <p><b>Free day</b> (You → Free day, for Cutting and Maintaining): pick a day each week, or every other week, to eat more. Choose how much extra (+300 to +1,000 kcal, or <b>no limit</b>) and how it's paid for: <b>budgeted</b> (the other days that week are a little lower, so the week still lands on target; with no limit, what you eat over your usual top comes out of the week's budget) or <b>free</b> (not paid back, so that week's loss is a bit slower). Protein stays the same. Today shows <b>✦ Free day</b> on the day and earlier in the week; tap it to see the numbers or <b>skip</b> that one. It counts as on plan in your check-in and History (marked ✦), Plan my day plans the bigger day, and a higher weigh-in the next morning is water and salt, not fat.</p>
     <p>Your age, height and sex are only used to suggest targets. They're never saved.</p>`],
   ['What to expect', `
     <p><b>First week:</b> your weight will bounce around. That's water, not fat. Keep logging and weighing.</p>
@@ -3072,11 +3143,14 @@ const rangeTxt = (a, b) => { const A = parseIso(a), B = parseIso(b), f = { month
 /* Weekly budget: finished days this week (today is still in progress, so it isn't counted) */
 function weekStatus(d) {
   const T = S.targets, t = todayIso(), ws = weekStart(d), m = mode(), done = [];
-  for (let i = 0; i < 7; i++) { const x = shift(ws, i); if (x >= t) break; const tt = dayTotals(x); if (tt) done.push(tt.kcal); }
+  let bank = 0;
+  for (let i = 0; i < 7; i++) { const x = shift(ws, i); if (x >= t) break; const tt = dayTotals(x); if (!tt) continue; done.push(tt.kcal);
+    // cutting/maintaining: room under the top of each day's range; building: how far above the bottom
+    // v99: a free day counts against its own top; with no limit, budgeted counts the usual top, and free forgives going over
+    const D = dayT(x), top = D.bankHi !== undefined ? D.bankHi : D.calHi;
+    bank += m === 'gain' ? tt.kcal - D.calLo : top == null ? Math.max(0, T.calHi - tt.kcal) : top - tt.kcal; }
   if (!done.length) return null;
   const sum = done.reduce((s, k) => s + k, 0), avg = sum / done.length;
-  // cutting/maintaining: room under the top of the range; building: how far above the bottom
-  const bank = m === 'gain' ? sum - T.calLo * done.length : T.calHi * done.length - sum;
   const current = ws === weekStart(t), left = current ? 7 - ((parseIso(t).getDay() + 6) % 7) : 0;   // days left including today
   return { ws, done: done.length, avg, bank, current, left, m };
 }
@@ -3090,7 +3164,8 @@ function weekMissing(w) {
 function wkOpen(v) { try { if (v === undefined) return localStorage.getItem('cutlog.wkOpen') === '1'; localStorage.setItem('cutlog.wkOpen', v ? '1' : '0'); } catch (e) { return false; } }
 function renderWeek() {
   const el = $('wk'), w = weekStatus(day); el.hidden = !w; if (!w) return;
-  const T = S.targets, good = w.bank >= 0, one = w.left === 1, live = w.current && w.left > 0;
+  const T = dayT(todayIso()), good = w.bank >= 0, live = w.current && w.left > 0 && isFinite(T.calHi);   // v99: today's own top
+  const fw = freeOfWeek(w.ws), one = w.left === 1 || !!(w.current && fw && fw.d >= todayIso());   // v99: the days left have different tops, so say "today"
   const span = one ? 'today' : `a day for the ${w.left} days left (including today)`;
   const short = one ? 'today' : `a day for ${w.left} days`;
   let v, s = `From ${w.done} day${w.done > 1 ? 's' : ''} logged, avg ${kc(w.avg)} kcal.`, line = '';
@@ -3102,15 +3177,18 @@ function renderWeek() {
     if (aim >= T.calLo) { s += ` About ${kc(aim)} ${span} brings it back.`; line = `Aim for about <b>${kc(aim)}</b> ${short}`; }
     else { s += ' Aim for the low end of your range for the rest of the week.'; line = 'Low end of your range for the rest of the week'; } }
   else if (live && w.m === 'gain' && !good) { const x = kc(T.calLo - w.bank / w.left); s += ` About ${x} ${span} catches up.`; line = `About <b>${x}</b> ${short} catches up`; }
+  if (!line && w.current && !isFinite(T.calHi)) line = 'Free day today, no limit';
   if (!line) line = `avg <b>${kc(w.avg)}</b> kcal over ${w.done} day${w.done > 1 ? 's' : ''}`;
+  // v99: say how the week's free day works
+  if (fw) s += ` ${DAY_NAME(fw.d)} ${fw.d < todayIso() ? 'was' : 'is'} your free day (${fw.extra > 0 ? `+${kc(fw.extra)} kcal` : 'no limit'})${fw.cut ? `, and the other days are ${kc(fw.cut)} kcal less to pay for it` : fw.pay === 'budget' ? ', paid for by this week’s budget' : ', not paid back'}.`;
   const miss = weekMissing(w), names = miss.map(x => parseIso(x).toLocaleDateString(undefined, { weekday: 'short' }));
   const warn = miss.length ? `<span class="wk-dot" aria-hidden="true">·</span><span class="wk-warn">${miss.length} day${miss.length > 1 ? 's' : ''} not logged</span>` : '';
   // Mon-Sun strip: logged days with their calories, missing days flagged, today ringed, days ahead faint
   const t = todayIso(), first = Object.keys(S.log).filter(k => S.log[k] && S.log[k].length).sort()[0];
   const cells = Array.from({ length: 7 }, (_, i) => { const x = shift(w.ws, i), tt = dayTotals(x), d = parseIso(x);
-    const cls = x === t ? 'now' : x > t ? 'ahead' : tt ? 'ok' : (first && x < first) ? 'pre' : 'miss';
-    const n = cls === 'now' ? 'today' : tt ? kc(tt.kcal) : cls === 'miss' ? 'none' : '';
-    return `<span class="wkc ${cls}" title="${esc(d.toLocaleDateString(undefined, { weekday: 'long' }))}"><i>${esc(d.toLocaleDateString(undefined, { weekday: 'narrow' }))}</i><b></b><em>${n}</em></span>`; }).join('');
+    const c0 = x === t ? 'now' : x > t ? 'ahead' : tt ? 'ok' : (first && x < first) ? 'pre' : 'miss', cls = c0 + (fw && fw.d === x ? ' fr' : '');
+    const n = c0 === 'now' ? 'today' : tt ? kc(tt.kcal) : c0 === 'miss' ? 'none' : '';
+    return `<span class="wkc ${cls}" title="${esc(d.toLocaleDateString(undefined, { weekday: 'long' }) + (fw && fw.d === x ? ', free day' : ''))}"><i>${esc(d.toLocaleDateString(undefined, { weekday: 'narrow' }))}</i><b></b><em>${n}</em></span>`; }).join('');
   const m = miss.length ? `<p class="wk-s wk-m" id="wkMiss">${esc(names.join(', '))} not logged, so ${miss.length > 1 ? 'they’re' : 'it’s'} not counted.</p>` : '';
   el.innerHTML = `<details class="wkd" id="wkD"${wkOpen() ? ' open' : ''}><summary><span class="wk-k">${w.current ? 'This week' : 'That week'}</span><span class="wk-v ${good ? 'ok' : 'hi'}">${v}</span><svg class="wk-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg><span class="wk-line" id="wkLine"><span>${line}</span>${warn}</span></summary><div class="wk-body"><div class="wk-days" id="wkDays">${cells}</div><p class="wk-s">${esc(s)}</p>${m}<button class="wk-more" id="wkMore" type="button">See past weeks and months${CHEV_R}</button></div></details>`;
   $('wkMore').onclick = () => openHistory(ym(day));   // v55
@@ -3132,7 +3210,7 @@ const signed = (n, f = kc) => (n > 0 ? '+' : n < 0 ? '−' : '') + f(Math.abs(n)
 function dayClass(x, tt, t, first) {
   if (x > t) return 'ahead';
   if (x === t) return 'now';
-  if (tt) return kcalOver(tt.kcal) ? 'over' : kcalIn(tt.kcal) ? 'ok' : 'under';
+  if (tt) { const D = dayT(x); return kcalOver(tt.kcal, D) ? 'over' : kcalIn(tt.kcal, D) ? 'ok' : 'under'; }   // v99: each day's own targets
   return first && x >= first ? 'miss' : 'pre';
 }
 /* a month's numbers, from finished days only (today is still in progress) */
@@ -3140,7 +3218,7 @@ function monthStats(m) {
   const T = S.targets, t = todayIso(), first = firstLogDay(), days = monthDays(m).filter(x => x < t);
   const tots = days.map(dayTotals).filter(Boolean), n = tots.length, avg = k => n ? tots.reduce((a, x) => a + x[k], 0) / n : null;
   const ws = weightsArr().filter(w => ym(w.date) === m).map(w => w.lb);
-  return { m, n, kcal: avg('kcal'), pro: avg('pro'), inRange: tots.filter(x => kcalIn(x.kcal)).length,
+  return { m, n, kcal: avg('kcal'), pro: avg('pro'), inRange: days.filter(x => { const tt = dayTotals(x); return tt && kcalIn(tt.kcal, dayT(x)); }).length,
     proHit: tots.filter(x => proHit(x.pro)).length, miss: days.filter(x => first && x >= first && !dayTotals(x)).length,
     wavg: ws.length ? ws.reduce((a, b) => a + b, 0) / ws.length : null, weighs: ws.length, wlo: ws.length ? Math.min(...ws) : null, whi: ws.length ? Math.max(...ws) : null };
 }
@@ -3178,9 +3256,9 @@ function historyCal(m) {
   for (let w = weekStart(days[0]); w <= last; w = shift(w, 7)) {
     for (let i = 0; i < 7; i++) {
       const x = shift(w, i); if (ym(x) !== m) { h += '<span class="hc out"></span>'; continue; }
-      const tt = dayTotals(x), c = dayClass(x, tt, t, first), pro = tt && proHit(tt.pro), dt = parseIso(x);
-      const say = `${dt.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}: ${tt ? `${kc(tt.kcal)} kcal, ${Math.round(tt.pro)}g protein` : c === 'miss' ? 'not logged' : 'nothing logged'}`;
-      h += `<button class="hc ${c}" data-hd="${x}"${c === 'ahead' ? ' disabled' : ''} aria-label="${esc(say)}"><i>${dt.getDate()}</i><em>${tt ? kc(tt.kcal) : c === 'miss' ? '–' : ''}</em><s${pro ? ' class="on"' : ''}></s></button>`;
+      const tt = dayTotals(x), c = dayClass(x, tt, t, first), pro = tt && proHit(tt.pro), dt = parseIso(x), fr = !!freeOf(x);
+      const say = `${dt.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}${fr ? ', free day' : ''}: ${tt ? `${kc(tt.kcal)} kcal, ${Math.round(tt.pro)}g protein` : c === 'miss' ? 'not logged' : 'nothing logged'}`;
+      h += `<button class="hc ${c}${fr ? ' fr' : ''}" data-hd="${x}"${c === 'ahead' ? ' disabled' : ''} aria-label="${esc(say)}"><i>${dt.getDate()}</i><em>${tt ? kc(tt.kcal) : c === 'miss' ? '–' : ''}</em><s${pro ? ' class="on"' : ''}></s></button>`;
     }
     const st = w < t ? weekStatus(w) : null;   // the week's finished, logged days, measured like This week
     h += st ? `<span class="hw ${st.bank >= 0 ? 'ok' : 'hi'}" title="${st.bank >= 0 ? (st.m === 'gain' ? 'Above your minimum' : 'Banked') : (st.m === 'gain' ? 'Short' : 'Over')} that week">${signed(st.bank)}</span>` : '<span class="hw"></span>';
@@ -3203,8 +3281,8 @@ function renderHistory(dir) {
     + `<p class="hint" id="hsNote">${esc(note)}</p>`
     + (!cur && s.n >= RC_MIN ? `<button class="linkbtn" id="hsShare" type="button">Share ${esc(monthName(m))} as a recap</button>` : '')
     + `<div class="hs-cal" id="hsCal" role="group" aria-label="${esc(monthName(m))}">${historyCal(m)}</div>`
-    + `<div class="hs-leg"><span><i class="ok"></i>In range</span><span><i class="over"></i>Over</span><span><i class="under"></i>Under</span><span><i class="miss"></i>Not logged</span><span><i class="dot"></i>Protein hit</span></div>`
-    + `<p class="hint">Tap a day to open it. <b>Week</b> is what that week banked (green) or went over (orange) against ${kc(mode() === 'gain' ? T.calLo : T.calHi)} a day, counting only days you logged, like This week. Swipe the calendar for other months.</p>`
+    + `<div class="hs-leg"><span><i class="ok"></i>In range</span><span><i class="over"></i>Over</span><span><i class="under"></i>Under</span><span><i class="miss"></i>Not logged</span><span><i class="dot"></i>Protein hit</span>${monthDays(m).some(x => freeOf(x)) ? '<span id="hsFreeLeg"><i class="fr">✦</i>Free day</span>' : ''}</div>`
+    + `<p class="hint">Tap a day to open it. <b>Week</b> is what that week banked (green) or went over (orange) against ${kc(mode() === 'gain' ? T.calLo : T.calHi)} a day, counting only days you logged, like This week.${monthDays(m).some(x => freeOf(x)) ? ' A free day, and the days paying for it, count against their own range.' : ''} Swipe the calendar for other months.</p>`
     + `<h3 class="hs-h">By month</h3><div class="hs-months" id="hsMonths">${rows}</div>`;
   if (dir && !REDUCED) { const c = $('hsCal'); c.style.setProperty('--dx', dir > 0 ? '24px' : '-24px'); replay(c, 'hs-in'); }
   // swipe the calendar left or right for the next or previous month
@@ -3783,7 +3861,7 @@ function fitsForNow(left, proLeft) {
 const calcKP = (f, q, u) => { const v = calc(f, q, u); return { kcal: v.kcal, pro: v.pro }; };
 let fitPicks = [];
 function renderFits() {
-  const el = $('fits'), T = S.targets, es = entriesFor(day);
+  const el = $('fits'), T = dayTf(day), es = entriesFor(day);   // v99
   const cal = es.reduce((s, e) => s + e.kcal, 0), pro = es.reduce((s, e) => s + e.pro, 0), left = Math.round(T.calHi - cal);
   const on = day === todayIso() && es.length && left >= 150;
   fitPicks = on ? fitsForNow(left, Math.max(0, Math.round(T.protein - pro))) : [];
@@ -3846,7 +3924,7 @@ function openMoreIdeas() {
 }
 function renderMoreIdeas() {
   const box = $('miWrap'); if (!box) return;
-  const T = S.targets, es = entriesFor(todayIso()), left = Math.round(T.calHi - es.reduce((s, e) => s + e.kcal, 0));
+  const T = dayTf(todayIso()), es = entriesFor(todayIso()), left = Math.round(T.calHi - es.reduce((s, e) => s + e.kcal, 0));   // v99
   const proLeft = Math.max(0, Math.round(T.protein - es.reduce((s, e) => s + e.pro, 0)));
   const m = moreIdeas(left), chains = Object.keys(CHAIN_INFO);
   if (MI.chain !== 'all' && !chains.includes(MI.chain)) MI.chain = 'all';
@@ -4047,7 +4125,7 @@ function buildPlan(cands, slots, base, T, recent, avoidSig, minPer = 1) {
 /* the state of a day's plan: meals already eaten, meals still ahead (avail), and the ones the planner fills by itself (open:
    the meals you usually eat). v74: you can choose and lock any meal still ahead. */
 function planCtx(d) {
-  const t = todayIso(), T = S.targets, isToday = d === t, es = isToday ? entriesFor(d) : [];
+  const t = todayIso(), T = dayTf(d), isToday = d === t, es = isToday ? entriesFor(d) : [];   // v99: a free day plans the bigger day
   const cands = planCandidates(), h = nowH();
   const done = isToday ? SLOTS.map(s => s[0]).filter(s => es.some(e => slotOf(e) === s)) : [];
   const avail = SLOTS.map(s => s[0]).filter(s => !done.includes(s) && (!isToday || h < slotEnd(s)));
@@ -4154,7 +4232,7 @@ function openPlanPick(s) {
 }
 function renderPlan() {
   const box = $('plWrap'); if (!box) return;
-  const d = planDay(), ctx = planCtx(d), T = S.targets;
+  const d = planDay(), ctx = planCtx(d), T = ctx.T;
   let p = planStore().plans?.[d], rebuilt = false;
   if (!p && !ctx.closed) p = makePlan(ctx);
   else if (p && !ctx.closed && p.tk !== planTk(T)) { p = makePlan(ctx); rebuilt = true; }   // v74: targets changed since it was built
@@ -4192,7 +4270,7 @@ function renderPlan() {
       : `<p class="hint" id="plNote">${proOk ? '' : `The most protein ${anyLock ? 'this plan can reach with your locked meals' : 'your foods reach in this range'} is about ${fmtG(tot.pro)}g. A shake or egg whites would close the gap. `}${inR ? '' : `This is as close to ${kc(T.calLo)}–${kc(T.calHi)} kcal as ${anyLock ? 'your locked meals leave room for' : 'your foods allow'}.`}</p>`;
   } else note = `<p class="hint" id="plNote">${rebuilt === true ? 'Re-planned for your new targets. ' : ''}Built from the meals and foods you've logged in the last 4 weeks, at your usual amounts.</p>`;
   const pw = later.length ? ' planned' : '';
-  const sum = `<div class="result" id="plSum"><div><span class="num">${kc(tot.kcal)}</span><small>kcal${pw}</small></div><div class="pro"><span class="num">${fmtG(tot.pro)}g</span><small>protein${pw}</small></div></div><p class="hint pl-target" id="plTarget">Your targets: ${kc(T.calLo)}–${kc(T.calHi)} kcal and ${T.protein}g protein${ctx.isToday && ctx.done.length ? ', counting what you’ve logged' : ''}${later.length ? `, with room kept for ${names(later)}` : ''}.</p>`;
+  const sum = `<div class="result" id="plSum"><div><span class="num">${kc(tot.kcal)}</span><small>kcal${pw}</small></div><div class="pro"><span class="num">${fmtG(tot.pro)}g</span><small>protein${pw}</small></div></div><p class="hint pl-target" id="plTarget">${T.fday ? `<b id="plFree">✦ Free day${T.fday.extra > 0 ? '' : ', no limit'}.</b> ` : ''}${T.fday && !(T.fday.extra > 0) ? 'Planned on your usual range; add what you like. Targets' : 'Your targets'}: ${kc(T.calLo)}–${kc(T.calHi)} kcal and ${T.protein}g protein${ctx.isToday && ctx.done.length ? ', counting what you’ve logged' : ''}${later.length ? `, with room kept for ${names(later)}` : ''}.</p>`;
   const groups = SLOTS.map(([s, label]) => {
     if (ctx.done.includes(s)) { const g = ctx.es.filter(e => slotOf(e) === s), k = g.reduce((a, e) => a + e.kcal, 0), pr = g.reduce((a, e) => a + e.pro, 0);
       const lr = g.map(e => `<div class="meal-row"><div class="item"><span class="nm">${esc(e.name)}<small>${esc(e.detail || '')}</small></span><span class="meta">${kc(e.kcal)} kcal · ${fmtG(e.pro)}g</span></div><button class="x" data-pu="${esc(e.id)}" aria-label="Take ${esc(e.name)} back out">${icon('i-x')}</button></div>`).join('');   // v95
@@ -4236,12 +4314,14 @@ $('planBtn').onclick = () => { haptic(); openPlan(); };
 /* Weekly check-in: last full week (Monday to Sunday) */
 function lastWeek() {
   const T = S.targets, ws = shift(weekStart(todayIso()), -7), we = shift(ws, 6);
-  const days = Array.from({ length: 7 }, (_, i) => dayTotals(shift(ws, i))).filter(Boolean);
+  const days = Array.from({ length: 7 }, (_, i) => { const d = shift(ws, i), tt = dayTotals(d); return tt && { ...tt, d, T: dayT(d) }; }).filter(Boolean);   // v99: each day's own targets
+  const fi = freeOfWeek(ws), fd = fi && days.find(x => x.d === fi.d);
   const arr = weightsArr(), wNow = avgBetween(arr, ws, we), wPrev = avgBetween(arr, shift(ws, -7), shift(ws, -1));
   return { ws, we, n: days.length, avgK: days.length ? days.reduce((s, x) => s + x.kcal, 0) / days.length : null,
     avgP: days.length ? days.reduce((s, x) => s + x.pro, 0) / days.length : null,
-    inRange: days.filter(x => kcalIn(x.kcal)).length, proHit: days.filter(x => proHit(x.pro)).length,
-    onTarget: days.filter(x => kcalOnTarget(x.kcal)).length, low: mode() === 'lose' ? days.filter(x => kcalLow(x.kcal)).length : 0,   // v76
+    inRange: days.filter(x => kcalIn(x.kcal, x.T)).length, proHit: days.filter(x => proHit(x.pro)).length,
+    onTarget: days.filter(x => kcalOnTarget(x.kcal, x.T)).length, low: mode() === 'lose' ? days.filter(x => kcalLow(x.kcal, x.T)).length : 0,   // v76
+    free: fi && { ...fi, kcal: fd ? fd.kcal : null, ok: fd ? !kcalOver(fd.kcal, fd.T) : null },   // v99
     wChange: wNow != null && wPrev != null ? wNow - wPrev : null };
 }
 function renderCheckin() {
@@ -4277,7 +4357,7 @@ function renderCheckin() {
       <div><span class="v">${w.proHit}/${w.n}</span><span class="k">protein days</span></div>
       <div><span class="v">${w.n}/7</span><span class="k">days logged</span></div>
     </div>
-    <p class="ci-verdict">${esc(verdict)}</p>${w.n >= RC_MIN ? '<button class="linkbtn" id="ciShare" type="button">Share your week as a recap</button>' : ''}${w.low ? `<p class="hint" id="ciLow">${w.low === 1 ? '1 day was' : `${w.low} days were`} under ${kc(T.calLo - LOW_GAP)} kcal. Now and then is fine; eating that little often can cost muscle and energy.</p>` : ''}${adj}`;
+    <p class="ci-verdict">${esc(verdict)}</p>${w.n >= RC_MIN ? '<button class="linkbtn" id="ciShare" type="button">Share your week as a recap</button>' : ''}${w.free && w.free.kcal != null ? `<p class="hint" id="ciFree">${esc(DAY_NAME(w.free.d))} was your free day: ${kc(w.free.kcal)} kcal${w.free.ok ? ', counted as on plan' : `, over its ${kc(S.targets.calHi + w.free.extra)} limit`}.${w.free.cut ? ` The other days were ${kc(w.free.cut)} kcal less to pay for it.` : ''}</p>` : ''}${w.low ? `<p class="hint" id="ciLow">${w.low === 1 ? '1 day was' : `${w.low} days were`} under ${kc(T.calLo - LOW_GAP)} kcal. Now and then is fine; eating that little often can cost muscle and energy.</p>` : ''}${adj}`;
   if ($('ciShare')) $('ciShare').onclick = () => { haptic(); openRecap('week'); };   // v98
   if ($('ciUse')) $('ciUse').onclick = () => {
     const old = { ...S.targets };
@@ -4346,7 +4426,7 @@ function recapStats(p) {
     const tr = trendPts(win, arr), w0 = tr[0].lb, w1 = tr[tr.length - 1].lb, days = daysBetween(win[0].date, win[win.length - 1].date);
     w = { w0, w1, ch: w1 - w0, days, rate: (w1 - w0) / days * 7, pts: win, trend: tr, d0: win[0].date, d1: win[win.length - 1].date };
   }
-  const good = mode() === 'lose' ? tot.filter(x => kcalOnTarget(x.kcal)).length : tot.filter(x => kcalIn(x.kcal)).length;
+  const good = mode() === 'lose' ? tot.filter(x => kcalOnTarget(x.kcal, dayT(x.d))).length : tot.filter(x => kcalIn(x.kcal, dayT(x.d))).length;   // v99
   return { p, n, total: ds.length, kcal: avg('kcal'), pro: avg('pro'), proDays: tot.filter(x => proHit(x.pro)).length, best, streak, early, top, w, good,
     days: tot, from, to: ds[ds.length - 1] || from, protein: T.protein, calLo: T.calLo, calHi: T.calHi };
 }
@@ -4674,6 +4754,9 @@ $('adjNo').onclick = () => adjClose(false);
    set the app up don't get it). Always available in You → Help. Last seen version: localStorage cutlog.seenV (per device).
    Every release adds an entry at the top, in plain words for everyone who uses Cut Log. */
 const CHANGELOG = [
+  { v: 99, d: '2026-11-07', items: [
+    'Free day: plan a day each week (or every other week) to eat more, in You → Free day. Choose how much extra (+300 to +1,000 kcal, or no limit) and how it’s paid for: budgeted (the other days are a little lower so the week still lands on target) or free (not paid back). Protein stays the same. It counts as on plan in your check-in and History, Plan my day plans the bigger day, and you can skip one from Today. For Cutting and Maintaining.',
+  ] },
   { v: 98, d: '2026-11-07', items: [
     'Your recap: a colourful card of your week, month or year (weight change, protein days, best day, top food, streaks) to share in Messages, WhatsApp or Instagram, as one picture or 3 slides. Pick its colours, and choose whether it shows your actual weights or only the change. Find it on Today at the start of a month, in the weekly check-in, and in History.',
   ] },
@@ -4845,6 +4928,102 @@ $('tmSave').onclick = () => {
   const bad = timesProblem(t); $('tmWarn').hidden = !bad; $('tmWarn').textContent = bad; if (bad) return;
   S.targets = { ...S.targets, times: t }; touchMeta(); openTimesEdit(false); renderAll(); haptic(); toast('Meal times saved');
 };
+/* ---------- v99: FREE DAY (You card, Today line, panel) ---------- */
+var FD = null;      // the form while it's open
+function freeNextDay(from) {      // the next free day on or after `from` (skipped ones included), within 3 weeks
+  for (let ws = weekStart(from), i = 0; i < 4; i++, ws = shift(ws, 7)) { const fi = freeOfWeek(ws, true); if (fi && fi.d >= from) return fi; }
+  return null;
+}
+function freePayTxt(f, T) {
+  if (f.pay !== 'budget') return 'Not paid back: the rest of the week stays the same, so that week’s loss is a bit slower.';
+  if (!(f.extra > 0)) return `Budgeted: what you eat over ${kc(T.calHi)} comes out of that week’s budget, so the days after have less room.`;
+  const c = freeCut(f.extra, 6), lo = Math.max(1200, T.calLo - c);
+  return `Budgeted: the other 6 days are about ${kc(c)} kcal less (${kc(lo)}–${kc(Math.max(lo + 100, T.calHi - c))}), so the week still lands on target.`;
+}
+function renderFreeCard() {
+  const card = $('freeCard'); if (!card) return;
+  const gain = mode() === 'gain', f = freeCfg(), on = !!(f && f.on), T = S.targets;
+  card.hidden = gain && !on;
+  const editing = !$('fdayForm').hidden;
+  $('fdayEdit').hidden = !on || editing || gain; $('fdayView').hidden = !on || editing; $('fdayStart').hidden = on || editing || gain;
+  $('fdayHint').hidden = editing;
+  $('fdayHint').textContent = gain ? 'Free days are for Cutting and Maintaining, so yours is paused while you’re Building.'
+    : on ? 'Protein stays the same. It counts as on plan in your check-in and History. Skip one from Today any time.'
+    : 'Plan a day each week to eat more, so it counts as part of the plan instead of a slip. Protein stays the same.';
+  if (!on) return;
+  const nx = freeNextDay(todayIso());
+  $('fdayvWhen').textContent = `${f.every === 2 ? 'Every other ' : 'Every '}${DAYS_LONG[f.dow]}`;
+  $('fdayvExtra').textContent = f.extra > 0 ? `+${kc(f.extra)} kcal (up to ${kc(T.calHi + f.extra)})` : 'No limit';
+  $('fdayvPay').textContent = f.pay === 'budget' ? (f.extra > 0 ? `Other days, ${kc(freeCut(f.extra, 6))} less` : 'The week’s budget') : 'Not paid back';
+  $('fdayvNext').textContent = nx ? (nx.skipped ? `${freeWhen(nx.d)} (skipped)` : freeWhen(nx.d)).replace(/^./, c => c.toUpperCase()) : '–';
+}
+function renderFdForm() {
+  const T = S.targets, f = FD;
+  [...$('fdayDay').children].forEach(b => b.setAttribute('aria-pressed', +b.dataset.v === f.dow));
+  [...$('fdayEvery').children].forEach(b => b.setAttribute('aria-pressed', +b.dataset.v === f.every));
+  [...$('fdayExtra').children].forEach(b => b.setAttribute('aria-pressed', +b.dataset.v === f.extra));
+  [...$('fdayPay').children].forEach(b => b.setAttribute('aria-pressed', b.dataset.v === f.pay));
+  $('fdayPayHint').textContent = freePayTxt(f, T);
+  const st = freeStart(f, todayIso()), first = (() => { for (let ws = weekStart(st), i = 0; i < 3; i++, ws = shift(ws, 7)) { const d = shift(ws, (f.dow + 6) % 7);
+    if (d >= st && !(f.every === 2 && i % 2)) return d; } return null; })();
+  $('fdayPrev').innerHTML = `${esc(DAYS_LONG[f.dow])}: <b>${f.extra > 0 ? `up to ${kc(T.calHi + f.extra)} kcal` : 'no calorie limit'}</b>, ${T.protein}g protein.${first ? ` First one: ${esc(freeWhen(first))}.` : ''}`;
+  $('fdayOff').hidden = !(freeCfg() && freeCfg().on);
+}
+function openFreeEdit(open) {
+  if (open) { const f = freeCfg(); FD = { dow: 6, every: 1, pay: 'budget', extra: 500, ...(f && f.on ? { dow: f.dow, every: f.every, pay: f.pay, extra: f.extra } : {}) }; renderFdForm(); }
+  else FD = null;
+  $('fdayForm').hidden = !open; replay($(open ? 'fdayForm' : 'freeCard'), 'fade-in'); renderFreeCard();
+}
+$('fdayStart').onclick = () => { haptic(); openFreeEdit(true); };
+$('fdayEdit').onclick = () => openFreeEdit(true);
+$('fdayCancel').onclick = () => openFreeEdit(false);
+$('fdayForm').onclick = e => {
+  const b = e.target.closest('[data-v]'); if (!b || !FD) return;
+  const g = b.parentElement.id, v = b.dataset.v;
+  if (g === 'fdayDay') FD.dow = +v; else if (g === 'fdayEvery') FD.every = +v; else if (g === 'fdayExtra') FD.extra = +v; else if (g === 'fdayPay') FD.pay = v; else return;
+  haptic(); renderFdForm();
+};
+$('fdaySave').onclick = () => {
+  const t = todayIso(), old = freeCfg(), kept = freeKeepPast(t) || {};
+  const f = { ...kept, on: true, dow: FD.dow, every: FD.every, pay: FD.pay, extra: FD.extra };
+  f.from = freeStart(f, t); f.skip = (f.skip || []).filter(x => x < t);
+  S.targets = { ...S.targets, free: f }; touchMeta(); openFreeEdit(false); renderAll(); haptic();
+  toast(old && old.on ? 'Free day saved' : `Free day set: ${DAYS_LONG[f.dow]}s`);
+};
+$('fdayOff').onclick = () => {
+  const t = todayIso(), before = S.targets.free, f = freeKeepPast(t);
+  S.targets = { ...S.targets, free: { ...f, on: false, from: t } }; touchMeta(); openFreeEdit(false); renderAll(); haptic();
+  toast('Free days turned off', { label: 'Undo', fn: () => { S.targets = { ...S.targets, free: before }; touchMeta(); renderAll(); } });
+};
+/* Today: a line in the hero on a free day, and earlier in a week that has one */
+function renderFreeLine() {
+  const el = $('fdayLine'); if (!el) return;
+  const t = todayIso(), T = dayT(day); let fi = null, txt = '';
+  if (T.fday) { fi = T.fday; txt = `<b>✦ Free day</b><span>${fi.extra > 0 ? `up to ${kc(T.calHi)} kcal` : 'no limit, protein still counts'}</span>`; }
+  else if (day === t && freeOn()) { const w = freeOfWeek(weekStart(t));
+    if (w && w.d > t) { fi = w; txt = `<b>Free day ${esc(DAY_SHORT(w.d))}</b><span>${T.pays ? `${kc(w.cut)} kcal less today` : w.extra > 0 ? `+${kc(w.extra)} kcal` : 'no limit'}</span>`; } }
+  el.hidden = !fi; if (!fi) return;
+  el.dataset.fd = fi.d; $('fdayLineT').innerHTML = txt;
+}
+$('fdayLine').onclick = () => { haptic(); openFreeDay($('fdayLine').dataset.fd); };
+function openFreeDay(d) {
+  const t = todayIso(), fi = freeOfWeek(weekStart(d), true), T = S.targets;
+  if (!fi || fi.d !== d) return;
+  const cutTxt = fi.cut ? `The other days of that week are ${kc(fi.cut)} kcal less (${kc(Math.max(1200, T.calLo - fi.cut))}–${kc(Math.max(Math.max(1200, T.calLo - fi.cut) + 100, T.calHi - fi.cut))}) to pay for it, so the week still lands on target.`
+    : fi.pay === 'budget' ? `Paid for by the week’s budget: what you eat over ${kc(T.calHi)} comes out of the room for the days after.`
+    : 'Not paid back: the rest of the week stays the same, so that week’s loss is a bit slower.';
+  const can = !fi.past && d >= t;
+  openSheet('Free day', `
+    <p class="fd-p" id="fdaypWhat"><b id="fdaypWhen">${esc(freeWhen(d).replace(/^./, c => c.toUpperCase()))}${fi.skipped ? ' (skipped)' : ''}</b><br>${fi.extra > 0 ? `Your calories go up by ${kc(fi.extra)}, to ${kc(T.calLo)}–${kc(T.calHi + fi.extra)}.` : 'No calorie limit.'} Protein stays at ${T.protein}g, so get it in first.</p>
+    <p class="hint" id="fdaypPay">${esc(cutTxt)}</p>
+    <p class="hint">It counts as on plan in your check-in and History. If the scale is up the next morning, that's water and salt from the extra food, not fat; it settles in 2–3 days.</p>
+    ${can ? (fi.skipped ? '<button class="btn" id="fdayBack" type="button">Bring it back</button>' : '<button class="btn ghost" id="fdaySkip" type="button">Skip this free day</button>') : ''}
+    <button class="linkbtn" id="fdaySet" type="button">Change free day settings</button>`);
+  const setSkip = on => { const f = freeCfg(); S.targets = { ...S.targets, free: { ...f, skip: on ? [...new Set([...(f.skip || []), d])] : (f.skip || []).filter(x => x !== d) } }; touchMeta(); renderAll(); };
+  if ($('fdaySkip')) $('fdaySkip').onclick = () => { setSkip(true); closeSheet(); haptic(); toast('Free day skipped', { label: 'Undo', fn: () => setSkip(false) }); };
+  if ($('fdayBack')) $('fdayBack').onclick = () => { setSkip(false); closeSheet(); haptic(); toast('Free day is back'); };
+  $('fdaySet').onclick = () => { closeSheet(); showTab('you'); openFreeEdit(true); setTimeout(() => $('freeCard').scrollIntoView({ behavior: REDUCED ? 'auto' : 'smooth', block: 'start' }), 380); };
+}
 /* ---------- v91: NOTIFICATIONS ----------
    Alerts come from a small free Supabase function (server/cutlog-alerts in the project), which acts as the alarm clock:
    Firebase's free plan can't run anything on a schedule. Cut Log's data stays in Firebase. Each phone that turns alerts on
@@ -4878,7 +5057,7 @@ function alertWhen(k) {
 // Today's note for the alarm clock: only numbers, no food names
 function alertStatus() {
   const t = todayIso(), es = entriesFor(t), tot = dayTotals(t) || { kcal: 0, pro: 0 };
-  return { d: t, kcal: Math.round(tot.kcal), pro: Math.round(tot.pro), calHi: S.targets.calHi, protein: S.targets.protein,
+  return { d: t, kcal: Math.round(tot.kcal), pro: Math.round(tot.pro), calHi: dayTf(t).calHi, protein: S.targets.protein,   // v99: a free day's own top
     slots: [...new Set(es.map(slotOf))], weighed: S.weights[t] != null };
 }
 function alertBody() {
@@ -5104,6 +5283,7 @@ $('tForm').onsubmit = e => {
   if (!(lo > 0 && hi >= lo && pr > 0 && g > 0)) { toast('Check the targets: the low number must be below the high one.'); return; }
   if (sw && !(fromW(+sw) >= 80 && fromW(+sw) <= 600)) { toast(`Starting weight should be in ${metric() ? 'kilograms' : 'pounds'}.`); return; }
   const newMode = $('pMode').dataset.pending || mode(), changed = newMode !== mode();
+  if (changed && freeCfg()) { const t = todayIso(), f = freeKeepPast(t); S.targets = { ...S.targets, free: { ...f, from: freeStart(f, t) } }; }   // v99
   S.targets = { ...S.targets, calLo: lo, calHi: hi, protein: pr, goal: g, mode: newMode };
   S.startWeight = sw ? rW(fromW(+sw)) : null;
   document.activeElement?.blur?.(); openGoalEdit(false); touchMeta(); renderAll(); haptic();

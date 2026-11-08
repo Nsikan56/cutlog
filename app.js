@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '103';
+const APP_V = '104';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -208,6 +208,28 @@ function isLiquid(f) {
   if (f.liquid) return true;
   if (LIQ_SERV.test(f.servingLabel || '')) return true;
   const nm = pkgName(f.name); return LIQ_NAME.test(nm) && !LIQ_NOT.test(nm);
+}
+/* v104: a serving in mL is volume, not weight (Kan, 7 Nov: Halo Top Peanut Butter Swirl, 130 kcal per 3/4 cup (188 mL), was counted
+   as 188 g, so 184 g on his scale came to 127 kcal instead of about 228). Ice cream and frozen desserts are about half air and
+   whipped toppings mostly air, so they weigh much less than their volume. Estimated densities (g per mL): ice cream 0.55
+   (Halo Top: 188 mL ≈ 105 g), whipped 0.3. Foods store servingMl (mL in one serving), dens (g per mL) and densEst (an
+   estimate, not weighed); per-100 g numbers are always per 100 g of weight. */
+const AIRY = [[/\b(ice ?cream|creme glacee|dessert glace|gelato|frozen (dessert|yog[h]?o?urt|treat)|yogourt glace|froyo|halo top)\b/, 0.56], [/\b(whipped|fouettee?|cool whip)\b/, 0.3]];
+const airyDens = f => { const nm = pkgName(`${f?.name || ''} ${f?.brand || ''} ${f?.cats || ''}`); return AIRY.find(([re]) => re.test(nm))?.[1] || null; };
+const ML_OF = s => { const m = /(\d{1,4}(?:[.,]\d+)?)\s*(ml|mℓ)\b/i.exec(s || ''); return m ? parseFloat(m[1].replace(',', '.')) : null; };
+/* per 100 mL -> per 100 g, and the serving in mL with its estimated weight */
+function airyApply(t, ml, d, label) {
+  ['kcal100', 'pro100', 'fib100', 'carb100', 'fat100'].forEach(x => { if (t[x] != null) t[x] = Math.min(t[x] / d, x === 'kcal100' ? MAX_KCAL100 : 100); });
+  t.servingMl = ml; t.servingG = Math.round(ml * d); t.dens = d; t.densEst = true; t.servingLabel = `${label || ml + ' mL'}, about ${t.servingG} g`;
+}
+/* a scanned ice cream saved before v104: its serving in mL was read as grams */
+const airyOld = f => f?.source === 'scan' && !f.dens && f.servingG > 0 && f.kcal100 != null && ML_OF(f.servingLabel) === f.servingG && !!airyDens(f);
+function airyFix(f) {
+  if (!airyOld(f)) return;
+  const saved = S.foods.find(x => x.id === f.id), ml = f.servingG, d = airyDens(f);
+  [...new Set([f, saved])].forEach(t => { if (t && airyOld(t)) airyApply(t, ml, d, t.servingLabel); });
+  touchMeta();
+  setTimeout(() => { toast(`Fixed: serving about ${f.servingG} g`); setTimeout(() => offerRecount(f.id), 2700); }, 400);
 }
 const LIQ_UNITS = ['ml', 'floz'];
 function unitsFor(f) {
@@ -960,7 +982,7 @@ addEventListener('resize', () => { if (SH.open && !SH.drag) setY(0, false); });
 
 /* ---------- amount step (shared by every flow) ---------- */
 function openAmount(f, preset, opts = {}) {
-  if (!opts.editId) f = freshFood(f);
+  if (!opts.editId) { f = freshFood(f); airyFix(f); }     // v104
   if (!opts.editId && !opts.asIs && !pick && lastCooked(f.id) && pkgPair(f)) {        // v61: you logged it cooked last time
     f = cookedOf(f);
     if (preset?.unit && !unitsFor(f).some(u => u.key === preset.unit)) preset = { ...preset, qty: 100, unit: 'g' };
@@ -1174,6 +1196,11 @@ function offToFood(p, code) {
     if (sq > 0 && f.kcalServ == null) { f.kcalServ = f.kcal100 * sq / 100; f.proServ = (f.pro100 || 0) * sq / 100; }
     f.kcal100 = MAX_KCAL100;
   }
+  const sqU = String(p.serving_quantity_unit || '').toLowerCase();
+  if (sq > 0 && f.kcal100 != null && (sqU ? sqU === 'ml' : ML_OF(p.serving_size) != null)) {   // v104: Open Food Facts' own unit when it gives one
+    const d = airyDens({ name: f.name, brand: f.brand, cats: (p.categories_tags || []).join(' ').replace(/[:-]/g, ' ') });
+    if (d) airyApply(f, sq, d, p.serving_size);
+  }
   return (f.kcal100 != null || f.kcalServ != null) ? f : null;
 }
 /* v60: Open Food Facts sometimes has a label's per-serving numbers typed into its "per 100 g" fields. Kan's Chosen Foods
@@ -1237,7 +1264,7 @@ async function regrade(f) {
   } catch (e) { enrichTried.delete(f.id); }
 }
 function regradeAll() { S.foods.filter(f => f.source === 'label' && f.barcode && f.nutri === undefined).slice(0, 12).forEach(f => regrade(f)); }
-const OFF_FIELDS = 'product_name,product_name_en,product_name_fr,brands,nutriments,serving_quantity,serving_size,nutriscore_grade';
+const OFF_FIELDS = 'product_name,product_name_en,product_name_fr,brands,nutriments,serving_quantity,serving_size,nutriscore_grade,serving_quantity_unit,categories_tags';
 /* Foods scanned before v41 have no fibre or grade. The first time one is opened, ask Open Food Facts once and add only
    those two things; calories and protein are never touched (they may have been fixed by hand). */
 const enrichTried = new Set();
@@ -1428,7 +1455,7 @@ async function prepImage(file) {
 function parseLabel(text) {
   const lines = text.replace(/[|]/g, ' ').split(/\n+/).map(l => l.trim()).filter(Boolean);
   const num = s => parseFloat(String(s).replace(',', '.'));
-  let kcal = null, pro = null, fib = null, carb = null, fat = null, servingG = null, servingText = '';
+  let kcal = null, pro = null, fib = null, carb = null, fat = null, servingG = null, servingText = '', servingUnit = null;
   for (const l of lines) {
     const low = l.toLowerCase().replace(/(\d)o\b/g, '$10').replace(/\bo(\d)/g, '0$1');
     if (kcal == null && /calor/.test(low) && !/from fat/.test(low)) {
@@ -1457,11 +1484,11 @@ function parseLabel(text) {
     }
     if (servingG == null && /(per|pour|serving|portion|size)/.test(low)) {
       const m = low.match(/\(?\s*(\d{1,4}(?:[.,]\d)?)\s*(g|ml|mℓ)\b/);
-      if (m) { servingG = num(m[1]); servingText = l.replace(/\s+/g, ' ').slice(0, 60); }
+      if (m) { servingG = num(m[1]); servingUnit = m[2] === 'g' ? 'g' : 'ml'; servingText = l.replace(/\s+/g, ' ').slice(0, 60); }
     }
   }
-  if (servingG == null) { const m = text.match(/\(\s*(\d{1,4})\s*(g|ml)\s*\)/i); if (m) { servingG = num(m[1]); servingText = m[0]; } }
-  return { kcal, pro, fib, carb, fat, servingG, servingText };
+  if (servingG == null) { const m = text.match(/\(\s*(\d{1,4})\s*(g|ml)\s*\)/i); if (m) { servingG = num(m[1]); servingUnit = /g/i.test(m[2]) ? 'g' : 'ml'; servingText = m[0]; } }
+  return { kcal, pro, fib, carb, fat, servingG, servingText, servingUnit };
 }
 function openLabel(barcode) {
   if (pick && draft && barcode) { draft.pendingCode = barcode; draft.touched = true; saveDraft(draft); }   // remembered in case iOS restarts the app during the photo
@@ -1492,6 +1519,8 @@ async function runOcr(file, barcode) {
   labelForm(out, parseLabel(text), text, barcode);
 }
 function labelForm(out, p, text, barcode, name, keepId, then) {
+  const src0 = keepId && (S.foods.find(x => x.id === keepId) || PKG_SEEN.get(keepId) || (then?.src?.id === keepId ? then.src : null));
+  if (src0?.servingMl && p.servingUnit == null) { p = { ...p, servingG: src0.servingMl, servingUnit: 'ml', servingW: src0.servingG || null, densEst: !!src0.densEst, dens: src0.dens }; }   // v104: fixing a food whose serving is in mL
   out.insertAdjacentHTML('beforeend', `
     ${text ? '<p class="hint">Check these against the label and fix anything that looks off.</p>' : ''}
     <label>Food name<input id="lName" value="${esc(name || '')}" placeholder="e.g. Greek yogurt 0%"></label>
@@ -1504,12 +1533,35 @@ function labelForm(out, p, text, barcode, name, keepId, then) {
       <label>Fat per serving (g)<input id="lFat" type="number" inputmode="decimal" min="0" value="${p.fat ?? ''}" placeholder="Optional"></label>
     </div>
     <label>Fibre per serving (g, optional)<input id="lF" type="number" inputmode="decimal" min="0" value="${p.fib ?? ''}" placeholder="Leave blank if the label doesn't say"></label>
-    <label>Serving size (g or ml)<input id="lG" type="number" inputmode="decimal" value="${p.servingG ?? ''}" placeholder="Optional, e.g. 175"></label>
-    <p class="field-note">The number in brackets on the label. Adding it lets you log by spoon or gram.</p>
+    <div class="lserv"><label>Serving size<input id="lG" type="number" inputmode="decimal" value="${p.servingG ?? ''}" placeholder="Optional, e.g. 175"></label>
+      <div class="seg2 st" id="lU" role="group" aria-label="Serving size in grams or millilitres"><button type="button" data-u="g" aria-pressed="true">g</button><button type="button" data-u="ml" aria-pressed="false">mL</button></div></div>
+    <p class="field-note" id="lGNote">The number in brackets on the label. Adding it lets you log by spoon or gram.</p>
+    <div class="lml" id="lMl" hidden>
+      <label>Weight of one serving (g)<input id="lW" type="number" inputmode="decimal" min="0" placeholder="Weigh it, or pick an estimate"></label>
+      <div class="chips wrap" id="lDens" role="group" aria-label="Estimate the weight"><button type="button" class="chip" data-d="1" aria-pressed="false">Drink or sauce</button><button type="button" class="chip" data-d="0.56" aria-pressed="false">Ice cream</button><button type="button" class="chip" data-d="0.3" aria-pressed="false">Whipped</button></div>
+      <p class="field-note" id="lMlNote">mL is space, not weight. Ice cream is about half air, so 188 mL weighs about 105 g. Weigh one serving if you can, or pick an estimate.</p>
+    </div>
     <button class="btn" id="lSave">Next: how much did you have?</button>
     ${text ? `<details><summary>What the reader saw</summary><div class="ocr">${esc(text)}</div></details>` : ''}`);
+  /* v104: g or mL. A serving in mL needs its weight for the per-100 g numbers: weighed, or estimated from the kind of food */
+  let su = 'g', dPick = null;
+  const markD = () => [...$('lDens').children].forEach(b => b.setAttribute('aria-pressed', +b.dataset.d === dPick));
+  const fillW = () => { const ml = parseFloat($('lG').value); if (dPick && ml > 0) $('lW').value = Math.round(ml * dPick); };
+  const guessD = () => { const nm = { name: $('lName').value, brand: src0?.brand }, d = airyDens(nm) || (LIQ_NAME.test(pkgName(nm.name)) ? 1 : null); if (d) { dPick = d; markD(); fillW(); } };
+  const setU = u => { su = u; [...$('lU').children].forEach(b => b.setAttribute('aria-pressed', b.dataset.u === u)); $('lMl').hidden = u !== 'ml'; $('lGNote').hidden = u === 'ml'; };
+  $('lU').onclick = e => { const b = e.target.closest('[data-u]'); if (!b || b.dataset.u === su) return; haptic(); setU(b.dataset.u); if (su === 'ml' && !$('lW').value) guessD(); };
+  $('lDens').onclick = e => { const b = e.target.closest('[data-d]'); if (!b) return; haptic(); dPick = +b.dataset.d; markD(); fillW(); };
+  $('lW').oninput = () => { dPick = null; markD(); };
+  $('lG').addEventListener('input', fillW);
+  $('lName').addEventListener('input', () => { if (su === 'ml' && dPick == null && !$('lW').value) guessD(); });
+  if (p.servingUnit === 'ml') {
+    setU('ml');
+    if (p.servingW) { $('lW').value = r1(p.servingW); if (p.densEst) { const ml = parseFloat($('lG').value); dPick = [...$('lDens').children].map(b => +b.dataset.d).find(d => Math.abs(ml * d - p.servingW) < 1) ?? null; markD(); } } else guessD();
+  }
   $('lSave').onclick = () => {
-    const nm = $('lName').value.trim(), k = parseFloat($('lK').value), pr = parseFloat($('lP').value) || 0, g = parseFloat($('lG').value), fb = parseFloat($('lF').value);
+    const nm = $('lName').value.trim(), k = parseFloat($('lK').value), pr = parseFloat($('lP').value) || 0, fb = parseFloat($('lF').value);
+    const ml = su === 'ml' ? parseFloat($('lG').value) : NaN, w = parseFloat($('lW').value);
+    const g = su === 'ml' ? (ml > 0 && w > 0 ? w : NaN) : parseFloat($('lG').value);     // v104: grams of one serving
     if (!nm) { toast('Give the food a name.'); return; }
     if (!(k >= 0)) { toast('Enter the calories per serving.'); return; }
     const f = { id: keepId || (barcode ? 'p' + barcode : 'c' + uid()), name: nm, source: 'label', kcalServ: k, proServ: pr };
@@ -1517,7 +1569,9 @@ function labelForm(out, p, text, barcode, name, keepId, then) {
     if (fb >= 0 && fb < 100) f.fibServ = fb;
     const cb = parseFloat($('lC').value), ft = parseFloat($('lFat').value);     // v84: carbs and fat count only as a pair
     if (cb >= 0 && cb < 1000 && ft >= 0 && ft < 1000) { f.carbServ = cb; f.fatServ = ft; }
-    if (g > 0) { f.servingG = g; f.servingLabel = g + ' g'; f.kcal100 = k / g * 100; f.pro100 = pr / g * 100; if (f.fibServ != null) f.fib100 = fb / g * 100;
+    if (ml > 0) { f.servingMl = ml; f.servingLabel = `${ml} mL`;     // v104: without a weight it logs by serving only
+      if (g > 0) { const d = Math.round(g / ml * 1000) / 1000; if (d !== 1) { f.dens = d; f.servingLabel = `${ml} mL (${r1(g)} g)`; } if (dPick && Math.abs(g - ml * dPick) < 1 && dPick !== 1) f.densEst = true; } }
+    if (g > 0) { f.servingG = g; if (!f.servingLabel) f.servingLabel = g + ' g'; f.kcal100 = k / g * 100; f.pro100 = pr / g * 100; if (f.fibServ != null) f.fib100 = fb / g * 100;
       if (f.carbServ != null) { f.carb100 = cb / g * 100; f.fat100 = ft / g * 100; } }
     const old = keepId && (S.foods.find(x => x.id === keepId) || PKG_SEEN.get(keepId));
     const was = old || (keepId && then?.src?.id === keepId ? then.src : null);   // v103: a fresh scan or online result isn't saved yet: keep from the food being fixed
@@ -1611,7 +1665,7 @@ function openSearch() {
     holdSheetHeight();
     $('results').innerHTML = '<div class="loading"><div class="spinner"></div>Searching Open Food Facts…</div>';
     try {
-      const url = `${OFF}/cgi/search.pl?search_terms=${encodeURIComponent(q)}&search_simple=1&action=process&json=1&page_size=20&fields=code,product_name,brands,nutriments,serving_quantity,serving_size,nutriscore_grade`;
+      const url = `${OFF}/cgi/search.pl?search_terms=${encodeURIComponent(q)}&search_simple=1&action=process&json=1&page_size=20&fields=code,product_name,brands,nutriments,serving_quantity,serving_size,nutriscore_grade,serving_quantity_unit,categories_tags`;
       const j = await (await fetch(url)).json();
       items = (j.products || []).map(p => offToFood(p, p.code)).filter(Boolean).map(f => ({ f }));
       $('results').innerHTML = items.length ? listHtml(items) : '<p class="empty">Nothing found online. Try fewer words or a brand name.</p>';
@@ -2974,7 +3028,7 @@ const GUIDE = [
     <p>To back up and sync with a laptop, tap the pill at the top right and sign in. Syncing works once your email has been added to the invite list, so ask the person who shared the app. Until then, everything still works on your phone.</p>`],
   ['Logging food', `
     <p><b>Scan barcode</b> for packaged food. If it isn't in the free database, snap the label once and the app remembers that barcode next time.</p>
-    <p><b>Snap label</b> reads a Nutrition Facts photo on your phone. Check the numbers it found before saving.</p>
+    <p><b>Snap label</b> reads a Nutrition Facts photo on your phone. Check the numbers it found before saving. If the serving is in <b>mL</b>, pick mL and add what one serving weighs: ice cream is about half air, so 188 mL is only about 105 g. Weigh it, or tap an estimate.</p>
     <p><b>Search</b> covers whole foods, Nigerian and Canadian dishes, your saved foods, and packaged foods online. Nothing fits? Use <b>Enter a food by hand</b>, or <b>Quick add</b> for just calories and protein (good for samples or a meal out).</p>
     <p>On <b>How much?</b> pick an amount in pieces, servings, grams, cups or spoons. No scale? Use your hand: a <b>palm</b> of meat (about 100 g), a <b>fist</b> of rice or pasta (about a cup), a <b>cupped hand</b> of snacks, a <b>thumb</b> of oil or peanut butter. Dishes come in <b>small, regular and large</b> plates or bowls, with a picture guide.</p>
     <p>Drinks (milk, juice, almond drinks, soup, anything whose serving is in ml) also take <b>ml</b>, <b>fl oz</b> and a 250 ml <b>cup</b>. Switching between serving, ml and fl oz keeps the same amount, so 1 serving of 250 ml becomes 250 ml. For packaged drinks, 1 ml counts as 1 g, the way their labels are written.</p>
@@ -3972,6 +4026,7 @@ function renderMoreIdeas() {
 }
 /* How much? for a home idea or a chain item: what's in it, or where the numbers come from */
 function moreNote(f) {
+  if (f.densEst && f.servingMl && f.servingG) return `<p class="hint mi-note" id="aDens">The weight is an estimate: ${f.servingMl} mL is about ${f.servingG} g (${f.dens < 0.45 ? 'whipped foods are mostly air' : 'ice cream is about half air'}). Weigh one serving and use Fix them to make it exact.</p>`;   // v104
   if (f.source === 'idea' && ideaWhat(f)) return `<p class="hint mi-note" id="aIdea">${esc(ideaWhat(f))}.</p>`;
   if (f.source === 'chain' && CHAIN_INFO[f.chain]) return `<p class="hint mi-note" id="aChain">From ${esc(CHAIN_INFO[f.chain].src)}, checked ${esc(parseIso(CHAIN_INFO[f.chain].checked).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }))}.${f.chain === 'Subway' ? ' ' + esc(CHAIN_INFO.Subway.note) : ''}</p>`;
   return '';
@@ -4822,6 +4877,7 @@ $('adjNo').onclick = () => adjClose(false);
    set the app up don't get it). Always available in You → Help. Last seen version: localStorage cutlog.seenV (per device).
    Every release adds an entry at the top, in plain words for everyone who uses Cut Log. */
 const CHANGELOG = [
+  { v: 104, d: '2026-11-07', items: ['Servings in mL are no longer counted as grams. Ice cream is about half air, so the label form now asks for the weight of a serving in mL (or gives an estimate), and scanned ice cream gets the right numbers per gram. Ice cream you already saved is fixed the next time you open it.'] },
   { v: 103, d: '2026-11-07', items: ['Fixing a food’s numbers no longer loses its Nutri-Score. Foods that already lost it get it back by themselves.'] },
   { v: 102, d: '2026-11-07', items: [
     'Off days: in You → Meal times, turn on “Different times on off days” to keep a second set of meal times (like a later breakfast) and pick your usual off days.',

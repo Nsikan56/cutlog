@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '102';
+const APP_V = '103';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -1111,14 +1111,14 @@ function openAmount(f, preset, opts = {}) {
       const pk = S.foods.find(x => x.id === f.cookOf) || PKG_SEEN.get(f.cookOf); if (!pk) return;
       const pg = pk.servingG || null, pp = pk.kcalServ != null ? { kcal: pk.kcalServ, pro: pk.proServ } : pg ? { kcal: pk.kcal100 * pg / 100, pro: (pk.pro100 || 0) * pg / 100 } : { kcal: pk.kcal100, pro: pk.pro100 };
       openSheet('Fix the numbers', `<p class="hint">Enter what the package label says for one serving (the raw or dry numbers). Cooked is worked out from them.</p><div id="labelOut"></div>`);
-      labelForm($('labelOut'), { kcal: Math.round(pp.kcal), pro: r1(pp.pro || 0), fib: fibPerServ(pk, pg), ...macPerServ(pk, pg), servingG: pg || (pk.kcalServ == null ? 100 : null) }, '', pk.barcode || null, pk.name, pk.id, { ...was, cooked: true });
+      labelForm($('labelOut'), { kcal: Math.round(pp.kcal), pro: r1(pp.pro || 0), fib: fibPerServ(pk, pg), ...macPerServ(pk, pg), servingG: pg || (pk.kcalServ == null ? 100 : null) }, '', pk.barcode || null, pk.name, pk.id, { ...was, cooked: true, src: pk });
       return;
     }
     const g = f.servingG || null;
     const per = f.kcalServ != null ? { kcal: f.kcalServ, pro: f.proServ }
       : g ? { kcal: f.kcal100 * g / 100, pro: (f.pro100 || 0) * g / 100 } : { kcal: f.kcal100, pro: f.pro100 };
     openSheet('Fix the numbers', `<p class="hint">Enter what the label says for one serving. The app will use your numbers for this food from now on.</p><div id="labelOut"></div>`);
-    labelForm($('labelOut'), { kcal: Math.round(per.kcal), pro: r1(per.pro || 0), fib: fibPerServ(f, g), ...macPerServ(f, g), servingG: g || (f.kcalServ == null ? 100 : null) }, '', f.barcode || null, f.name, f.id, was);
+    labelForm($('labelOut'), { kcal: Math.round(per.kcal), pro: r1(per.pro || 0), fib: fibPerServ(f, g), ...macPerServ(f, g), servingG: g || (f.kcalServ == null ? 100 : null) }, '', f.barcode || null, f.name, f.id, { ...was, src: f });
   };
   $('aAdd').onclick = () => {
     const q = parseFloat($('aQty').value);
@@ -1219,12 +1219,31 @@ function offExtras(f, p) {
   else if (f.kcalServ != null && cS != null && ftS != null && cS >= 0 && ftS >= 0) { f.carbServ = cS; f.fatServ = ftS; }
   return f;
 }
+/* v103: fixing a food's numbers marks it 'label' (set by hand), and before v103 that could drop its Nutri-Score (a fresh scan
+   or online result fixed before it was saved), after which nothing asked again. A hand-fixed food with a barcode and no
+   grade asks Open Food Facts for the grade only, once a session; its numbers, fibre, carbs and fat are never touched. */
+async function regrade(f) {
+  if (!f?.barcode || f.source !== 'label' || f.nutri !== undefined || !navigator.onLine || enrichTried.has(f.id)) return;
+  enrichTried.add(f.id);
+  try {
+    const res = await fetch(`${OFF}/api/v2/product/${f.barcode}.json?fields=nutriscore_grade`);
+    if (!res.ok) { enrichTried.delete(f.id); return; }      // try again later
+    const j = await res.json(), g = j.status === 1 ? j.product?.nutriscore_grade : null;
+    if (!nsOk(g)) return;                                   // not on Open Food Facts, or no grade: nothing written
+    const saved = S.foods.find(x => x.id === f.id);
+    [f, saved].forEach(t => { if (t && t.nutri === undefined) t.nutri = g; });
+    if (saved) { touchMeta(); renderSettings(); }
+    if (SH.open && $('aNs') && $('aFood')?.dataset.id === f.id) $('aNs').innerHTML = nsBadge(f, true);
+  } catch (e) { enrichTried.delete(f.id); }
+}
+function regradeAll() { S.foods.filter(f => f.source === 'label' && f.barcode && f.nutri === undefined).slice(0, 12).forEach(f => regrade(f)); }
 const OFF_FIELDS = 'product_name,product_name_en,product_name_fr,brands,nutriments,serving_quantity,serving_size,nutriscore_grade';
 /* Foods scanned before v41 have no fibre or grade. The first time one is opened, ask Open Food Facts once and add only
    those two things; calories and protein are never touched (they may have been fixed by hand). */
 const enrichTried = new Set();
 const macTried = new Set();     // v84: foods already asked for carbs and fat this session
 async function enrichFood(f) {
+  if (f?.source === 'label') return regrade(f);     // v103
   if (!f?.barcode || f.source !== 'scan' || !navigator.onLine) return;
   const needNs = f.nutri === undefined && !hasFib(f) && !enrichTried.has(f.id), needMac = !hasMac(f) && !macTried.has(f.id);   // v84: older scans get carbs and fat once too
   if (!needNs && !needMac) return;
@@ -1500,8 +1519,10 @@ function labelForm(out, p, text, barcode, name, keepId, then) {
     if (cb >= 0 && cb < 1000 && ft >= 0 && ft < 1000) { f.carbServ = cb; f.fatServ = ft; }
     if (g > 0) { f.servingG = g; f.servingLabel = g + ' g'; f.kcal100 = k / g * 100; f.pro100 = pr / g * 100; if (f.fibServ != null) f.fib100 = fb / g * 100;
       if (f.carbServ != null) { f.carb100 = cb / g * 100; f.fat100 = ft / g * 100; } }
-    const old = keepId && (S.foods.find(x => x.id === keepId) || PKG_SEEN.get(keepId)); if (old && nsOk(old.nutri)) f.nutri = old.nutri;   // keep the grade when fixing numbers
-    if (old?.brand) f.brand = old.brand;     // v65: and the brand
+    const old = keepId && (S.foods.find(x => x.id === keepId) || PKG_SEEN.get(keepId));
+    const was = old || (keepId && then?.src?.id === keepId ? then.src : null);   // v103: a fresh scan or online result isn't saved yet: keep from the food being fixed
+    if (was && (nsOk(was.nutri) || was.nutri === '')) f.nutri = was.nutri;      // keep the grade when fixing numbers ('' = checked, no grade)
+    if (was?.brand) f.brand = was.brand;     // v65: and the brand
     rememberFood(f); touchMeta(); renderSettings();
     const to = then?.cooked ? (pkgPair(f) ? cookedOf(f) : f) : f;     // v65: fixed from the Cooked view -> back to Cooked
     const back = then && unitsFor(to).some(u => u.key === then.preset.unit) ? then.preset : to.cookOf ? { qty: 100, unit: 'g' } : { qty: 1, unit: 'serving' };
@@ -4801,6 +4822,7 @@ $('adjNo').onclick = () => adjClose(false);
    set the app up don't get it). Always available in You → Help. Last seen version: localStorage cutlog.seenV (per device).
    Every release adds an entry at the top, in plain words for everyone who uses Cut Log. */
 const CHANGELOG = [
+  { v: 103, d: '2026-11-07', items: ['Fixing a food’s numbers no longer loses its Nutri-Score. Foods that already lost it get it back by themselves.'] },
   { v: 102, d: '2026-11-07', items: [
     'Off days: in You → Meal times, turn on “Different times on off days” to keep a second set of meal times (like a later breakfast) and pick your usual off days.',
     'Off on a different day this week? Plan my day has a Work day / Off day switch for today and tomorrow, and plans around that day’s times.',
@@ -5468,5 +5490,6 @@ function edgeSoon() { if (!edgeRaf) edgeRaf = requestAnimationFrame(() => { edge
 document.addEventListener('scroll', e => { const t = e.target; if (t && t.matches && t.matches(EDGE_SEL)) edgeFade(t); }, { capture: true, passive: true });
 new MutationObserver(edgeSoon).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['hidden', 'open'] });
 addEventListener('resize', edgeSoon); edgeSoon();
+setTimeout(() => safe(regradeAll), 4000);   // v103: hand-fixed foods that lost their Nutri-Score get it back
 initSync();
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});

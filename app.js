@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '105';
+const APP_V = '106';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -712,12 +712,26 @@ function greeting() {
 }
 function renderHeader() {
   const g = $('greet'); if (!g) return;
-  let q = null; try { q = quipNow(); } catch (e) { q = null; }      // v105: now and then, a witty line instead
+  let q = null; try { q = quipNow(); } catch (e) { q = null; }      // v105: now and then, a witty line
+  if (q && !QUIP.DELAY) QUIP.shown.add(q.key);                      // no wait (tests)
+  if (q && !QUIP.shown.has(q.key)) {                                 // v106: the greeting first, the line fades in a moment later
+    const key = q.key;
+    if (QUIP.wait?.key !== key) { clearTimeout(QUIP.wait?.id); QUIP.wait = { key, id: setTimeout(() => quipReveal(key), QUIP.DELAY) }; }
+    q = null;
+  }
   QUIP.cur = q; g.classList.toggle('quip', !!q); g.classList.toggle('qtap', !!q?.food);
   if (q?.food) { g.setAttribute('role', 'button'); g.tabIndex = 0; g.setAttribute('aria-label', q.forms[0].replace(/<[^>]+>/g, '') + ' Tap to log it.'); }
   else { g.removeAttribute('role'); g.removeAttribute('tabindex'); g.removeAttribute('aria-label'); }
   if (!q) { g.textContent = S.name ? `${greeting()}, ${S.name}` : greeting(); return; }
   quipFit();
+}
+// v106: "Good evening, Kan" fades out and the line fades in (straight swap with Reduce Motion)
+function quipReveal(key) {
+  QUIP.shown.add(key); QUIP.wait = null;
+  const g = $('greet'); if (!g) return;
+  if (REDUCED || !QUIP.DELAY) { safe(renderHeader); return; }
+  g.classList.add('qout');
+  setTimeout(() => { g.classList.remove('qout'); safe(renderHeader); }, QUIP.OUT);
 }
 
 /* =================== v105: WITTY GREETING ===================
@@ -729,7 +743,7 @@ function renderHeader() {
    Tapping a line with a food opens How much? for it at your usual amount, in that meal. Still greets you by name.
    Picks the longest version that fits on one line. Per device: localStorage cutlog.quipSeen (first time), and cutlog.quip
    ('1' always, '0' never; a test seam, no setting). Nothing in saved data or sync. */
-const QUIP = { cur: null, show: {}, P: 0.4, DAYS: 28, MIN: 3 };
+const QUIP = { cur: null, show: {}, shown: new Set(), wait: null, DELAY: 2600, OUT: 320, P: 0.4, DAYS: 28, MIN: 3 };   // v106: DELAY before the line fades in (each time the app opens)
 const QUIP_SKIP = /^(day|day so far|quick add)$/i;
 function quipBand(h, T) {
   if (h < 4 || h >= T.last) return 'late';
@@ -825,7 +839,7 @@ function quipNow(now = new Date()) {
     }
   }
   if (first) try { localStorage.setItem('cutlog.quipSeen', t); } catch (e) {}
-  return { band, forms: lines.map(N), food };
+  return { band, key, forms: lines.map(N), food };
 }
 // the longest version that fits on one line
 function quipFit() {
@@ -3173,7 +3187,7 @@ const GUIDE = [
     <p>Cooking a big pot? Weigh the whole pot once it's cooked (without the pot) and enter the <b>cooked weight</b>. Then log whatever you dish out by grams or by hand portion.</p>
     <p>If the app closes while you're building a meal, it keeps your progress. My meals shows <b>Finish your unsaved meal</b>.</p>`],
   ['The Today screen', `
-    <p>The line at the top greets you. Now and then it says something about this part of your day instead, using what you usually eat at that meal (like <b>Shake for breakfast?</b>) and your own meal times. When it names a food, <b>tap it</b> to log that food at your usual amount.</p>
+    <p>The line at the top greets you. Now and then, a couple of seconds after the greeting, it fades into something about this part of your day, using what you usually eat at that meal (like <b>Shake for breakfast?</b>) and your own meal times. When it names a food, <b>tap it</b> to log that food at your usual amount.</p>
     <p>The left ring is calories, with a small mark where your range starts. The right ring is protein. <b>Tap the rings</b> to switch between what you've eaten and what's <b>left</b> for the day; tap again to switch back.</p>
     <p>Below the rings: how your day is going, a <b>protein nudge</b> if protein falls behind your calories, <b>What fits</b> (foods from your own list that fit what's left, in a row you can swipe; its last tile is <b>More ideas</b>: simple high-protein meals to make at home and McDonald's, Tim Hortons and Subway items that fit, lighter picks first in the evening; Subway subs and salads are counted without sauce or cheese, so pick yours on How much?, and a salad gets a double portion of sauce) and <b>This week</b> (calories banked or over across the week, and how much you can eat today and stay on budget). Only days you logged count; days with nothing logged are named underneath so you know they're left out.</p>
     <p><b>Your recap</b>: a Spotify-style card of your week, month or year to share in Messages, WhatsApp or Instagram. It shows up on Today in the first week of a month (and in January for the year), and from the weekly check-in and History. Share it as <b>one picture</b> or as <b>3 slides</b> (weight, protein, habits), pick its colours, and choose whether it shows your <b>actual weights</b> or only the change. In the app its colours drift slowly; the shared picture is a still frame. Nothing is uploaded anywhere.</p>
@@ -5009,6 +5023,7 @@ $('adjNo').onclick = () => adjClose(false);
    set the app up don't get it). Always available in You → Help. Last seen version: localStorage cutlog.seenV (per device).
    Every release adds an entry at the top, in plain words for everyone who uses Cut Log. */
 const CHANGELOG = [
+  { v: 106, d: '2026-11-07', items: ['When there’s a little line for this part of your day, Cut Log now greets you first (“Good evening, Kan”), and the line fades in a couple of seconds later.'] },
   { v: 105, d: '2026-11-07', items: ['Now and then, “Good evening” at the top becomes a little line about this part of your day, from what you usually eat: “Shake for breakfast?”, “Late-night snack? Kitchen closed at 8 PM.” When it names a food, tap it to log that food at your usual amount.'] },
   { v: 104, d: '2026-11-07', items: ['Servings in mL are no longer counted as grams. Ice cream is about half air, so the label form now asks for the weight of a serving in mL (or gives an estimate), and scanned ice cream gets the right numbers per gram. Ice cream you already saved is fixed the next time you open it.'] },
   { v: 103, d: '2026-11-07', items: ['Fixing a food’s numbers no longer loses its Nutri-Score. Foods that already lost it get it back by themselves.'] },

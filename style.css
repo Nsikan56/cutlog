@@ -453,6 +453,13 @@ details.shut>:not(summary){opacity:0;transform:translateY(-4px);transition:opaci
 /* header greeting */
 .brand-col{display:flex;flex-direction:column;gap:0;min-width:0}
 .greet{font-size:13px;font-weight:600;color:var(--muted);letter-spacing:.01em;min-height:1em}
+/* v105: the witty line: one line, the food in ink; tappable when it names a food */
+.greet.quip{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;animation:quipIn .5s ease-out both}
+.greet.quip b{color:var(--ink);font-weight:700}
+.greet.qtap{cursor:pointer;-webkit-tap-highlight-color:transparent}
+.greet.qtap:active{opacity:.6}
+@keyframes quipIn{from{opacity:0;transform:translateY(2px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){.greet.quip{animation:none}}
 /* direction-aware colors */
 .v.good,.wdone-delta.good{color:var(--protein)} .v.bad,.wdone-delta.bad{color:var(--warn)}
 /* You tab */
@@ -1002,6 +1009,7 @@ details.shut>:not(summary){opacity:0;transform:translateY(-4px);transition:opaci
   .top{padding:0 2px}
   .top .brand{display:none}
   .greet{font-size:26px;font-family:var(--display);font-weight:800;color:var(--ink);letter-spacing:.01em}
+  .greet.quip b{color:var(--accent);font-weight:800}
 
   /* sidebar replaces the bottom tab bar */
   .tabbar{top:0;bottom:0;right:auto;width:var(--side);display:flex;flex-direction:column;align-items:stretch;gap:4px;

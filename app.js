@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '104';
+const APP_V = '105';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -712,8 +712,139 @@ function greeting() {
 }
 function renderHeader() {
   const g = $('greet'); if (!g) return;
-  g.textContent = S.name ? `${greeting()}, ${S.name}` : greeting();
+  let q = null; try { q = quipNow(); } catch (e) { q = null; }      // v105: now and then, a witty line instead
+  QUIP.cur = q; g.classList.toggle('quip', !!q); g.classList.toggle('qtap', !!q?.food);
+  if (q?.food) { g.setAttribute('role', 'button'); g.tabIndex = 0; g.setAttribute('aria-label', q.forms[0].replace(/<[^>]+>/g, '') + ' Tap to log it.'); }
+  else { g.removeAttribute('role'); g.removeAttribute('tabindex'); g.removeAttribute('aria-label'); }
+  if (!q) { g.textContent = S.name ? `${greeting()}, ${S.name}` : greeting(); return; }
+  quipFit();
 }
+
+/* =================== v105: WITTY GREETING ===================
+   Kan, 7 Nov 2026: "where it says good evening Kan ... witty things like late night snack or ... for breakfast, ... for lunch,
+   from what it knows you usually eat, once in a while". The header line sometimes (about 2 times in 5, the same all day part
+   on every device; always the first time after this update) swaps "Good evening, Kan" for a line about this part of the day:
+   breakfast, lunch, an afternoon snack, dinner or late night, using that day's own meal times (off days too). With a food:
+   the one you've had most in that meal over the last 4 weeks (3+ days), named short ("shake", "ground chicken").
+   Tapping a line with a food opens How much? for it at your usual amount, in that meal. Still greets you by name.
+   Picks the longest version that fits on one line. Per device: localStorage cutlog.quipSeen (first time), and cutlog.quip
+   ('1' always, '0' never; a test seam, no setting). Nothing in saved data or sync. */
+const QUIP = { cur: null, show: {}, P: 0.4, DAYS: 28, MIN: 3 };
+const QUIP_SKIP = /^(day|day so far|quick add)$/i;
+function quipBand(h, T) {
+  if (h < 4 || h >= T.last) return 'late';
+  if (h < T.lunch - 1) return 'breakfast';
+  if (h < T.lunch + 2) return 'lunch';
+  if (h < T.dinner - 1) return 'snacks';
+  return 'dinner';
+}
+const quipHash = s => { let h = 2166136261; for (const c of String(s)) { h ^= c.codePointAt(0); h = Math.imul(h, 16777619); } return h >>> 0; };
+// "Protein shake (Good Protein)" → ['protein shake', 'shake']; "Breakfast pancakes" → ['pancakes', 'pancakes']
+function quipNick(name) {
+  let s = String(name || '').replace(/\([^)]*\)/g, ' ').split(/[,/·]| - /)[0].replace(/\b(breakfast|lunch|dinner|supper|snacks?)\b/gi, ' ').replace(/\s+/g, ' ').trim();
+  if (!s) return null;
+  let w = s.split(' ');
+  if (w.length > 1 && w.every(x => /^[A-Z][a-z'’]*$/.test(x) || !/[a-z]/i.test(x))) w = w.map(x => x.toLowerCase());   // Title Case → lower
+  else w = w.map((x, i) => i === 0 && /^[A-Z][a-z'’]+$/.test(x) ? x.toLowerCase() : x);
+  const fr = w.findIndex((x, i) => i > 0 && /^(de|du|des|d'|d’|aux|au|à|et|la|le)$/i.test(x)) > 0 || w.some(x => /^d['’]/i.test(x));
+  const long = fr ? w.slice(0, 2).join(' ') : w.length <= 3 ? w.join(' ') : w.slice(-2).join(' ');
+  const short = fr ? w[0] : w[w.length - 1];
+  return long.length > 26 ? [short, short] : [long, short];
+}
+const quipCap = s => s.charAt(0).toUpperCase() + s.slice(1);
+// your usual foods in a meal: logged on 3+ of the last 28 days in that meal, most days first, with the usual amount
+function quipUsual(slot) {
+  const t = todayIso(), since = shift(t, -QUIP.DAYS), map = new Map();
+  Object.keys(S.log).filter(d => d >= since && d < t).forEach(d => (S.log[d] || []).forEach(e => {
+    if (slotOf(e) !== slot || !e.food || !(e.qty > 0) || e.detail === 'quick add' || QUIP_SKIP.test(e.name || '')) return;
+    let f = e.food; if (f.source === 'entry') return;
+    if (f.source === 'meal') { const m = mealOf(f); if (!m) return; f = mealFood(m); }
+    const c = map.get(f.id) || { food: f, days: new Set(), amt: new Map(), name: e.name };
+    c.days.add(d); const k = `${e.qty}|${e.unit}|${e.oil || ''}`; c.amt.set(k, (c.amt.get(k) || 0) + 1); map.set(f.id, c);
+  }));
+  return [...map.values()].filter(c => c.days.size >= QUIP.MIN && quipNick(c.name)).sort((a, b) => b.days.size - a.days.size).slice(0, 3)
+    .map(c => { const [q, unit, oil] = [...c.amt.entries()].sort((a, b) => b[1] - a[1])[0][0].split('|');
+      return { food: c.food, qty: +q, unit, oil: oil || null, days: c.days.size, nick: quipNick(c.name) }; });
+}
+const quipHour = h => { const s = hourText(h); return /[ap]\.?\s?m/i.test(s) ? s.replace(':00', '') : s; };   // 8 PM, 8:30 PM
+// the line for now, or null for the usual greeting
+function quipNow(now = new Date()) {
+  let mode = null; try { mode = localStorage.getItem('cutlog.quip'); } catch (e) {}
+  if (mode === '0' || !S.onboarded) return null;
+  const t = todayIso(), T = dayTimes(t), h = now.getHours() + now.getMinutes() / 60, band = quipBand(h, T);
+  const seed = quipHash(`${t}|${band}|${S.name || ''}`);
+  let first = false; try { first = !localStorage.getItem('cutlog.quipSeen'); } catch (e) {}
+  const key = `${t}|${band}`;
+  if (!(key in QUIP.show)) QUIP.show[key] = mode === '1' || first || seed % 100 < QUIP.P * 100;   // decided once per day part
+  if (mode !== '1' && !QUIP.show[key]) return null;
+  const n = S.name ? esc(S.name.trim().split(/\s+/)[0]) : '', N = s => n ? s.replace(/\{n\}/g, n) : s.replace(/,? \{n\}/g, '').replace(/\{n\}, /g, '');
+  const es = entriesFor(t), logged = s => es.some(e => slotOf(e) === s), tot = dayTotals(t), close = quipHour(T.last);
+  const proDone = !!tot && proHit(tot.pro);
+  const pick = arr => arr[(seed >>> 8) % arr.length];
+  let lines = null, food = null;
+  if (band === 'late') {
+    lines = pick([
+      [`Late-night snack, {n}? Kitchen closed at ${close}.`, `Late-night snack, {n}?`, `Snack o’clock, {n}?`],
+      [`Up late, {n}. The fridge can wait.`, `Up late, {n}?`],
+      h >= 23 || h < 4 ? [`Midnight munchies, {n}? Kitchen’s closed.`, `Midnight munchies, {n}?`] : [`Kitchen closed at ${close}, {n}. Mostly.`, `Kitchen’s closed, {n}.`],
+      ...(proDone ? [[`Protein’s done, {n}. Sleep is next.`, `Protein’s done, {n}.`]] : []),
+    ]);
+  } else {
+    const u = logged(band) ? [] : quipUsual(band), c = u.length ? u[(seed >>> 4) % u.length] : null;
+    if (c) {
+      food = { ...c, slot: band };
+      const Lc = `<b>${esc(quipCap(c.nick[0]))}</b>`, Sc = `<b>${esc(quipCap(c.nick[1]))}</b>`;
+      const by = {
+        breakfast: [[`Morning, {n}. ${Lc} for breakfast?`, `${Lc} for breakfast, {n}?`, `${Sc} for breakfast, {n}?`, `${Sc} o’clock, {n}?`],
+                    [`Rise and dine, {n}. ${Lc}?`, `Rise and dine, {n}. ${Sc}?`, `${Sc} o’clock, {n}?`],
+                    [`${Lc} kind of morning, {n}?`, `${Sc} kind of morning, {n}?`, `${Sc} o’clock, {n}?`]],
+        lunch: [[`Lunch o’clock, {n}. ${Lc}?`, `Lunch o’clock, {n}. ${Sc}?`, `${Sc} o’clock, {n}?`],
+                [`${Lc} for lunch, {n}?`, `${Sc} for lunch, {n}?`, `${Sc} o’clock, {n}?`],
+                c.days >= 6 ? [`${Lc} for lunch again, {n}?`, `${Sc} again, {n}?`] : [`Hungry, {n}? ${Lc} is calling.`, `${Sc} is calling, {n}.`, `${Sc} o’clock, {n}?`]],
+        snacks: [[`Snack o’clock, {n}. ${Lc}?`, `Snack o’clock, {n}. ${Sc}?`, `${Sc} o’clock, {n}?`],
+                 [`Afternoon, {n}. ${Lc} time?`, `${Sc} time, {n}?`]],
+        dinner: [[`Evening, {n}. ${Lc} for dinner?`, `${Lc} for dinner, {n}?`, `${Sc} for dinner, {n}?`, `${Sc} tonight, {n}?`],
+                 [`Dinner plans, {n}? ${Lc} is calling.`, `${Sc} is calling, {n}.`, `${Sc} tonight, {n}?`],
+                 [`${Lc} tonight, {n}? Kitchen closes at ${close}.`, `${Lc} tonight, {n}?`, `${Sc} tonight, {n}?`]],
+      };
+      lines = pick(by[band]);
+    } else if (logged(band)) {
+      lines = pick({
+        breakfast: [[`Breakfast: handled. Nice, {n}.`, `Breakfast: handled, {n}.`], [`Breakfast done, {n}. Lunch is plotting.`, `Breakfast done, {n}.`]],
+        lunch: [[`Lunch: done. Dinner’s up next, {n}.`, `Lunch: done, {n}.`], [`Lunch is in, {n}. Nicely logged.`, `Lunch is in, {n}.`]],
+        snacks: [[`Snack logged, {n}. Dinner’s on deck.`, `Snack logged, {n}.`]],
+        dinner: [[`Dinner’s in, {n}. Kitchen closes at ${close}.`, `Dinner’s in, {n}.`], ...(proDone ? [[`Protein target: crushed, {n}.`, `Protein: crushed, {n}.`]] : [])],
+      }[band]);
+    } else {
+      lines = pick({
+        breakfast: [[`Rise and dine, {n}.`], [`Morning, {n}. Breakfast is calling.`, `Morning, {n}. Breakfast?`]],
+        lunch: [[`Lunch o’clock, {n}.`], [`Afternoon, {n}. Lunch is calling.`, `Lunch is calling, {n}.`]],
+        snacks: [[`Snack o’clock, {n}?`], [`Afternoon, {n}. Snack time?`, `Snack time, {n}?`]],
+        dinner: [[`Evening, {n}. What’s for dinner?`, `What’s for dinner, {n}?`], [`Dinner o’clock, {n}.`]],
+      }[band]);
+    }
+  }
+  if (first) try { localStorage.setItem('cutlog.quipSeen', t); } catch (e) {}
+  return { band, forms: lines.map(N), food };
+}
+// the longest version that fits on one line
+function quipFit() {
+  const g = $('greet'), q = QUIP.cur; if (!g || !q) return;
+  const box = g.parentElement, sh = s => { g.innerHTML = s; };
+  let i = 0;
+  if (box && box.clientWidth) for (; i < q.forms.length - 1; i++) { sh(q.forms[i]); if (g.scrollWidth <= g.clientWidth + 1 && box.scrollWidth <= box.clientWidth + 1) break; }
+  else i = q.forms.length - 1;
+  sh(q.forms[i]); g.dataset.form = i;
+}
+let quipRz = 0; addEventListener('resize', () => { clearTimeout(quipRz); quipRz = setTimeout(() => safe(quipFit), 150); });
+function quipTap(e) {
+  if (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') return;
+  const q = QUIP.cur; if (!q?.food) return; if (e.type === 'keydown') e.preventDefault();
+  haptic(); day = todayIso(); renderAll();
+  openAmount(q.food.food, { qty: q.food.qty, unit: q.food.unit, oil: q.food.oil }, { slot: q.food.slot });
+}
+$('greet')?.addEventListener('click', quipTap); $('greet')?.addEventListener('keydown', quipTap);
+setInterval(() => safe(renderHeader), 60000);   // the day part moves on while the app is open
 
 /* ---------- meal slots ---------- */
 const SLOTS = [['breakfast', 'Breakfast'], ['lunch', 'Lunch'], ['dinner', 'Dinner'], ['snacks', 'Snacks']];
@@ -3042,6 +3173,7 @@ const GUIDE = [
     <p>Cooking a big pot? Weigh the whole pot once it's cooked (without the pot) and enter the <b>cooked weight</b>. Then log whatever you dish out by grams or by hand portion.</p>
     <p>If the app closes while you're building a meal, it keeps your progress. My meals shows <b>Finish your unsaved meal</b>.</p>`],
   ['The Today screen', `
+    <p>The line at the top greets you. Now and then it says something about this part of your day instead, using what you usually eat at that meal (like <b>Shake for breakfast?</b>) and your own meal times. When it names a food, <b>tap it</b> to log that food at your usual amount.</p>
     <p>The left ring is calories, with a small mark where your range starts. The right ring is protein. <b>Tap the rings</b> to switch between what you've eaten and what's <b>left</b> for the day; tap again to switch back.</p>
     <p>Below the rings: how your day is going, a <b>protein nudge</b> if protein falls behind your calories, <b>What fits</b> (foods from your own list that fit what's left, in a row you can swipe; its last tile is <b>More ideas</b>: simple high-protein meals to make at home and McDonald's, Tim Hortons and Subway items that fit, lighter picks first in the evening; Subway subs and salads are counted without sauce or cheese, so pick yours on How much?, and a salad gets a double portion of sauce) and <b>This week</b> (calories banked or over across the week, and how much you can eat today and stay on budget). Only days you logged count; days with nothing logged are named underneath so you know they're left out.</p>
     <p><b>Your recap</b>: a Spotify-style card of your week, month or year to share in Messages, WhatsApp or Instagram. It shows up on Today in the first week of a month (and in January for the year), and from the weekly check-in and History. Share it as <b>one picture</b> or as <b>3 slides</b> (weight, protein, habits), pick its colours, and choose whether it shows your <b>actual weights</b> or only the change. In the app its colours drift slowly; the shared picture is a still frame. Nothing is uploaded anywhere.</p>
@@ -4877,6 +5009,7 @@ $('adjNo').onclick = () => adjClose(false);
    set the app up don't get it). Always available in You → Help. Last seen version: localStorage cutlog.seenV (per device).
    Every release adds an entry at the top, in plain words for everyone who uses Cut Log. */
 const CHANGELOG = [
+  { v: 105, d: '2026-11-07', items: ['Now and then, “Good evening” at the top becomes a little line about this part of your day, from what you usually eat: “Shake for breakfast?”, “Late-night snack? Kitchen closed at 8 PM.” When it names a food, tap it to log that food at your usual amount.'] },
   { v: 104, d: '2026-11-07', items: ['Servings in mL are no longer counted as grams. Ice cream is about half air, so the label form now asks for the weight of a serving in mL (or gives an estimate), and scanned ice cream gets the right numbers per gram. Ice cream you already saved is fixed the next time you open it.'] },
   { v: 103, d: '2026-11-07', items: ['Fixing a food’s numbers no longer loses its Nutri-Score. Foods that already lost it get it back by themselves.'] },
   { v: 102, d: '2026-11-07', items: [

@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '106';
+const APP_V = '107';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -462,7 +462,7 @@ function renderTotals() {
   else if (noLim) { st.className = 'status ok'; st.textContent = `Free day, no limit${day === todayIso() ? '' : ' that day'}. Protein still counts.`; }   // v99
   else if (cal <= T.calHi) { st.className = 'status ok'; st.textContent = T.fday ? 'In your free day range.' : 'In your range for today.'; }
   else { st.className = 'status hi'; st.textContent = `${(cal - T.calHi).toLocaleString()} kcal over your range. One day like this is fine; the weekly trend decides.`; }
-  safe(renderFits); safe(renderFreeLine); safe(renderWeek); safe(renderCiBanner); safe(renderRcBanner); safe(renderNudge); safe(renderNut); safe(renderGuideBanner); safe(renderEstBanner); safe(renderPlanBtn);
+  safe(renderFits); safe(renderFreeLine); safe(renderPbLine); safe(renderWeek); safe(renderCiBanner); safe(renderRcBanner); safe(renderNudge); safe(renderNut); safe(renderGuideBanner); safe(renderEstBanner); safe(renderPlanBtn);
 }
 let shownRows = { day: null, ids: new Set() };
 function renderRows() {
@@ -2318,13 +2318,15 @@ function freeOfWeek(ws, withSkipped) {
   const d = shift(ws, (f.dow + 6) % 7);
   if (d < f.from) return null;
   if (f.every === 2 && Math.round(daysBetween(weekStart(f.from), ws) / 7) % 2) return null;
+  if (f.every === 0 && ws !== weekStart(f.from)) return null;   // v107: just once (the week it starts)
   const skipped = (f.skip || []).includes(d); if (skipped && !withSkipped) return null;
   const s0 = f.from > ws ? f.from : ws, n = 6 - daysBetween(ws, s0);     // the paying days: the rest of the week from the start
   return { d, pay: f.pay, extra: f.extra, cut: f.pay === 'budget' ? freeCut(f.extra, n) : 0, s: s0, skipped };
 }
 function freeOf(d) { const fi = d && freeOfWeek(weekStart(d)); return fi && fi.d === d ? fi : null; }
-/* the targets for one day */
-function dayT(d) {
+/* the targets for one day (v107: free day first, then any pay-back on top) */
+function dayT(d) { return pbApply(d, freeT(d)); }
+function freeT(d) {
   const T = S.targets, fi = d && freeOfWeek(weekStart(d));
   if (!fi) return T;
   if (fi.d === d) { const hi = fi.extra > 0 ? T.calHi + fi.extra : Infinity;
@@ -2334,6 +2336,60 @@ function dayT(d) {
 }
 /* the same with a number for the top on a no-limit day (for planning, What fits and alerts, which need one) */
 function dayTf(d) { const T = dayT(d); return isFinite(T.calHi) ? T : { ...T, calHi: S.targets.calHi }; }
+
+/* =================== v107: PAY IT BACK ===================
+   Kan, 8 Nov 2026, after an all-you-can-eat lunch (about 4,450 kcal): "can we make the app [pay it back]? And then after
+   you've paid it back revert to your usual range". He picked: any day you go over (not only free days), you choose over how
+   many days (7 by default), and a floor so a day never drops below about 1,800 kcal (protein still fits).
+   Stored in S.targets.payback (synced inside targets like free and times; nothing new at the top level): a list of
+     { d (the day that went over), n (days picked), from (first paying day), over (kcal over when set, for reference), stop? (first day not paid) }.
+   The overage itself is read live from that day's log, and the daily cut = overage ÷ days, rounded up to 10, at most calLo − floor.
+   Worked out when shown, from the log: each paying day's range drops by `cut` (never below the floor; free days are skipped);
+   a finished paying day that ends over its lowered top adds that much back to what's left (and the week's budget doesn't count
+   it twice); days under don't count extra. Once it's paid, the usual range is back. At most PB_MAX paying days. */
+var PB_MAX = 21, PB_KEEP = 12, PB_MIN = 100;
+function pbList() { return S.targets && Array.isArray(S.targets.payback) ? S.targets.payback : []; }
+function pbFloor(T = S.targets) { return Math.max(1200, Math.min(1800, T.calLo - 200)); }
+function pbRoom(T = S.targets) { return Math.max(0, T.calLo - pbFloor(T)); }       // the most a day can drop
+/* one pay-back's days: { days: {date: {lo, hi, eff, moved}}, left (kcal still to pay after the scheduled days), end, paid } */
+/* the day's overage, live from the log (so eating more after setting it up, or deleting an entry, is followed) */
+function pbOver(p) { const tt = dayTotals(p.d), b = freeT(p.d), top = isFinite(b.calHi) ? b.calHi : S.targets.calHi; return tt ? Math.max(0, Math.round(tt.kcal - top)) : 0; }
+function pbCut(over, n) { return Math.min(pbRoom(), Math.ceil(over / Math.max(1, n) / 10) * 10); }
+function pbSched(p) {
+  const t = todayIso(), over = pbOver(p), cut = pbCut(over, p.n), out = { days: {}, left: over, over, cut, end: null, paid: 0 }, floor = pbFloor();
+  if (cut <= 0) { out.left = 0; return out; }
+  for (let x = p.from, i = 0; i < PB_MAX && out.left > 0.5 && !(p.stop && x >= p.stop); i++, x = shift(x, 1)) {
+    const b = freeT(x); if (b.fday) continue;                               // a free day is never a paying day
+    const c = Math.min(cut, Math.ceil(out.left / 10) * 10), lo = Math.max(floor, b.calLo - c), hi = Math.max(lo + 100, b.calHi - c), eff = b.calHi - hi;
+    if (eff <= 0) continue;
+    const m = { lo, hi, eff, moved: 0 }; out.left -= eff; out.end = x; if (x < t) out.paid += eff;
+    if (x < t) { const tt = dayTotals(x); if (tt && Math.round(tt.kcal) > hi) { m.moved = tt.kcal - hi; out.left += m.moved; out.paid -= m.moved; } }
+    out.days[x] = m;
+  }
+  out.left = Math.max(0, out.left); return out;
+}
+/* the pay-back a date belongs to: as the day that went over, or as a paying day */
+function pbFor(d) {
+  if (mode() === 'gain') return null;
+  for (const p of pbList()) { if (d === p.d) return { p, over: true }; if (d >= p.from && d <= shift(p.from, PB_MAX + 7) && !(p.stop && d >= p.stop)) { const s = pbSched(p); if (s.days[d]) return { p, s, m: s.days[d] }; } }
+  return null;
+}
+function pbApply(d, T0) {
+  const hit = d && pbList().length ? pbFor(d) : null; if (!hit) return T0;
+  if (hit.over) { if (T0.bankHi === null) return { ...T0, pbOver: hit.p };   // a no-limit free day was already forgiven
+    const s = pbSched(hit.p), top = T0.bankHi !== undefined ? T0.bankHi : T0.calHi;
+    return { ...T0, pbOver: hit.p, bankHi: top + s.over - s.left }; }  // the week doesn't count what's being paid back later
+  const m = hit.m; return { ...T0, calLo: m.lo, calHi: m.hi, pbDay: { ...m, p: hit.p }, bankHi: m.hi + m.moved };
+}
+/* is a day over by enough to offer it? (Cutting or Maintaining, the last 7 days, not already part of a pay-back) */
+function pbOffer(d) {
+  const t = todayIso(); if (mode() === 'gain' || d > t || d < shift(t, -7)) return null;
+  const tt = dayTotals(d); if (!tt) return null;
+  const top = dayTf(d).calHi, over = Math.round(tt.kcal - top);
+  if (over < PB_MIN || pbFor(d) || pbActive()) return null;
+  return { d, over, top };
+}
+function pbActive() { return mode() === 'gain' ? null : pbList().find(p => !p.stop && (pbSched(p).end || '') >= todayIso()) || null; }
 /* where the current settings start: today, or next Monday when a budgeted free day this week would leave fewer than 4 days to pay */
 function freeStart(f, t) {
   if (f.pay === 'budget' && f.extra > 0) { const ws = weekStart(t), d = shift(ws, (f.dow + 6) % 7);
@@ -3212,7 +3268,8 @@ const GUIDE = [
   ['Your settings', `
     <p>In <b>You</b>: your name, goal (Cutting, Maintaining or Building) with suggested targets, weigh-in frequency, lb or kg, <b>meal times</b> (when you usually have breakfast, lunch and dinner, and your latest meal; Plan my day plans around them. Turn on <b>different times on off days</b> for a second set, like a later breakfast, and pick your usual off days; if you're off on another day, switch that day to <b>Off day</b> at the top of Plan my day), eight app colours (Cobalt, Ember, Teal, Violet, Rose, Gold, Graphite, Sky), Light or Dark, your saved foods, and a backup file you can keep in iCloud Drive.</p>
     <p><b>Notifications</b> (You → Notifications): a lunch or dinner check that only comes when that meal isn't logged yet, a last call 30 minutes before your latest meal with what's left for today, and a weigh-in reminder at your own time (every morning, or your chosen day if you weigh in weekly). Breakfast and Monday check-in alerts are there too, off to start. They need Cut Log on your Home Screen and Cloud sync sign-in, and they're set separately on each phone. Tap an alert to open the right screen.</p>
-    <p><b>Free day</b> (You → Free day, for Cutting and Maintaining): pick a day each week, or every other week, to eat more. Choose how much extra (+300 to +1,000 kcal, or <b>no limit</b>) and how it's paid for: <b>budgeted</b> (the other days that week are a little lower, so the week still lands on target; with no limit, what you eat over your usual top comes out of the week's budget) or <b>free</b> (not paid back, so that week's loss is a bit slower). Protein stays the same. Today shows <b>✦ Free day</b> on the day and earlier in the week; tap it to see the numbers or <b>skip</b> that one. It counts as on plan in your check-in and History (marked ✦), Plan my day plans the bigger day, and a higher weigh-in the next morning is water and salt, not fat.</p>
+    <p><b>Free day</b> (You → Free day, for Cutting and Maintaining): pick a day each week, every other week, or <b>just once</b>, to eat more. Choose how much extra (+300 to +1,000 kcal, or <b>no limit</b>) and how it's paid for: <b>budgeted</b> (the other days that week are a little lower, so the week still lands on target; with no limit, what you eat over your usual top comes out of the week's budget) or <b>free</b> (not paid back, so that week's loss is a bit slower). Protein stays the same. Today shows <b>✦ Free day</b> on the day and earlier in the week; tap it to see the numbers or <b>skip</b> that one. It counts as on plan in your check-in and History (marked ✦), Plan my day plans the bigger day, and a higher weigh-in the next morning is water and salt, not fat.</p>
+    <p><b>Pay it back</b>: when a day goes 100+ kcal over your range (a buffet, a party, a no-limit free day), Today shows <b>Pay it back</b>. Tap it, pick over how many days (7 to start), and the next days' range drops a little until it's paid; then your usual range is back by itself. A day you go over the lower range adds to what's left, days under don't count extra, and a day never drops below 1,800 kcal. Tap <b>Paying back</b> on Today to see how much is left, or stop it.</p>
     <p>Your age, height and sex are only used to suggest targets. They're never saved.</p>`],
   ['What to expect', `
     <p><b>First week:</b> your weight will bounce around. That's water, not fat. Keep logging and weighing.</p>
@@ -5023,6 +5080,7 @@ $('adjNo').onclick = () => adjClose(false);
    set the app up don't get it). Always available in You → Help. Last seen version: localStorage cutlog.seenV (per device).
    Every release adds an entry at the top, in plain words for everyone who uses Cut Log. */
 const CHANGELOG = [
+  { v: 107, d: '2026-11-08', items: ['Pay it back: when a day goes over your range (a buffet, a party), tap “Pay it back” on Today and pick over how many days. The next days’ range drops a little (never below 1,800 kcal) until it’s paid, then your usual range comes back by itself.', 'Free day can now be just once, not only every week or every other week.'] },
   { v: 106, d: '2026-11-07', items: ['When there’s a little line for this part of your day, Cut Log now greets you first (“Good evening, Kan”), and the line fades in a couple of seconds later.'] },
   { v: 105, d: '2026-11-07', items: ['Now and then, “Good evening” at the top becomes a little line about this part of your day, from what you usually eat: “Shake for breakfast?”, “Late-night snack? Kitchen closed at 8 PM.” When it names a food, tap it to log that food at your usual amount.'] },
   { v: 104, d: '2026-11-07', items: ['Servings in mL are no longer counted as grams. Ice cream is about half air, so the label form now asks for the weight of a serving in mL (or gives an estimate), and scanned ice cream gets the right numbers per gram. Ice cream you already saved is fixed the next time you open it.'] },
@@ -5256,7 +5314,8 @@ function renderFreeCard() {
     : 'Plan a day each week to eat more, so it counts as part of the plan instead of a slip. Protein stays the same.';
   if (!on) return;
   const nx = freeNextDay(todayIso());
-  $('fdayvWhen').textContent = `${f.every === 2 ? 'Every other ' : 'Every '}${DAYS_LONG[f.dow]}`;
+  const once = f.every === 0 ? shift(weekStart(f.from), (f.dow + 6) % 7) : null;   // v107: just once
+  $('fdayvWhen').textContent = once ? `Just once: ${pbDate(once)}` : `${f.every === 2 ? 'Every other ' : 'Every '}${DAYS_LONG[f.dow]}`;
   $('fdayvExtra').textContent = f.extra > 0 ? `+${kc(f.extra)} kcal (up to ${kc(T.calHi + f.extra)})` : 'No limit';
   $('fdayvPay').textContent = f.pay === 'budget' ? (f.extra > 0 ? `Other days, ${kc(freeCut(f.extra, 6))} less` : 'The week’s budget') : 'Not paid back';
   $('fdayvNext').textContent = nx ? (nx.skipped ? `${freeWhen(nx.d)} (skipped)` : freeWhen(nx.d)).replace(/^./, c => c.toUpperCase()) : '–';
@@ -5270,7 +5329,7 @@ function renderFdForm() {
   $('fdayPayHint').textContent = freePayTxt(f, T);
   const st = freeStart(f, todayIso()), first = (() => { for (let ws = weekStart(st), i = 0; i < 3; i++, ws = shift(ws, 7)) { const d = shift(ws, (f.dow + 6) % 7);
     if (d >= st && !(f.every === 2 && i % 2)) return d; } return null; })();
-  $('fdayPrev').innerHTML = `${esc(DAYS_LONG[f.dow])}: <b>${f.extra > 0 ? `up to ${kc(T.calHi + f.extra)} kcal` : 'no calorie limit'}</b>, ${T.protein}g protein.${first ? ` First one: ${esc(freeWhen(first))}.` : ''}`;
+  $('fdayPrev').innerHTML = `${esc(DAYS_LONG[f.dow])}: <b>${f.extra > 0 ? `up to ${kc(T.calHi + f.extra)} kcal` : 'no calorie limit'}</b>, ${T.protein}g protein.${first ? (f.every === 0 ? ` Just ${esc(freeWhen(first))}.` : ` First one: ${esc(freeWhen(first))}.`) : ''}`;
   $('fdayOff').hidden = !(freeCfg() && freeCfg().on);
 }
 function openFreeEdit(open) {
@@ -5291,8 +5350,10 @@ $('fdaySave').onclick = () => {
   const t = todayIso(), old = freeCfg(), kept = freeKeepPast(t) || {};
   const f = { ...kept, on: true, dow: FD.dow, every: FD.every, pay: FD.pay, extra: FD.extra };
   f.from = freeStart(f, t); f.skip = (f.skip || []).filter(x => x < t);
+  if (f.every === 0) { let d = shift(weekStart(f.from), (f.dow + 6) % 7); if (d < f.from) d = shift(d, 7);   // v107: just once, the next one
+    if (weekStart(d) > f.from) f.from = weekStart(d); }
   S.targets = { ...S.targets, free: f }; touchMeta(); openFreeEdit(false); renderAll(); haptic();
-  toast(old && old.on ? 'Free day saved' : `Free day set: ${DAYS_LONG[f.dow]}s`);
+  toast(f.every === 0 ? `Free day set: ${pbDate(shift(weekStart(f.from), (f.dow + 6) % 7))}` : old && old.on ? 'Free day saved' : `Free day set: ${DAYS_LONG[f.dow]}s`);
 };
 $('fdayOff').onclick = () => {
   const t = todayIso(), before = S.targets.free, f = freeKeepPast(t);
@@ -5327,6 +5388,69 @@ function openFreeDay(d) {
   if ($('fdaySkip')) $('fdaySkip').onclick = () => { setSkip(true); closeSheet(); haptic(); toast('Free day skipped', { label: 'Undo', fn: () => setSkip(false) }); };
   if ($('fdayBack')) $('fdayBack').onclick = () => { setSkip(false); closeSheet(); haptic(); toast('Free day is back'); };
   $('fdaySet').onclick = () => { closeSheet(); showTab('you'); openFreeEdit(true); setTimeout(() => $('freeCard').scrollIntoView({ behavior: REDUCED ? 'auto' : 'smooth', block: 'start' }), 380); };
+}
+/* ---------- v107: PAY IT BACK (Today line, panel) ---------- */
+function pbDate(d) { return parseIso(d).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }); }
+function pbWhen(d) { return freeWhen(d).replace(/^./, c => c.toUpperCase()); }
+function renderPbLine() {
+  const el = $('pbLine'); if (!el) return;
+  const t = todayIso(), T = dayT(day); let txt = '', d = null;
+  if (T.pbDay) { d = T.pbDay.p.d; txt = `<b>Paying back</b><span>${kc(T.pbDay.eff)} kcal less ${day === t ? 'today' : 'that day'}</span>`; }
+  else if (T.pbOver) { const p = T.pbOver, s = pbSched(p); d = p.d;
+    if (p.stop && s.left > 0.5) txt = `<b>Pay-back stopped</b><span>${kc(s.over - s.left)} of ${kc(s.over)}</span>`;
+    else if (!s.end || s.end < t) txt = `<b>Paid back ✓</b><span>${kc(s.over)} kcal</span>`;
+    else txt = `<b>Paying it back</b><span>until ${esc(daysBetween(t, s.end) <= 6 ? DAY_NAME(s.end) : parseIso(s.end).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }))}</span>`; }
+  else { const o = pbOffer(day); if (o) { d = o.d; txt = `<b>Pay it back</b><span>${kc(o.over)} kcal over</span>`; } }
+  el.hidden = !d; if (!d) return;
+  el.dataset.pd = d; $('pbLineT').innerHTML = txt;
+}
+$('pbLine').onclick = () => { haptic(); openPayback($('pbLine').dataset.pd); };
+var PB = null;   // the panel's pick while it's open
+function pbOptions(over) {
+  const room = pbRoom(); if (room <= 0) return [];
+  const min = Math.max(1, Math.ceil(over / room));
+  if (min >= PB_MAX) return [PB_MAX];
+  return [...new Set([min, 5, 7, 10, 14].filter(n => n >= min))].sort((a, b) => a - b).slice(0, 4);
+}
+function openPayback(d) {
+  const t = todayIso(), T = S.targets, mine = pbList().find(p => p.d === d) || (pbFor(d) || {}).p;
+  const range = `${kc(T.calLo)}–${kc(T.calHi)}`, rule = `A day you go over the lower range adds to what’s left; days under don’t count extra. It never goes below ${kc(pbFloor())} kcal, so protein still fits.`;
+  if (mine) {   // already set up: how it's going
+    const s = pbSched(mine), done = !s.end || s.end < t, first = Object.values(s.days)[0];
+    const now = s.days[t], ahead = Object.keys(s.days).filter(x => x >= t).length;
+    openSheet('Pay it back', `
+      <p class="fd-p" id="pbWhat"><b>${esc(pbWhen(mine.d))}: ${kc(s.over)} kcal over.</b><br>${done ? (mine.stop && s.left > 0.5 ? `Stopped with ${kc(s.over - s.left)} kcal paid back.` : `Paid back. You’re on your usual ${range} again.`)
+        : `Being paid back at ${kc(s.cut)} kcal less a day${first ? ` (${kc(first.lo)}–${kc(first.hi)})` : ''}.`}</p>
+      ${done ? '' : `<p class="hint" id="pbProg">Paid so far: ${kc(Math.max(0, s.paid))} of ${kc(s.over)} kcal. ${now ? `Today: ${kc(now.lo)}–${kc(now.hi)}. ` : ''}${ahead} day${ahead === 1 ? '' : 's'} to go; back to ${range} on ${esc(pbDate(shift(s.end, 1)))}.</p>`}
+      ${done ? '' : `<p class="hint">${esc(rule)}</p><button class="btn ghost" id="pbStop" type="button">Stop paying it back</button>`}`);
+    if ($('pbStop')) $('pbStop').onclick = () => {
+      const before = S.targets.payback, stop = s.days[t] && !dayTotals(t) ? t : shift(t, s.days[t] ? 1 : 0);
+      S.targets = { ...S.targets, payback: pbList().map(p => p === mine ? { ...p, stop: p.from > stop ? p.from : stop } : p) }; touchMeta(); closeSheet(); renderAll(); haptic();
+      toast('Stopped paying it back', { label: 'Undo', fn: () => { S.targets = { ...S.targets, payback: before }; touchMeta(); renderAll(); } });
+    };
+    return;
+  }
+  const o = pbOffer(d); if (!o) return;
+  const opts = pbOptions(o.over), from = d < t ? t : shift(d, 1);
+  PB = { n: opts.includes(7) ? 7 : opts[0] };
+  openSheet('Pay it back', `
+    <p class="fd-p" id="pbWhat"><b>${esc(pbWhen(d))}: ${kc(o.over)} kcal over your ${kc(o.top)} top.</b><br>Spread it over the next few days so your weeks still land on target. Protein stays at ${T.protein}g.</p>
+    ${opts.length ? `<div class="ob-label">Over how many days</div><div class="seg2" id="pbDays" role="group" aria-label="Over how many days">${opts.map(n => `<button type="button" data-n="${n}">${n} days</button>`).join('')}</div>
+    <p class="fd-prev" id="pbPrev"></p><p class="hint">${esc(rule)}</p><button class="btn" id="pbSave" type="button">Pay it back</button>`
+    : `<p class="hint" id="pbPrev">Your range already starts near the lowest it should go (${kc(pbFloor())} kcal), so there’s no room to pay it back. Your weekly budget still counts it.</p>`}`);
+  if (!opts.length) return;
+  const draw = () => {
+    [...$('pbDays').children].forEach(b => b.setAttribute('aria-pressed', +b.dataset.n === PB.n));
+    const s = pbSched({ d, n: PB.n, from }), first = Object.values(s.days)[0];
+    $('pbPrev').innerHTML = first ? `About <b>${kc(s.cut)} kcal less a day</b> (${kc(first.lo)}–${kc(first.hi)}) for ${Object.keys(s.days).length} days, starting ${esc(freeWhen(from))}. Back to ${range} on ${esc(pbDate(shift(s.end, 1)))}.` : '';
+  };
+  $('pbDays').onclick = e => { const b = e.target.closest('[data-n]'); if (!b) return; PB.n = +b.dataset.n; haptic(); draw(); };
+  draw();
+  $('pbSave').onclick = () => {
+    const before = S.targets.payback, item = { d, n: PB.n, from, over: o.over };
+    S.targets = { ...S.targets, payback: [...pbList().filter(p => p.d !== d), item].slice(-PB_KEEP) }; touchMeta(); closeSheet(); renderAll(); haptic();
+    toast(`Paying it back over ${PB.n} days`, { label: 'Undo', fn: () => { S.targets = { ...S.targets, payback: before }; if (before === undefined) { S.targets = { ...S.targets }; delete S.targets.payback; } touchMeta(); renderAll(); } });
+  };
 }
 /* ---------- v91: NOTIFICATIONS ----------
    Alerts come from a small free Supabase function (server/cutlog-alerts in the project), which acts as the alarm clock:

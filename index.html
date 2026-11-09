@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>Cut Log</title>
-<meta name="app-v" content="109">
+<meta name="app-v" content="110">
 <!-- v63: only lets the page load code and data from the places Cut Log really uses (Firebase, the scanner and label reader, Open Food Facts, Google fonts). If the theme script just below changes, its sha256 here must change too (test AY checks). -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-cxglE2uldCp/ybpBoYGJlEJKfTyNB39uAaDq3zqChpA=' https://cdn.jsdelivr.net https://fastly.jsdelivr.net https://www.gstatic.com 'wasm-unsafe-eval'; worker-src 'self' blob: https://cdn.jsdelivr.net https://fastly.jsdelivr.net; connect-src 'self' https://*.supabase.co https://world.openfoodfacts.org https://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com https://cdn.jsdelivr.net https://fastly.jsdelivr.net https://www.gstatic.com data: blob:; img-src 'self' data: blob:; media-src 'self' blob: mediastream:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; frame-src https://cutlog-5ab4e.firebaseapp.com; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
 <script>/* apply Light/Dark before the page draws, so it never flashes the wrong colors */
@@ -21,7 +21,7 @@ try { var cla = localStorage.getItem('cutlog.appearance'); if (cla === 'light' |
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Barlow:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="style.css?v=109">
+<link rel="stylesheet" href="style.css?v=110">
 </head>
 <body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -36,6 +36,12 @@ try { var cla = localStorage.getItem('cutlog.appearance'); if (cla === 'light' |
   <symbol id="i-you" viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="4" stroke="currentColor" stroke-width="2" fill="none"/><path d="M4.5 20c1.2-3.6 4.1-5.4 7.5-5.4s6.3 1.8 7.5 5.4" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></symbol>
   <symbol id="i-medal" viewBox="0 0 24 24"><path d="M8 3h8l-2.2 5.2M8 3l2.2 5.2" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linejoin="round"/><circle cx="12" cy="14.5" r="6" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M12 11.6l.95 1.95 2.15.3-1.55 1.5.37 2.13L12 16.5l-1.92 1.0.37-2.13-1.55-1.5 2.15-.3z" fill="currentColor"/></symbol>
   <symbol id="i-adjust" viewBox="0 0 24 24"><path d="M5 4v16M12 4v16M19 4v16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none" opacity=".45"/><circle cx="5" cy="15" r="2.4" fill="currentColor"/><circle cx="12" cy="8" r="2.4" fill="currentColor"/><circle cx="19" cy="13" r="2.4" fill="currentColor"/></symbol>
+  <symbol id="i-flag" viewBox="0 0 24 24"><path d="M6 21V4M6 4h11l-2.5 4L17 12H6" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-spoon" viewBox="0 0 24 24"><ellipse cx="12" cy="7.5" rx="4" ry="4.8" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M12 12.3V21" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-plan" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="3" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M8 3v4M16 3v4M4 10h16M8 14h3M8 17h6" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/></symbol>
+  <symbol id="i-scale" viewBox="0 0 24 24"><rect x="3.5" y="4" width="17" height="16" rx="4" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M8 10a5 5 0 0 1 8 0" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/><path d="M12 10.5l1.6-2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-star" viewBox="0 0 24 24"><path d="M12 3l1.9 6.1L20 11l-6.1 1.9L12 19l-1.9-6.1L4 11l6.1-1.9z" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linejoin="round"/></symbol>
+  <symbol id="i-bulb" viewBox="0 0 24 24"><path d="M9 17h6M10 20.5h4M12 3a6 6 0 0 0-3.6 10.8c.6.5 1 1.2 1 2V16h5.2v-.2c0-.8.4-1.5 1-2A6 6 0 0 0 12 3z" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></symbol>
   <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
 </svg>
 
@@ -453,8 +459,8 @@ try { var cla = localStorage.getItem('cutlog.appearance'); if (cla === 'light' |
 <div class="toast" id="toast" role="status" hidden></div>
 <input type="file" id="photoIn" accept="image/*" capture="environment" hidden>
 
-<script src="firebase-config.js?v=109"></script>
-<script src="foods.js?v=109"></script>
-<script src="app.js?v=109"></script>
+<script src="firebase-config.js?v=110"></script>
+<script src="foods.js?v=110"></script>
+<script src="app.js?v=110"></script>
 </body>
 </html>

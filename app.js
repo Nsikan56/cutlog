@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '109';
+const APP_V = '110';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -3234,64 +3234,116 @@ function renderFibChart(days) {
 /* =================== v44: HOW TO USE CUT LOG =================== */
 /* A plain-language guide in the You tab (and a one-time banner on Today for new people). Seen/first-shown live on
    this device only (localStorage cutlog.guide), not in saved or synced data. */
+/* v110: the guide rewritten for people who've never seen the app (Kan, 8 Nov: "It reads like documentation right now. It needs
+   to be simple for them and look nice to read"). Each topic: [title, body html, icon, one-line subtitle]. A body is a lead line,
+   a few numbered steps (gStep), one tip (gTip) and the details tucked into \"Good to know\" (gMore). Tests read GUIDE[i][1]. */
+const gStep = (...xs) => `<ol class="g-steps">${xs.map(x => `<li><span>${x}</span></li>`).join('')}</ol>`;
+const gTip = x => `<p class="g-tip"><svg aria-hidden="true"><use href="#i-bulb"/></svg><span>${x}</span></p>`;
+const gMore = (...xs) => `<details class="g-more"><summary>Good to know</summary><ul>${xs.map(x => `<li><span>${x}</span></li>`).join('')}</ul></details>`;
 const GUIDE = [
-  ['Getting started', `
-    <p>Put Cut Log on your home screen: in Safari, tap Share, then <b>Add to Home Screen</b>. It works offline and saves everything on your phone first.</p>
-    <p>Your goal and daily targets (a calorie range and a protein target) are in <b>You → Goal</b>. Change them any time.</p>
-    <p>The <b>New to Cut Log?</b> banner on Today opens this guide; tap its ✕ to hide it. The guide is always here in You → Help.</p>
-    <p>After each update, <b>What's new</b> shows once when you open the app. You can read every update any time in You → Help → What's new.</p>
-    <p>To back up and sync with a laptop, tap the pill at the top right and sign in. Syncing works once your email has been added to the invite list, so ask the person who shared the app. Until then, everything still works on your phone.</p>`],
-  ['Logging food', `
-    <p><b>Scan barcode</b> for packaged food. If it isn't in the free database, snap the label once and the app remembers that barcode next time.</p>
-    <p><b>Snap label</b> reads a Nutrition Facts photo on your phone. Check the numbers it found before saving. If the serving is in <b>mL</b>, pick mL and add what one serving weighs: ice cream is about half air, so 188 mL is only about 105 g. Weigh it, or tap an estimate.</p>
-    <p><b>Search</b> covers whole foods, Nigerian and Canadian dishes, your saved foods, and packaged foods online. Nothing fits? Use <b>Enter a food by hand</b>, or <b>Quick add</b> for just calories and protein (good for samples or a meal out).</p>
-    <p>On <b>How much?</b> pick an amount in pieces, servings, grams, cups or spoons. No scale? Use your hand: a <b>palm</b> of meat (about 100 g), a <b>fist</b> of rice or pasta (about a cup), a <b>cupped hand</b> of snacks, a <b>thumb</b> of oil or peanut butter. Dishes come in <b>small, regular and large</b> plates or bowls, with a picture guide.</p>
-    <p>Drinks (milk, juice, almond drinks, soup, anything whose serving is in ml) also take <b>ml</b>, <b>fl oz</b> and a 250 ml <b>cup</b>. Switching between serving, ml and fl oz keeps the same amount, so 1 serving of 250 ml becomes 250 ml. For packaged drinks, 1 ml counts as 1 g, the way their labels are written.</p>
-    <p>Staples like chicken, rice and pasta have a <b>Raw weight / Cooked</b> switch: pick how it was when you measured it. Your own packs of chicken, beef, fish, rice, pasta and oats get it too, whether the name is in English or French: the package numbers are for raw or dry food, and Cooked works out what they come to after cooking (it opens cooked next time if that's how you logged it last). Food you cook yourself asks <b>Cooked with oil or butter?</b> Oil is the most common hidden source of calories.</p>
-    <p>Tap the <b>★</b> on a food to pin it: pinned foods sit at the top of search. Under the amount, <b>Usual</b> shows the amounts you log most, one tap each. Search results show <b>protein per 100 kcal</b>; green means a lean, high-protein choice.</p>
-    <p>If a food's numbers are wrong, tap <b>Numbers look wrong? Fix them</b> (it works on the Cooked view too, fixing the pack). Food you already logged keeps its old numbers until you tap <b>Recount</b> when Cut Log offers it, so past days never change by surprise.</p>
-    <p>Packaged foods may show a <b>Nutri-Score</b> letter from A (most nutritious) to E (least).</p>
-    <p>Food is grouped into Breakfast, Lunch, Dinner and Snacks, and the app learns where you usually put each food. <b>Tap any entry</b> to change the amount, move it to another meal or day, or remove it (with Undo). <b>Copy from yesterday</b> repeats a whole day or one meal.</p>`],
-  ['My meals', `
-    <p>Build a meal once from its ingredients and log it with one tap after that. Set how many servings it makes.</p>
-    <p>Cooking a big pot? Weigh the whole pot once it's cooked (without the pot) and enter the <b>cooked weight</b>. Then log whatever you dish out by grams or by hand portion.</p>
-    <p>If the app closes while you're building a meal, it keeps your progress. My meals shows <b>Finish your unsaved meal</b>.</p>`],
-  ['The Today screen', `
-    <p>The line at the top greets you. Now and then, a couple of seconds after the greeting, it fades into something about this part of your day, using what you usually eat at that meal (like <b>Shake for breakfast?</b>) and your own meal times. When it names a food, <b>tap it</b> to log that food at your usual amount.</p>
-    <p>The left ring is calories, with a small mark where your range starts. The right ring is protein. <b>Tap the rings</b> to switch between what you've eaten and what's <b>left</b> for the day; tap again to switch back.</p>
-    <p>Below the rings: how your day is going, a <b>protein nudge</b> if protein falls behind your calories, <b>What fits</b> (foods from your own list that fit what's left, in a row you can swipe; its last tile is <b>More ideas</b>: simple high-protein meals to make at home and McDonald's, Tim Hortons and Subway items that fit, lighter picks first in the evening; Subway subs and salads are counted without sauce or cheese, so pick yours on How much?, and a salad gets a double portion of sauce) and <b>This week</b> (calories banked or over across the week, and how much you can eat today and stay on budget). Only days you logged count; days with nothing logged are named underneath so you know they're left out.</p>
-    <p><b>Your recap</b>: a Spotify-style card of your week, month or year to share in Messages, WhatsApp or Instagram. It shows up on Today in the first week of a month (and in January for the year), and from the weekly check-in and History. Share it as <b>one picture</b> or as <b>3 slides</b> (weight, protein, habits), pick its colours, and choose whether it shows your <b>actual weights</b> or only the change. In the app its colours drift slowly; the shared picture is a still frame. Nothing is uploaded anywhere.</p>
-    <p><b>What fits</b> learns. It suggests foods that fit what's left today, and keeps track (on this phone) of what you tap and log from it: things you log come back more, things you keep passing over fade, and now and then it slips in a <b>New</b> idea from the built-in foods or home ideas. Your picks stay put for a visit, then change.</p>
-    <p><b>Plan my day</b>, under the logging buttons, builds a day of meals from what you actually eat (your saved meals and the foods you've logged in the last 4 weeks, at your usual amounts) plus a rotating home idea or two, aiming for your calorie range and protein target. <b>Today</b> plans the meals still ahead, following your <b>meal times</b> (You → Meal times; nothing after your latest meal, 8 pm unless you change it). In the hour before your latest meal it keeps what's left <b>light</b> (protein first, up to 450 kcal) however many calories are left, so a late meal doesn't hurt your sleep; the rest stays in your weekly budget. <b>Tomorrow</b> plans a whole day. Not sure what dinner will be yet? Tap <b>Plan later</b>: it's left open, with room kept for it (about your usual dinner), and the rest is planned around it. Log it as usual when you know. A planned meal that's past its time stays as <b>Late</b> until you log it or skip it. Log a meal with one tap, or tap a food to change its amount first. Logged something by mistake (say, just the chicken while you meant the whole dinner)? Logged meals list their foods in the plan: tap a food's <b>×</b> to take it back out, and that meal's plan comes back. The "Added" message after any log also has an <b>Undo</b>. Ate something else? It offers to <b>re-plan the rest</b>. Already made tomorrow's breakfast? <b>Choose breakfast</b> and pick it (your meals, usual foods, home ideas or any food); it's <b>locked</b> in and the rest of the day is planned around it. Lock any planned meal you like the same way. <b>Shuffle</b> changes only what isn't locked and avoids repeating your last few plans. Change your targets and the plan re-plans itself to match. It shows up once you've logged a few days.</p>
-    <p>Open This week and tap <b>See past weeks and months</b> for your <b>History</b>: a calendar of each month with every day's calories (green in range, orange over, blue under), what each week banked, and every month's averages. Swipe it for other months, and tap a day to open it.</p>
-    <p>Once you've logged two or more meals, the Eaten header shows which meal is the biggest ("Breakfast 48%", or a 🏆 when a meal sets your protein record) with a thin bar under it of how your day splits between breakfast, lunch, dinner and snacks; each meal heading has a dot in its colour. Tap either for <b>When you eat</b>: each meal's share and average over 4 weeks, 3 months or all time, your heaviest and lightest meal, what time you usually finish eating, <b>the morning after</b> (how the next weigh-in moves after bigger vs lighter dinners; that's mostly food and water, not fat) your meal split <b>week by week</b>, <b>records</b>, and <b>badges</b> to earn (like done eating by 8 pm 7 days in a row, or 30g+ protein at every main meal). It's also on Trends under Calories. The morning after waits for about two weeks of daily weigh-ins and only calls it a link when the gap is clearly bigger than your normal day-to-day swing.</p>
-    <p><b>More nutrients</b>, under your food list, shows your <b>carbs and fat</b> and how your calories split between protein, carbs and fat. There's no carb target: with calories and protein set, carbs and fat are what's left. A big carb day can show up as water weight the next morning, not fat. Carbs come from packaged foods, the built-in foods and labels you type in (chain menu items don't have them yet); foods without them aren't counted, and it says how many foods it's from. Totals only show once foods with carb data make up most of the day's calories; until then it lists the foods missing them, and a tap adds the numbers from the label (scanned foods fill in by themselves).</p>
-    <p>It also shows fibre. It only counts foods that have fibre data, so it says "at least" when some don't. A meal counts the ingredients that have it. Foods missing it are listed there; tap one to add the number from its label.</p>`],
-  ['Weigh-ins and waist', `
-    <p>Pick <b>Every morning</b>, <b>Once a week</b> or <b>No scale</b> in You → Weigh-ins. Weigh after the bathroom, before food or water.</p>
-    <p>Daily weight jumps around by a few pounds from water, salt and carbs. The <b>7-day average</b> is the number that matters.</p>
-    <p>Don't know your weight and no scale? In setup (or in Goal suggestions) tap <b>Don't know your weight? Estimate it</b>. It's a rough guess from your clothing sizes (a formula built from 507 measured adults), used only for your starting targets. After two weeks the app asks for one real weigh-in, at a pharmacy, gym or a friend's place.</p>
-    <p>Tap the weight chart, or <b>See full weight history</b>, to see every weigh-in back to your first: 1 month to all time, your goal line, monthly averages, and drag along the chart to read any day.</p>
-    <p>Measure your <b>waist</b> at the belly button, relaxed, every two weeks. A shrinking waist is one of the clearest signs of fat loss, and it works without a scale.</p>`],
-  ['Trends', `
-    <p><b>Weight trend</b> shows how fast you're losing or gaining each week, and the date you'd reach your goal (with the year when it's further off). It appears after about a week of weigh-ins. If your loss is slow but you're already eating at the low end of your range, it suggests another week of full logging rather than eating less. The rate always looks back at least 14 days, because a single week of weigh-ins is mostly water; on the 7-day view, <b>Vs last week</b> compares this week's average with the week before.</p>
-    <p>The <b>weekly check-in</b> sums up last week every Monday: average calories and protein, weight change, and a one-line verdict. When you're cutting, a day a little under your range still counts as <b>on target</b>; it only flags days more than 300 kcal under it, since eating that little often costs muscle.</p>
-    <p><b>Your real burn</b> works out how many calories you actually burn from what you eat and how your weight moves (no watch needed). It uses your weight trend line, and leaves out your first 2 weeks of weigh-ins, because early weight loss is mostly water, so it's ready after about 4 weeks. Then it can suggest better targets. Big changes are offered in steps of up to ${BURN_STEP} kcal, so each one is checked by the next week's weigh-ins.</p>
-    <p><b>Calorie check-in pop-up:</b> when your calories should change, Cut Log asks you, at most once a week. It's either your real burn (in steps of up to ${BURN_STEP} kcal) or your weight trend moving much faster than your goal calls for, two weeks in a row (it asks you to log a full week first if too many days are missing). <b>Yes</b> updates your target (with Undo); <b>Not now</b> leaves it until next week.</p>
-    <p>Charts for calories, protein, carbs (with your average protein, carbs and fat split) and fibre: tap a bar to open that day. <b>See calendar by month</b> under Calories opens your History. <b>See full protein history</b>, <b>See full carbs and fat history</b> and <b>See full fibre history</b> (or a tap on the chart outside the bars) show every day since you started, with a 7-day average line, drag-to-read, and each month's average. The 3M, 6M and 1Y buttons come on once you've logged longer than the range before them. Plus consistency stats and <b>milestones</b> with a little celebration.</p>`],
-  ['Your settings', `
-    <p>In <b>You</b>: your name, goal (Cutting, Maintaining or Building) with suggested targets, weigh-in frequency, lb or kg, <b>meal times</b> (when you usually have breakfast, lunch and dinner, and your latest meal; Plan my day plans around them. Turn on <b>different times on off days</b> for a second set, like a later breakfast, and pick your usual off days; if you're off on another day, switch that day to <b>Off day</b> at the top of Plan my day), eight app colours (Cobalt, Ember, Teal, Violet, Rose, Gold, Graphite, Sky), Light or Dark, your saved foods, and a backup file you can keep in iCloud Drive.</p>
-    <p><b>Notifications</b> (You → Notifications): a lunch or dinner check that only comes when that meal isn't logged yet, a last call 30 minutes before your latest meal with what's left for today, and a weigh-in reminder at your own time (every morning, or your chosen day if you weigh in weekly). Breakfast and Monday check-in alerts are there too, off to start. They need Cut Log on your Home Screen and Cloud sync sign-in, and they're set separately on each phone. Tap an alert to open the right screen.</p>
-    <p><b>Free day</b> (You → Free day, for Cutting and Maintaining): pick a day each week, every other week, or <b>just once</b>, to eat more. Choose how much extra (+300 to +1,000 kcal, or <b>no limit</b>) and how it's paid for: <b>budgeted</b> (the other days that week are a little lower, so the week still lands on target; with no limit, what you eat over your usual top comes out of the week's budget) or <b>free</b> (not paid back, so that week's loss is a bit slower). Protein stays the same. Today shows <b>✦ Free day</b> on the day and earlier in the week; tap it to see the numbers or <b>skip</b> that one. It counts as on plan in your check-in and History (marked ✦), Plan my day plans the bigger day, and a higher weigh-in the next morning is water and salt, not fat. To pay a free day back afterwards anyway, use <b>Pay it back</b> on Today.</p>
-    <p><b>Pay it back</b>: when a day goes 100+ kcal over your range (a buffet, a party, a no-limit free day), Today shows <b>Pay it back</b>. Tap it, pick over how many days (7 to start), and the next days' range drops a little until it's paid; then your usual range is back by itself. A day you go over the lower range adds to what's left, days under don't count extra, and a day never drops below 1,800 kcal. Tap <b>Paying back</b> on Today to see how much is left, or stop it.</p>
-    <p>Your age, height and sex are only used to suggest targets. They're never saved.</p>`],
-  ['What to expect', `
-    <p><b>First week:</b> your weight will bounce around. That's water, not fat. Keep logging and weighing.</p>
-    <p><b>After about a week:</b> your weekly rate and goal date show up on Trends.</p>
-    <p><b>After about 4 weeks:</b> your real burn is ready and can fine-tune your targets (your first 2 weeks of weigh-ins are left out, because that early drop is mostly water).</p>
-    <p>Hand portions, plate sizes and dishes are estimates. Being consistent matters more than being exact, because your real burn adjusts to how you log.</p>
-    <p>A steady cut is about 0.5–1% of your body weight a week. Hitting your protein target most days helps keep muscle while you lose fat.</p>
-    <p>A day over your range is fine. The weekly trend decides your progress.</p>`],
+  ['Get started', `<p class="g-lead">Cut Log counts your calories and protein, and shows how your weight is really moving.</p>
+    ${gStep('Put it on your home screen: in Safari, tap <b>Share</b>, then <b>Add to Home Screen</b>.',
+      'Check your daily targets in <b>You → Goal</b>: a calorie range and a protein target. Change them any time.',
+      'Log what you eat, and weigh in when you can.')}
+    ${gTip('Everything saves on your phone first, so it works without internet too.')}
+    ${gMore('To back up, or use Cut Log on a laptop too, tap the round <b>sync button</b> at the top right (it says \"This phone\") and sign in. Syncing starts once the person who shared Cut Log adds your email.',
+      'The <b>New to Cut Log?</b> banner on Today opens this guide; tap its ✕ to hide it. The guide is always in You → Help.',
+      'After each update, <b>What\'s new</b> shows once. Every update is listed in You → Help → What\'s new.')}`, 'i-flag', 'Three things to do first'],
+  ['Log your food', `<p class="g-lead">Tap one of the buttons on Today.</p>
+    ${gStep('<b>Scan barcode</b> for packaged food.',
+      '<b>Snap label</b>: take a photo of the Nutrition Facts table, then check the numbers before saving.',
+      '<b>Search</b> for anything else: everyday foods, Nigerian and Canadian dishes, foods you\'ve saved, or packaged foods online.',
+      '<b>My meals</b> for meals you\'ve saved.')}
+    ${gTip('Nothing fits? In Search, use <b>Enter a food by hand</b>, or <b>Quick add</b> for just calories and protein (good for a sample or a meal out).')}
+    ${gMore('A barcode that isn\'t found: snap its label once, and Cut Log knows that barcode next time.',
+      'Food is grouped into Breakfast, Lunch, Dinner and Snacks, and Cut Log learns where you usually put each one. <b>Tap any entry</b> to change it, move it to another meal or day, or remove it (with Undo). <b>Copy from yesterday</b> repeats a day or one meal.',
+      'Tap the <b>★</b> on a food to pin it: it stays at the top of search.',
+      'Search shows <b>protein per 100 kcal</b> for each food: how much protein you get for the calories. Green means a lean, high-protein pick.',
+      'Packaged foods may show a <b>Nutri-Score</b> letter, from A (most nutritious) to E (least).',
+      'If a food\'s numbers look wrong, tap <b>Numbers look wrong? Fix them</b>. Food you already logged keeps the old numbers until you tap <b>Recount</b>, so past days never change by surprise.',
+      'A label serving in <b>mL</b>? Pick mL and add what one serving weighs, or tap an estimate. Ice cream is about half air: 188 mL is only about 105 g.')}`, 'i-barcode', 'Scan, snap or search'],
+  ['How much?', `<p class="g-lead">After you pick a food, Cut Log asks how much.</p>
+    ${gStep('Pick a unit: pieces, servings, grams, cups or spoons. Drinks also take <b>ml</b> and <b>fl oz</b>.',
+      'No scale? Use your hand: a <b>palm</b> of meat is about 100 g, a <b>fist</b> of rice or pasta about a cup.',
+      'Chicken, rice, pasta and other staples have a <b>Raw weight / Cooked</b> switch: pick how it was when you weighed it.',
+      'Tap <b>Add</b>. Made a mistake? Tap <b>Undo</b> on the message that pops up.')}
+    ${gTip('<b>Usual</b> shows the amounts you log most for that food. One tap fills one in.')}
+    ${gMore('Cooked it yourself? <b>Cooked with oil or butter?</b> adds the oil. Oil is the most common hidden source of calories.',
+      'Dishes come in <b>small, regular and large</b> plates or bowls, with a picture guide.',
+      'More hand sizes: a <b>cupped hand</b> of snacks, a <b>thumb</b> of oil or peanut butter.',
+      'Your own packs of chicken, beef, fish, rice, pasta and oats get the switch too, whether the name is in English or French. The package numbers are for raw or dry food, and Cooked works out the rest.',
+      'Switching between serving, ml and fl oz keeps the same amount (1 serving of 250 ml becomes 250 ml).')}`, 'i-spoon', 'Amounts, hand sizes, raw or cooked'],
+  ['Your Today screen', `<p class="g-lead">The top of Today shows how your day is going.</p>
+    ${gStep('The left ring is calories, the right ring is protein. <b>Tap the rings</b> to see what\'s <b>left</b> for today instead.',
+      '<b>What fits</b> suggests foods that fit what\'s left. It <b>learns</b> what you pick, and now and then shows a <b>New</b> idea. Swipe to <b>More ideas</b> for meals to make at home and McDonald\'s, Tim Hortons and Subway picks.',
+      '<b>This week</b> shows whether you\'re under or over for the week so far, and how much you can eat today.')}
+    ${gTip('A <b>protein nudge</b> shows up if protein falls behind your calories. It goes away once you catch up.')}
+    ${gMore('The greeting at the top sometimes turns into a line about your next meal, like <b>Shake for breakfast?</b> Tap it to log that food at your usual amount.',
+      'This week only counts days you logged; days with nothing logged are named underneath. Tap it, then <b>See past weeks and months</b>, for a calendar of every day.',
+      '<b>More nutrients</b>, under your food list, shows your carbs and fat and how your calories split. There\'s no carb target: with calories and protein set, carbs and fat are what\'s left. Totals show once most of the day has carb data. Foods missing data are listed there; tap one to add the number from its label (scanned foods fill in by themselves).',
+      'Fibre works the same way. Foods without fibre data aren\'t counted, so it says \"at least\". A meal counts the ingredients that have it.',
+      'With two or more meals logged, the Eaten header shows which meal is the biggest. Tap it for <b>When you eat</b>: your meals week by week, the morning after (how your weigh-in moves after bigger dinners; it waits for about two weeks of daily weigh-ins, and it\'s water, not fat), records and badges.',
+      'Subway subs and salads are counted without sauce or cheese. Pick yours on How much? (a salad gets a double portion of sauce, like Subway does).',
+      '<b>Your recap</b> is a card of your week, month or year to share in Messages, WhatsApp or Instagram. Choose whether it shows your actual weights or only the change. It shows up on Today at the start of each month.')}`, 'i-today', 'Rings, What fits, This week'],
+  ['Plan my day', `<p class="g-lead">Builds a day of meals from what you actually eat, aiming for your calories and protein. It\'s under the logging buttons once you\'ve logged a few days.</p>
+    ${gStep('Pick <b>Today</b> or <b>Tomorrow</b>.',
+      'Tap <b>Log</b> on a meal when you eat it, or tap a food to change its amount first.',
+      'Don\'t like a meal? Tap <b>Shuffle</b>.',
+      'Already know a meal? Tap <b>Choose breakfast</b> (or lunch, or dinner) and pick it. It\'s <b>locked</b> in, and the rest is planned around it.')}
+    ${gTip('Not sure what dinner will be? Tap <b>Plan later</b>. Room is kept for it, and you log it when you know.')}
+    ${gMore('It follows your <b>Meal times</b> (You → Meal times). In the hour before your latest meal it keeps what\'s left light, so it doesn\'t hurt your sleep.',
+      'A planned meal that\'s past its time shows as <b>Late</b> until you log it or skip it.',
+      'Logged something by mistake? Logged meals list their foods: tap a food\'s × to take it back out.',
+      'Ate something else? It offers to re-plan the rest of the day.',
+      'Eating at different times today? Switch the day to <b>Off day</b> at the top (once off-day times are set up).')}`, 'i-plan', 'Meals planned to hit your targets'],
+  ['Saved meals', `<p class="g-lead">Build a meal once, then log it with one tap.</p>
+    ${gStep('Tap <b>My meals</b>, then <b>Build a new meal</b>.',
+      'Add the ingredients, and how many servings it makes.',
+      'Next time, tap the meal to log it.')}
+    ${gTip('Cooking a big pot? Weigh the food once it\'s cooked (without the pot) and enter the cooked weight. Then log whatever you dish out in grams.')}
+    ${gMore('If the app closes while you\'re building a meal, it keeps your progress: My meals shows <b>Finish your unsaved meal</b>.')}`, 'i-bowl', 'Build once, log in one tap'],
+  ['Weigh in', `<p class="g-lead">Your weight moves around a lot day to day. Cut Log shows the real trend underneath.</p>
+    ${gStep('Choose how often in <b>You → Weigh-ins</b>: every morning, once a week, or no scale.',
+      'Weigh after the bathroom, before you eat or drink.',
+      'Watch the <b>7-day average</b>, not a single day.')}
+    ${gTip('A jump of a few pounds overnight is water and salt, not fat.')}
+    ${gMore('Tap the weight chart, or <b>See full weight history</b>, to see every weigh-in since you started.',
+      'No scale? Measure your <b>waist</b> at the belly button every two weeks. A smaller waist means fat is coming off.',
+      'Don\'t know your weight at all? In setup, tap <b>Estimate it</b> for a rough guess from your clothing sizes. After two weeks Cut Log asks for one real weigh-in (a pharmacy or gym scale is fine).')}`, 'i-scale', 'And why the average matters'],
+  ['Trends', `<p class="g-lead">The Trends tab shows how you\'re really doing.</p>
+    ${gStep('<b>Weight trend</b>: how fast you\'re losing or gaining each week, and the date you\'d reach your goal. It appears after about a week of weigh-ins.',
+      '<b>Weekly check-in</b>: every Monday, a short summary of last week.',
+      '<b>Your real burn</b>: after about 4 weeks, how many calories you actually burn, worked out from what you ate and how your weight moved. No watch needed.',
+      'Charts for calories, protein, carbs (with your average protein, carbs and fat split) and fibre. Tap a bar to open that day.')}
+    ${gTip('When your calories should change, a <b>Calorie check-in pop-up</b> asks you first, at most once a week. <b>Yes</b> updates your target; <b>Not now</b> leaves it.')}
+    ${gMore('The weekly rate always uses at least 14 days of weigh-ins, because one week is mostly water. On the 7-day view, <b>Vs last week</b> compares this week\'s average with the week before.',
+      `Your real burn uses your weight trend line and leaves out your first 2 weeks of weigh-ins (early loss is mostly water). Big changes are suggested in steps of up to ${BURN_STEP} kcal.`,
+      'On a cut, a day a little under your range still counts as <b>on target</b>. Only days more than 300 kcal under it are flagged.',
+      'If your loss is slow but you already eat at the low end of your range, it suggests another week of full logging rather than eating less.',
+      'Under the charts: See calendar by month, See full protein history, See full carbs and fat history and See full fibre history. Longer ranges (3M, 6M, 1Y) come on once you\'ve logged long enough.',
+      'Milestones, with a little celebration, as you go.')}`, 'i-trend', 'Weight trend, check-ins, your real burn'],
+  ['Free day and Pay it back', `<p class="g-lead">Eat more on a planned day, or make up for a big one. For Cutting and Maintaining.</p>
+    ${gStep('<b>Free day</b>: in You → Free day, pick a day (every week, every other week, or <b>just once</b>).',
+      'Pick how much extra: +300 to +1,000 kcal, or <b>no limit</b>.',
+      'Pick how it\'s paid for. <b>Budgeted</b>: the other days that week are a little lower, so the week still lands on target. <b>Not paid back</b>: that week\'s loss is just a bit slower.')}
+    ${gTip('<b>Pay it back</b>: when a day goes 100+ kcal over (a buffet, a party), Today offers it. Pick over how many days; those days are a little lower until it\'s paid, then your usual range comes back by itself.')}
+    ${gMore('Protein stays the same on a free day.',
+      'Tap <b>✦ Free day</b> on Today to see the numbers, or skip that one.',
+      'A higher weigh-in the morning after is water and salt, not fat.',
+      'Pay it back never drops below 1,800 kcal a day (or 200 under your range, if your range is lower). Going over a lowered day adds to what\'s left. Tap <b>Paying back</b> on Today to see how much is left, or stop it.')}`, 'i-star', 'Eat more, or make up for it'],
+  ['Settings and reminders', `<p class="g-lead">Make Cut Log yours in the <b>You</b> tab.</p>
+    ${gStep('<b>Goal</b>: Cutting, Maintaining or Building, with suggested targets.',
+      '<b>Meal times</b>: when you usually eat. Plan my day and reminders use them. If your days off look different, turn on <b>different times on off days</b>.',
+      '<b>Notifications</b>: a lunch or dinner check only when that meal isn\'t logged yet, a last call before your latest meal, and a weigh-in reminder.',
+      'Colours, Light or Dark, lb or kg, your saved foods, and a backup file.')}
+    ${gTip('Notifications need Cut Log on your Home Screen and Cloud sync sign-in. They\'re set separately on each phone.')}
+    ${gMore('Your age, height and sex are only used to suggest targets. They\'re never saved.')}`, 'i-you', 'Goal, meal times, notifications'],
+  ['What to expect', `${gStep('<b>First week:</b> your weight will bounce around. That\'s water, not fat. Keep logging and weighing.',
+      '<b>After about a week:</b> your weekly rate and goal date show up on Trends.',
+      '<b>After about 4 weeks:</b> your real burn is ready and can fine-tune your targets.')}
+    ${gTip('A day over your range is fine. The weekly trend decides your progress.')}
+    ${gMore('Hand portions, plate sizes and dishes are estimates. Being consistent matters more than being exact, because your real burn adjusts to how you log.',
+      'A steady cut is about 0.5–1% of your body weight a week. Hitting your protein target most days helps keep muscle while you lose fat.')}`, 'i-medal', 'The first week, month and beyond'],
 ];
 const GUIDE_KEY = 'cutlog.guide', GUIDE_DAYS = 7;
 function guideState() { try { return JSON.parse(localStorage.getItem(GUIDE_KEY)) || {}; } catch (e) { return {}; } }
@@ -3299,7 +3351,7 @@ function setGuide(x) { try { localStorage.setItem(GUIDE_KEY, JSON.stringify({ ..
 function openGuide() {
   setGuide({ seen: 1 }); $('guideBanner').hidden = true; $('guideWrap').hidden = true;
   openSheet('How to use Cut Log', `<p class="hint">Tap a topic to open it.</p>
-    <div class="guide">${GUIDE.map(([t, h], i) => `<details class="guide-s"${i === 0 ? ' open' : ''}><summary>${t}</summary><div class="guide-b">${h}</div></details>`).join('')}</div>`);
+    <div class="guide">${GUIDE.map(([t, h, ic, sub], i) => `<details class="guide-s"${i === 0 ? ' open' : ''}><summary><span class="g-ic" aria-hidden="true"><svg><use href="#${ic}"/></svg></span><span class="g-h"><b>${t}</b><small>${sub}</small></span></summary><div class="guide-b">${h}</div></details>`).join('')}</div>`);
 }
 /* Banner on Today: once per device, until the guide is opened, for up to a week */
 function renderGuideBanner() {
@@ -5097,6 +5149,7 @@ $('adjNo').onclick = () => adjClose(false);
    set the app up don't get it). Always available in You → Help. Last seen version: localStorage cutlog.seenV (per device).
    Every release adds an entry at the top, in plain words for everyone who uses Cut Log. */
 const CHANGELOG = [
+  { v: 110, d: '2026-11-08', items: ['A new How to use Cut Log guide: short, step-by-step and easier to read, with a tip for each topic and the finer details tucked under “Good to know”. Find it in You → Help.'] },
   { v: 109, d: '2026-11-08', items: ['Paying a day back now shows everywhere it matters: Free day settings, This week, the status under your rings, Plan my day, History and your weekly check-in all use the same numbers and say so.'] },
   { v: 108, d: '2026-11-08', items: ['A free day you’re paying back now says so in This week, the Free day panel and your weekly check-in, instead of “not paid back”.'] },
   { v: 107, d: '2026-11-08', items: ['Pay it back: when a day goes over your range (a buffet, a party), tap “Pay it back” on Today and pick over how many days. The next days’ range drops a little (never below 1,800 kcal) until it’s paid, then your usual range comes back by itself.', 'Free day can now be just once, not only every week or every other week.'] },

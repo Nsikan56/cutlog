@@ -1049,9 +1049,9 @@ details.shut>:not(summary){opacity:0;transform:translateY(-4px);transition:opaci
   .col-a,.col-b{display:flex;flex-direction:column;gap:20px;min-width:0}
 
   /* Trends: two-column card grid */
-  #viewTrends{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px;align-items:start}
+  #viewTrends{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 20px;grid-auto-rows:4px;align-items:start}   /* v111: rows of 4 px, each card spans its own height (trendsFlow) */
   #viewTrends>#range{grid-column:1/-1;justify-self:start;width:380px;order:0}
-  #viewTrends>.trend-hero{order:1;align-self:stretch}
+  #viewTrends>.trend-hero{order:1}
   #viewTrends>#burnCard{order:2}
   #viewTrends>#ciCard{order:2}
   #viewTrends>.card:has(#tWeightChart){order:3}

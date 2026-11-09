@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '110';
+const APP_V = '111';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -2657,12 +2657,28 @@ function renderTrends() {
   $('tLogged').textContent = `${logged.length}/${range}`;
   $('tWeighed').textContent = inR.length;
 }
+/* v111: Trends on a laptop flows like two independent columns (Kan, 9 Nov: "a lot of real estate in the weight trend block on pc";
+   "make everything align naturally"). Every card keeps its natural height and the next card moves up into the gap under the
+   shorter one: the grid uses 4 px rows and each card spans as many as its height needs (FLOW_ROW + the 20 px gap). Phone untouched. */
+const FLOW_ROW = 4, FLOW_GAP = 20;
+let flowRO = null;
+function trendsFlow() {
+  const v = $('viewTrends'); if (!v) return;
+  const kids = [...v.children];
+  if (!WIDE_Q.matches || v.hidden) { kids.forEach(e => { e.style.gridRowEnd = ''; }); return; }
+  kids.forEach(e => { if (e.hidden) { e.style.gridRowEnd = ''; return; }
+    const h = e.getBoundingClientRect().height, n = Math.max(1, Math.ceil((h + FLOW_GAP) / FLOW_ROW));
+    if (e.style.gridRowEnd !== `span ${n}`) e.style.gridRowEnd = `span ${n}`; });
+  if (!flowRO && typeof ResizeObserver !== 'undefined') { flowRO = new ResizeObserver(() => requestAnimationFrame(trendsFlow)); }
+  if (flowRO) kids.forEach(e => { if (!e._flowOn) { e._flowOn = 1; flowRO.observe(e); } });
+}
+WIDE_Q.addEventListener?.('change', () => safe(trendsFlow));
 function showTab(t) {
   const changed = tab !== t; tab = t;
   $('viewToday').hidden = t !== 'today'; $('viewTrends').hidden = t !== 'trends'; $('viewYou').hidden = t !== 'you';
   if (changed) { replay({ today: $('viewToday'), trends: $('viewTrends'), you: $('viewYou') }[t], 'view-in'); if (t === 'trends') chartAnim = true; haptic(); }
   document.querySelectorAll('.tabbar button').forEach(b => b.dataset.tab === t ? b.setAttribute('aria-current', 'page') : b.removeAttribute('aria-current'));
-  if (t === 'trends') renderTrends();
+  if (t === 'trends') { renderTrends(); safe(trendsFlow); }
   $('scroller').scrollTo(0, 0);
 }
 document.querySelector('.tabbar').onclick = e => { const b = e.target.closest('[data-tab]'); if (b) showTab(b.dataset.tab); };
@@ -5149,6 +5165,7 @@ $('adjNo').onclick = () => adjClose(false);
    set the app up don't get it). Always available in You → Help. Last seen version: localStorage cutlog.seenV (per device).
    Every release adds an entry at the top, in plain words for everyone who uses Cut Log. */
 const CHANGELOG = [
+  { v: 111, d: '2026-11-09', items: ['On a laptop, the Trends cards now sit at their natural height and fill the space under each other, so the Weight trend card no longer has a big empty area.'] },
   { v: 110, d: '2026-11-08', items: ['A new How to use Cut Log guide: short, step-by-step and easier to read, with a tip for each topic and the finer details tucked under “Good to know”. Find it in You → Help.'] },
   { v: 109, d: '2026-11-08', items: ['Paying a day back now shows everywhere it matters: Free day settings, This week, the status under your rings, Plan my day, History and your weekly check-in all use the same numbers and say so.'] },
   { v: 108, d: '2026-11-08', items: ['A free day you’re paying back now says so in This week, the Free day panel and your weekly check-in, instead of “not paid back”.'] },

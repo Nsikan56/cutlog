@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '108';
+const APP_V = '109';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -461,6 +461,7 @@ function renderTotals() {
   else if (cal < T.calLo) st.textContent = mode() === 'gain' ? `${(T.calLo - cal).toLocaleString()} kcal to go to reach your range. Room for another meal.` : `${(T.calLo - cal).toLocaleString()} kcal under your range. Room for a high-protein snack.`;
   else if (noLim) { st.className = 'status ok'; st.textContent = `Free day, no limit${day === todayIso() ? '' : ' that day'}. Protein still counts.`; }   // v99
   else if (cal <= T.calHi) { st.className = 'status ok'; st.textContent = T.fday ? 'In your free day range.' : 'In your range for today.'; }
+  else if (T.pbDay) { st.className = 'status hi'; st.textContent = `${(cal - T.calHi).toLocaleString()} kcal over ${day === todayIso() ? 'today’s' : 'that day’s'} lower range. It’s added to what you’re paying back.`; }   // v109
   else { st.className = 'status hi'; st.textContent = `${(cal - T.calHi).toLocaleString()} kcal over your range. One day like this is fine; the weekly trend decides.`; }
   safe(renderFits); safe(renderFreeLine); safe(renderPbLine); safe(renderWeek); safe(renderCiBanner); safe(renderRcBanner); safe(renderNudge); safe(renderNut); safe(renderGuideBanner); safe(renderEstBanner); safe(renderPlanBtn);
 }
@@ -3281,7 +3282,7 @@ const GUIDE = [
   ['Your settings', `
     <p>In <b>You</b>: your name, goal (Cutting, Maintaining or Building) with suggested targets, weigh-in frequency, lb or kg, <b>meal times</b> (when you usually have breakfast, lunch and dinner, and your latest meal; Plan my day plans around them. Turn on <b>different times on off days</b> for a second set, like a later breakfast, and pick your usual off days; if you're off on another day, switch that day to <b>Off day</b> at the top of Plan my day), eight app colours (Cobalt, Ember, Teal, Violet, Rose, Gold, Graphite, Sky), Light or Dark, your saved foods, and a backup file you can keep in iCloud Drive.</p>
     <p><b>Notifications</b> (You → Notifications): a lunch or dinner check that only comes when that meal isn't logged yet, a last call 30 minutes before your latest meal with what's left for today, and a weigh-in reminder at your own time (every morning, or your chosen day if you weigh in weekly). Breakfast and Monday check-in alerts are there too, off to start. They need Cut Log on your Home Screen and Cloud sync sign-in, and they're set separately on each phone. Tap an alert to open the right screen.</p>
-    <p><b>Free day</b> (You → Free day, for Cutting and Maintaining): pick a day each week, every other week, or <b>just once</b>, to eat more. Choose how much extra (+300 to +1,000 kcal, or <b>no limit</b>) and how it's paid for: <b>budgeted</b> (the other days that week are a little lower, so the week still lands on target; with no limit, what you eat over your usual top comes out of the week's budget) or <b>free</b> (not paid back, so that week's loss is a bit slower). Protein stays the same. Today shows <b>✦ Free day</b> on the day and earlier in the week; tap it to see the numbers or <b>skip</b> that one. It counts as on plan in your check-in and History (marked ✦), Plan my day plans the bigger day, and a higher weigh-in the next morning is water and salt, not fat.</p>
+    <p><b>Free day</b> (You → Free day, for Cutting and Maintaining): pick a day each week, every other week, or <b>just once</b>, to eat more. Choose how much extra (+300 to +1,000 kcal, or <b>no limit</b>) and how it's paid for: <b>budgeted</b> (the other days that week are a little lower, so the week still lands on target; with no limit, what you eat over your usual top comes out of the week's budget) or <b>free</b> (not paid back, so that week's loss is a bit slower). Protein stays the same. Today shows <b>✦ Free day</b> on the day and earlier in the week; tap it to see the numbers or <b>skip</b> that one. It counts as on plan in your check-in and History (marked ✦), Plan my day plans the bigger day, and a higher weigh-in the next morning is water and salt, not fat. To pay a free day back afterwards anyway, use <b>Pay it back</b> on Today.</p>
     <p><b>Pay it back</b>: when a day goes 100+ kcal over your range (a buffet, a party, a no-limit free day), Today shows <b>Pay it back</b>. Tap it, pick over how many days (7 to start), and the next days' range drops a little until it's paid; then your usual range is back by itself. A day you go over the lower range adds to what's left, days under don't count extra, and a day never drops below 1,800 kcal. Tap <b>Paying back</b> on Today to see how much is left, or stop it.</p>
     <p>Your age, height and sex are only used to suggest targets. They're never saved.</p>`],
   ['What to expect', `
@@ -3462,7 +3463,8 @@ function wkOpen(v) { try { if (v === undefined) return localStorage.getItem('cut
 function renderWeek() {
   const el = $('wk'), w = weekStatus(day); el.hidden = !w; if (!w) return;
   const T = dayT(todayIso()), good = w.bank >= 0, live = w.current && w.left > 0 && isFinite(T.calHi);   // v99: today's own top
-  const fw = freeOfWeek(w.ws), one = w.left === 1 || !!(w.current && fw && fw.d >= todayIso());   // v99: the days left have different tops, so say "today"
+  const fw = freeOfWeek(w.ws), wdays = Array.from({ length: 7 }, (_, i) => shift(w.ws, i)), pbw = wdays.map(x => dayT(x).pbDay).filter(Boolean);
+  const one = w.left === 1 || !!(w.current && fw && fw.d >= todayIso()) || !!(w.current && wdays.some(x => x >= todayIso() && dayT(x).pbDay));   // v109: pay-back days have their own tops too   // v99: the days left have different tops, so say "today"
   const span = one ? 'today' : `a day for the ${w.left} days left (including today)`;
   const short = one ? 'today' : `a day for ${w.left} days`;
   let v, s = `From ${w.done} day${w.done > 1 ? 's' : ''} logged, avg ${kc(w.avg)} kcal.`, line = '';
@@ -3478,6 +3480,8 @@ function renderWeek() {
   if (!line) line = `avg <b>${kc(w.avg)}</b> kcal over ${w.done} day${w.done > 1 ? 's' : ''}`;
   // v99: say how the week's free day works
   if (fw) s += ` ${DAY_NAME(fw.d)} ${fw.d < todayIso() ? 'was' : 'is'} your free day (${fw.extra > 0 ? `+${kc(fw.extra)} kcal` : 'no limit'})${pbAbout(fw.d) ? `, ${pbAbout(fw.d).short}` : fw.cut ? `, and the other days are ${kc(fw.cut)} kcal less to pay for it` : fw.pay === 'budget' ? ', paid for by this week’s budget' : ', not paid back'}.`;
+  if (pbw.length) { const p = pbw[0].p; if (!(fw && fw.d === p.d && pbAbout(fw.d) && weekStart(p.d) === w.ws))   // v109: this week's pay-back days
+    s += ` ${pbw.length} day${pbw.length > 1 ? 's' : ''} this week ${w.current && wdays.some(x => x >= todayIso() && dayT(x).pbDay) ? 'are' : 'were'} paying back ${p.d === shift(todayIso(), -1) ? 'yesterday' : weekStart(p.d) === w.ws ? DAY_NAME(p.d) : pbDate(p.d)}: about ${kc(pbw[0].eff)} kcal less a day.`; }
   const miss = weekMissing(w), names = miss.map(x => parseIso(x).toLocaleDateString(undefined, { weekday: 'short' }));
   const warn = miss.length ? `<span class="wk-dot" aria-hidden="true">·</span><span class="wk-warn">${miss.length} day${miss.length > 1 ? 's' : ''} not logged</span>` : '';
   // Mon-Sun strip: logged days with their calories, missing days flagged, today ringed, days ahead faint
@@ -3579,7 +3583,7 @@ function renderHistory(dir) {
     + (!cur && s.n >= RC_MIN ? `<button class="linkbtn" id="hsShare" type="button">Share ${esc(monthName(m))} as a recap</button>` : '')
     + `<div class="hs-cal" id="hsCal" role="group" aria-label="${esc(monthName(m))}">${historyCal(m)}</div>`
     + `<div class="hs-leg"><span><i class="ok"></i>In range</span><span><i class="over"></i>Over</span><span><i class="under"></i>Under</span><span><i class="miss"></i>Not logged</span><span><i class="dot"></i>Protein hit</span>${monthDays(m).some(x => freeOf(x)) ? '<span id="hsFreeLeg"><i class="fr">✦</i>Free day</span>' : ''}</div>`
-    + `<p class="hint">Tap a day to open it. <b>Week</b> is what that week banked (green) or went over (orange) against ${kc(mode() === 'gain' ? T.calLo : T.calHi)} a day, counting only days you logged, like This week.${monthDays(m).some(x => freeOf(x)) ? ' A free day, and the days paying for it, count against their own range.' : ''} Swipe the calendar for other months.</p>`
+    + `<p class="hint">Tap a day to open it. <b>Week</b> is what that week banked (green) or went over (orange) against ${kc(mode() === 'gain' ? T.calLo : T.calHi)} a day, counting only days you logged, like This week.${monthDays(m).some(x => freeOf(x)) ? ' A free day, and the days paying for it, count against their own range.' : ''}${monthDays(m).some(x => dayT(x).pbDay) ? ' Days paying back a day that went over count against their lower range.' : ''} Swipe the calendar for other months.</p>`
     + `<h3 class="hs-h">By month</h3><div class="hs-months" id="hsMonths">${rows}</div>`;
   if (dir && !REDUCED) { const c = $('hsCal'); c.style.setProperty('--dx', dir > 0 ? '24px' : '-24px'); replay(c, 'hs-in'); }
   // swipe the calendar left or right for the next or previous month
@@ -4606,7 +4610,7 @@ function renderPlan() {
       : `<p class="hint" id="plNote">${proOk ? '' : `The most protein ${anyLock ? 'this plan can reach with your locked meals' : 'your foods reach in this range'} is about ${fmtG(tot.pro)}g. A shake or egg whites would close the gap. `}${inR ? '' : `This is as close to ${kc(T.calLo)}–${kc(T.calHi)} kcal as ${anyLock ? 'your locked meals leave room for' : 'your foods allow'}.`}</p>`;
   } else note = `<p class="hint" id="plNote">${rebuilt === true ? 'Re-planned for your new targets. ' : ''}Built from the meals and foods you've logged in the last 4 weeks, at your usual amounts.</p>`;
   const pw = later.length ? ' planned' : '';
-  const sum = `<div class="result" id="plSum"><div><span class="num">${kc(tot.kcal)}</span><small>kcal${pw}</small></div><div class="pro"><span class="num">${fmtG(tot.pro)}g</span><small>protein${pw}</small></div></div><p class="hint pl-target" id="plTarget">${T.fday ? `<b id="plFree">✦ Free day${T.fday.extra > 0 ? '' : ', no limit'}.</b> ` : ''}${T.fday && !(T.fday.extra > 0) ? 'Planned on your usual range; add what you like. Targets' : 'Your targets'}: ${kc(T.calLo)}–${kc(T.calHi)} kcal and ${T.protein}g protein${ctx.isToday && ctx.done.length ? ', counting what you’ve logged' : ''}${later.length ? `, with room kept for ${names(later)}` : ''}.</p>`;
+  const sum = `<div class="result" id="plSum"><div><span class="num">${kc(tot.kcal)}</span><small>kcal${pw}</small></div><div class="pro"><span class="num">${fmtG(tot.pro)}g</span><small>protein${pw}</small></div></div><p class="hint pl-target" id="plTarget">${T.pbDay ? `<b id="plPb">Paying back ${kc(T.pbDay.eff)} kcal.</b> ` : ''}${T.fday ? `<b id="plFree">✦ Free day${T.fday.extra > 0 ? '' : ', no limit'}.</b> ` : ''}${T.fday && !(T.fday.extra > 0) ? 'Planned on your usual range; add what you like. Targets' : 'Your targets'}: ${kc(T.calLo)}–${kc(T.calHi)} kcal and ${T.protein}g protein${ctx.isToday && ctx.done.length ? ', counting what you’ve logged' : ''}${later.length ? `, with room kept for ${names(later)}` : ''}.</p>`;
   const groups = SLOTS.map(([s, label]) => {
     if (ctx.done.includes(s)) { const g = ctx.es.filter(e => slotOf(e) === s), k = g.reduce((a, e) => a + e.kcal, 0), pr = g.reduce((a, e) => a + e.pro, 0);
       const lr = g.map(e => `<div class="meal-row"><div class="item"><span class="nm">${esc(e.name)}<small>${esc(e.detail || '')}</small></span><span class="meta">${kc(e.kcal)} kcal · ${fmtG(e.pro)}g</span></div><button class="x" data-pu="${esc(e.id)}" aria-label="Take ${esc(e.name)} back out">${icon('i-x')}</button></div>`).join('');   // v95
@@ -4659,7 +4663,7 @@ function lastWeek() {
   return { ws, we, n: days.length, avgK: days.length ? days.reduce((s, x) => s + x.kcal, 0) / days.length : null,
     avgP: days.length ? days.reduce((s, x) => s + x.pro, 0) / days.length : null,
     inRange: days.filter(x => kcalIn(x.kcal, x.T)).length, proHit: days.filter(x => proHit(x.pro)).length,
-    onTarget: days.filter(x => kcalOnTarget(x.kcal, x.T)).length, low: mode() === 'lose' ? days.filter(x => kcalLow(x.kcal, x.T)).length : 0,   // v76
+    onTarget: days.filter(x => kcalOnTarget(x.kcal, x.T)).length, low: mode() === 'lose' ? days.filter(x => kcalLow(x.kcal, x.T)).length : 0, lowAt: [...new Set(days.filter(x => kcalLow(x.kcal, x.T)).map(x => x.T.calLo - LOW_GAP))],   // v109: pay-back days have a lower floor   // v76
     free: fi && { ...fi, kcal: fd ? fd.kcal : null, ok: fd ? !kcalOver(fd.kcal, fd.T) : null },   // v99
     wChange: wNow != null && wPrev != null ? wNow - wPrev : null };
 }
@@ -4696,7 +4700,7 @@ function renderCheckin() {
       <div><span class="v">${w.proHit}/${w.n}</span><span class="k">protein days</span></div>
       <div><span class="v">${w.n}/7</span><span class="k">days logged</span></div>
     </div>
-    <p class="ci-verdict">${esc(verdict)}</p>${w.n >= RC_MIN ? '<button class="linkbtn" id="ciShare" type="button">Share your week as a recap</button>' : ''}${w.free && w.free.kcal != null ? `<p class="hint" id="ciFree">${esc(DAY_NAME(w.free.d))} was your free day: ${kc(w.free.kcal)} kcal${w.free.ok ? ', counted as on plan' : `, over its ${kc(S.targets.calHi + w.free.extra)} limit`}.${pbAbout(w.free.d) ? ` ${esc(pbAbout(w.free.d).ci)}` : w.free.cut ? ` The other days were ${kc(w.free.cut)} kcal less to pay for it.` : ''}</p>` : ''}${w.low ? `<p class="hint" id="ciLow">${w.low === 1 ? '1 day was' : `${w.low} days were`} under ${kc(T.calLo - LOW_GAP)} kcal. Now and then is fine; eating that little often can cost muscle and energy.</p>` : ''}${adj}`;
+    <p class="ci-verdict">${esc(verdict)}</p>${w.n >= RC_MIN ? '<button class="linkbtn" id="ciShare" type="button">Share your week as a recap</button>' : ''}${w.free && w.free.kcal != null ? `<p class="hint" id="ciFree">${esc(DAY_NAME(w.free.d))} was your free day: ${kc(w.free.kcal)} kcal${w.free.ok ? ', counted as on plan' : `, over its ${kc(S.targets.calHi + w.free.extra)} limit`}.${pbAbout(w.free.d) ? ` ${esc(pbAbout(w.free.d).ci)}` : w.free.cut ? ` The other days were ${kc(w.free.cut)} kcal less to pay for it.` : ''}</p>` : ''}${w.low ? `<p class="hint" id="ciLow">${w.low === 1 ? '1 day was' : `${w.low} days were`} ${w.lowAt && w.lowAt.length > 1 ? `more than ${LOW_GAP} kcal under their range` : `under ${kc(w.lowAt && w.lowAt.length ? w.lowAt[0] : T.calLo - LOW_GAP)} kcal`}. Now and then is fine; eating that little often can cost muscle and energy.</p>` : ''}${adj}`;
   if ($('ciShare')) $('ciShare').onclick = () => { haptic(); openRecap('week'); };   // v98
   if ($('ciUse')) $('ciUse').onclick = () => {
     const old = { ...S.targets };
@@ -5093,6 +5097,7 @@ $('adjNo').onclick = () => adjClose(false);
    set the app up don't get it). Always available in You → Help. Last seen version: localStorage cutlog.seenV (per device).
    Every release adds an entry at the top, in plain words for everyone who uses Cut Log. */
 const CHANGELOG = [
+  { v: 109, d: '2026-11-08', items: ['Paying a day back now shows everywhere it matters: Free day settings, This week, the status under your rings, Plan my day, History and your weekly check-in all use the same numbers and say so.'] },
   { v: 108, d: '2026-11-08', items: ['A free day you’re paying back now says so in This week, the Free day panel and your weekly check-in, instead of “not paid back”.'] },
   { v: 107, d: '2026-11-08', items: ['Pay it back: when a day goes over your range (a buffet, a party), tap “Pay it back” on Today and pick over how many days. The next days’ range drops a little (never below 1,800 kcal) until it’s paid, then your usual range comes back by itself.', 'Free day can now be just once, not only every week or every other week.'] },
   { v: 106, d: '2026-11-07', items: ['When there’s a little line for this part of your day, Cut Log now greets you first (“Good evening, Kan”), and the line fades in a couple of seconds later.'] },
@@ -5331,7 +5336,8 @@ function renderFreeCard() {
   const once = f.every === 0 ? shift(weekStart(f.from), (f.dow + 6) % 7) : null;   // v107: just once
   $('fdayvWhen').textContent = once ? `Just once: ${pbDate(once)}` : `${f.every === 2 ? 'Every other ' : 'Every '}${DAYS_LONG[f.dow]}`;
   $('fdayvExtra').textContent = f.extra > 0 ? `+${kc(f.extra)} kcal (up to ${kc(T.calHi + f.extra)})` : 'No limit';
-  $('fdayvPay').textContent = f.pay === 'budget' ? (f.extra > 0 ? `Other days, ${kc(freeCut(f.extra, 6))} less` : 'The week’s budget') : 'Not paid back';
+  const npa = (nx || once) && pbAbout(nx ? nx.d : once);   // v109: that free day is being paid back (a just-once day that's passed too)
+  $('fdayvPay').textContent = npa ? `Pay it back, ${npa.n} days` : f.pay === 'budget' ? (f.extra > 0 ? `Other days, ${kc(freeCut(f.extra, 6))} less` : 'The week’s budget') : 'Not paid back';
   $('fdayvNext').textContent = nx ? (nx.skipped ? `${freeWhen(nx.d)} (skipped)` : freeWhen(nx.d)).replace(/^./, c => c.toUpperCase()) : '–';
 }
 function renderFdForm() {
@@ -5340,9 +5346,10 @@ function renderFdForm() {
   [...$('fdayEvery').children].forEach(b => b.setAttribute('aria-pressed', +b.dataset.v === f.every));
   [...$('fdayExtra').children].forEach(b => b.setAttribute('aria-pressed', +b.dataset.v === f.extra));
   [...$('fdayPay').children].forEach(b => b.setAttribute('aria-pressed', b.dataset.v === f.pay));
-  $('fdayPayHint').textContent = freePayTxt(f, T);
   const st = freeStart(f, todayIso()), first = (() => { for (let ws = weekStart(st), i = 0; i < 3; i++, ws = shift(ws, 7)) { const d = shift(ws, (f.dow + 6) % 7);
     if (d >= st && !(f.every === 2 && i % 2)) return d; } return null; })();
+  const fpa = first && pbAbout(first);   // v109: a free day you're paying back says so here too
+  $('fdayPayHint').textContent = fpa ? `${f.pay === 'budget' ? freePayTxt(f, T) : 'The rest of that week stays the same.'} This one is ${fpa.short}, with Pay it back.` : freePayTxt(f, T);
   $('fdayPrev').innerHTML = `${esc(DAYS_LONG[f.dow])}: <b>${f.extra > 0 ? `up to ${kc(T.calHi + f.extra)} kcal` : 'no calorie limit'}</b>, ${T.protein}g protein.${first ? (f.every === 0 ? ` Just ${esc(freeWhen(first))}.` : ` First one: ${esc(freeWhen(first))}.`) : ''}`;
   $('fdayOff').hidden = !(freeCfg() && freeCfg().on);
 }
@@ -5449,7 +5456,7 @@ function openPayback(d) {
   const opts = pbOptions(o.over), from = d < t ? t : shift(d, 1);
   PB = { n: opts.includes(7) ? 7 : opts[0] };
   openSheet('Pay it back', `
-    <p class="fd-p" id="pbWhat"><b>${esc(pbWhen(d))}: ${kc(o.over)} kcal over your ${kc(o.top)} top.</b><br>Spread it over the next few days so your weeks still land on target. Protein stays at ${T.protein}g.</p>
+    <p class="fd-p" id="pbWhat"><b>${esc(pbWhen(d))}: ${kc(o.over)} kcal over ${(fd => fd ? (fd.extra > 0 ? `your free day top of ${kc(o.top)}` : `your usual ${kc(o.top)} top`) : `your ${kc(o.top)} top`)(freeT(d).fday)}.</b><br>Spread it over the next few days so your weeks still land on target. Protein stays at ${T.protein}g.</p>
     ${opts.length ? `<div class="ob-label">Over how many days</div><div class="seg2" id="pbDays" role="group" aria-label="Over how many days">${opts.map(n => `<button type="button" data-n="${n}">${n} days</button>`).join('')}</div>
     <p class="fd-prev" id="pbPrev"></p><p class="hint">${esc(rule)}</p><button class="btn" id="pbSave" type="button">Pay it back</button>`
     : `<p class="hint" id="pbPrev">Your range already starts near the lowest it should go (${kc(pbFloor())} kcal), so there’s no room to pay it back. Your weekly budget still counts it.</p>`}`);

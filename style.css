@@ -900,6 +900,15 @@ details.shut>:not(summary){opacity:0;transform:translateY(-4px);transition:opaci
 .tm-offbox{display:flex;flex-direction:column;gap:12px}
 .pl-day{display:flex;flex-direction:column;gap:6px}
 .pl-late .pl-tag{color:var(--warn);background:var(--warn-soft)}
+/* v112: every planned food can be taken out or changed; the lock is a switch in the meal's header; Add food / Decide later as buttons */
+.pl-hl{display:flex;align-items:center;gap:8px;min-width:0}
+.pl-lk{display:inline-flex;align-items:center;gap:4px;font-family:var(--body);font-size:12px;font-weight:700;letter-spacing:0;text-transform:none;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:3px 10px 3px 8px;min-height:28px;white-space:nowrap;-webkit-tap-highlight-color:transparent}
+.pl-lk svg{width:14px;height:14px;flex:none}
+.pl-lk[aria-pressed="true"]{color:var(--accent);background:var(--accent-soft);border-color:transparent}
+.pl-btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
+.pl-btn{display:inline-flex;align-items:center;gap:5px;font-family:var(--body);letter-spacing:0;text-transform:none;font-size:13px;font-weight:600;color:var(--ink);border:1px solid var(--line);border-radius:999px;padding:7px 13px 7px 10px;min-height:34px;white-space:nowrap;-webkit-tap-highlight-color:transparent}
+.pl-btn svg{width:15px;height:15px;flex:none;color:var(--accent)}
+.pl-btn:active,.pl-lk:active{transform:scale(.97)}
 /* v75: Subway sauce and cheese chips: compact, wrapping, so twelve sauces don't make How much? too long on a phone */
 .adds .chips.wrap{gap:6px}
 .adds .chip{padding:7px 11px;font-size:13px}

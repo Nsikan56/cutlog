@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '111';
+const APP_V = '112';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -1144,7 +1144,7 @@ function openAmount(f, preset, opts = {}) {
   let slot = editEntry ? slotOf(editEntry) : defaultSlot(f.id);
   const cta = picking ? picking.label : editing ? 'Save changes' : `Add to ${dayName === 'Today' ? 'today' : dayName}`;
   const base = baseOf(f), twin = twinOf(f);
-  const canOil = !picking && !!(base.cook || pkgPair(f)?.raw.cook);          // whole foods you cook yourself; dishes already include their oil, meals add it as an ingredient
+  const canOil = (!picking || !!picking.oil) && !!(base.cook || pkgPair(f)?.raw.cook);   // v112: a plan's food keeps its oil          // whole foods you cook yourself; dishes already include their oil, meals add it as an ingredient
   let oil = canOil ? oilKey(preset?.oil) : null;
   const canAdd = !picking && isSubItem(f);                                   // v75: sauce and cheese on Subway subs and salads
   let adds = canAdd ? cleanAdds(f, preset?.adds) : [];
@@ -1180,6 +1180,7 @@ function openAmount(f, preset, opts = {}) {
     <p class="hint" id="aNote" hidden>Spoon sizes are approximate: about 15 g per tablespoon and 5 g per teaspoon. A heaping spoon is closer to 25 g.</p>
     ${moreNote(f)}
     <button class="btn" id="aAdd">${esc(cta)}</button>
+    ${picking?.alt ? `<button class="btn ghost" id="aAlt">${esc(picking.alt.label)}</button>` : ''}
     ${f.source === 'idea' && !picking && !editing ? '<button class="btn ghost" id="aIdeaMeal">Save as one of my meals</button>' : ''}
     ${NOT_SAVED.includes(f.source) && !f.cookOf ? '' : '<button class="btn ghost" id="aFix">Numbers look wrong? Fix them</button>'}
     ${editing ? '<button class="btn ghost" id="aMove">Move to another day</button><button class="btn danger" id="aDel">Remove from log</button>' : ''}`);
@@ -1288,6 +1289,14 @@ function openAmount(f, preset, opts = {}) {
     openSheet('Fix the numbers', `<p class="hint">Enter what the label says for one serving. The app will use your numbers for this food from now on.</p><div id="labelOut"></div>`);
     labelForm($('labelOut'), { kcal: Math.round(per.kcal), pro: r1(per.pro || 0), fib: fibPerServ(f, g), ...macPerServ(f, g), servingG: g || (f.kcalServ == null ? 100 : null) }, '', f.barcode || null, f.name, f.id, { ...was, src: f });
   };
+  if ($('aAlt')) $('aAlt').onclick = () => {     // v112: Plan my day's "Log just this now"
+    const q = parseFloat($('aQty').value);
+    if (!(q > 0)) { toast('Enter how much you had.'); return; }
+    const v = calc(f, q, unit), detail = `${fmtQty(q)} ${unitWord(f, unit, q)}${oil ? ` · ${OIL[oil].d}` : ''}`;
+    if (oil) v.kcal += OIL[oil].k;
+    rememberFood(f); pushRecent(f, q, unit); touchMeta(); renderSettings();
+    pick = null; picking.alt.fn(f, q, unit, v, oil, detail);
+  };
   $('aAdd').onclick = () => {
     const q = parseFloat($('aQty').value);
     if (!(q > 0)) { toast('Enter how much you had.'); return; }
@@ -1297,7 +1306,7 @@ function openAmount(f, preset, opts = {}) {
     if (!(editing && S.foods.some(x => x.id === f.id && x !== f))) rememberFood(f);   // an entry's old copy never overwrites the saved food
     if (f.cookOf && !S.foods.some(x => x.id === f.cookOf) && PKG_SEEN.has(f.cookOf)) rememberFood(PKG_SEEN.get(f.cookOf));   // v63: a new pack logged as Cooked is saved too
     pushRecent(f, q, unit); touchMeta(); renderSettings();
-    if (picking) { pick = null; picking.onDone(f, q, unit, v); return; }
+    if (picking) { pick = null; picking.onDone(f, q, unit, v, oil); return; }
     if (editing) {
       const moved = editEntry && slotOf(editEntry) !== slot;
       if (editEntry) { Object.assign(editEntry, { kcal: r1(v.kcal), pro: r1(v.pro), detail, food: f, qty: q, unit, slot }); setFib(editEntry, v.fib); if (oil) editEntry.oil = oil; else delete editEntry.oil; if (adds.length) editEntry.adds = adds; else delete editEntry.adds; }
@@ -3303,11 +3312,13 @@ const GUIDE = [
       '<b>Your recap</b> is a card of your week, month or year to share in Messages, WhatsApp or Instagram. Choose whether it shows your actual weights or only the change. It shows up on Today at the start of each month.')}`, 'i-today', 'Rings, What fits, This week'],
   ['Plan my day', `<p class="g-lead">Builds a day of meals from what you actually eat, aiming for your calories and protein. It\'s under the logging buttons once you\'ve logged a few days.</p>
     ${gStep('Pick <b>Today</b> or <b>Tomorrow</b>.',
-      'Tap <b>Log</b> on a meal when you eat it, or tap a food to change its amount first.',
-      'Don\'t like a meal? Tap <b>Shuffle</b>.',
-      'Already know a meal? Tap <b>Choose breakfast</b> (or lunch, or dinner) and pick it. It\'s <b>locked</b> in, and the rest is planned around it.')}
-    ${gTip('Not sure what dinner will be? Tap <b>Plan later</b>. Room is kept for it, and you log it when you know.')}
-    ${gMore('It follows your <b>Meal times</b> (You → Meal times). In the hour before your latest meal it keeps what\'s left light, so it doesn\'t hurt your sleep.',
+      'Tap <b>Log</b> on a meal when you eat it.',
+      'Tap a food to change it, or its <b>×</b> to take it out. Don\'t like the plan? Tap <b>Shuffle</b>.',
+      'Already know a meal? Tap <b>Add food</b> under it. A meal you change is <b>locked</b>, and the rest is planned around it.')}
+    ${gTip('Not sure what dinner will be? Tap <b>Decide later</b>. Room is kept for it, and you log it when you know.')}
+    ${gMore('Tap <b>Lock</b> beside a meal\'s name to keep it as it is when you Shuffle. <b>Locked</b> means it stays; tap it to let it change again.',
+      'On Today, a food you tap also has <b>Log just this now</b>, to log only that food.',
+      'It follows your <b>Meal times</b> (You → Meal times). In the hour before your latest meal it keeps what\'s left light, so it doesn\'t hurt your sleep.',
       'A planned meal that\'s past its time shows as <b>Late</b> until you log it or skip it.',
       'Logged something by mistake? Logged meals list their foods: tap a food\'s × to take it back out.',
       'Ate something else? It offers to re-plan the rest of the day.',
@@ -4601,23 +4612,57 @@ function openPlan(tab) {
     if (lk) { haptic(); const s = lk.dataset.pk, d = planDay(); let on;
       planEdit(d, p => { const its = p.items.filter(x => x.slot === s); on = !its.every(x => x.lock); its.forEach(x => { x.lock = on; }); });
       renderPlan(); toast(on ? `${slotLabel(s)} locked. Shuffle won’t change it.` : `${slotLabel(s)} unlocked`); return; }
-    if (rm) { haptic(); const d = planDay(), i = +rm.dataset.px; let gone;
-      planEdit(d, p => { gone = p.items.splice(i, 1)[0]; });
-      makePlan(planCtx(d)); renderPlan(); if (gone) toast(`Took ${gone.food.name} out. The rest is re-planned.`); return; }
-    if (it && PL.tab === 'today') { const p = planStore().plans?.[todayIso()], x = p?.items[+it.dataset.pi]; if (x) openAmount(x.food, { qty: x.qty, unit: x.unit, oil: x.oil }, { slot: x.slot }); }
+    if (rm) { haptic(); planRemove(planDay(), +rm.dataset.px); return; }
+    if (it) { const d = planDay(), i = +it.dataset.pi, x = planStore().plans?.[d]?.items[i]; if (x) { haptic(); planItemEdit(d, i, x); } }   // v112: change it in the plan (Tomorrow too)
   };
 }
 const planDay = () => PL.tab === 'today' ? todayIso() : shift(todayIso(), 1);
 /* v74: choose what goes in a meal: your saved meals, your usual foods, home ideas, or any food through search.
    The choice is locked in, and the meals that aren't locked are re-planned around it. */
+/* v112 (Kan, 9 Nov: "I'd like to be able to remove or edit items suggested to me ... in plan my day"): every planned food has an ×,
+   and tapping a food changes it in the plan (Today and Tomorrow). Taking one out or changing one locks what's left of that meal, so
+   Shuffle leaves it alone, and the other meals are re-planned around it. Taking out a meal's last food leaves it to decide later
+   (room is kept). Each has Undo, which puts the whole plan back exactly as it was. */
+function planUndo(d, prev, prevLater) {
+  planEdit(d, p => { p.items = prev; if (prevLater) p.later = prevLater; else delete p.later; });
+  renderPlanBtn(); if (SH.open && $('sheetTitle').textContent === 'Plan my day') renderPlan();
+}
+function planRemove(d, i) {
+  const ctx = planCtx(d); let gone = null, prev, prevLater, emptied = false;
+  planEdit(d, p => { gone = p.items[i]; if (!gone) return; prev = p.items.map(x => ({ ...x })); prevLater = p.later ? [...p.later] : null;
+    p.items.splice(i, 1); const rest = p.items.filter(x => x.slot === gone.slot);
+    rest.forEach(x => { x.lock = true; });
+    if (!rest.length && !ctx.late.includes(gone.slot)) { emptied = true; p.later = [...new Set([...(p.later || []), gone.slot])]; } });   // the last food: decide later
+  if (!gone) return;
+  makePlan(planCtx(d)); renderPlan(); renderPlanBtn();
+  const lab = slotLabel(gone.slot);
+  toast(emptied ? `${lab}: decide later` : `Taken out of ${lab.toLowerCase()}`, { label: 'Undo', fn: () => planUndo(d, prev, prevLater) });
+}
+function planItemEdit(d, i, x) {
+  const lab = slotLabel(x.slot), back = () => { if (!SH.open || $('sheetTitle').textContent !== 'Plan my day') openPlan(PL.tab); else renderPlan(); };
+  const logNow = d === todayIso() && day === todayIso();
+  pick = { label: `Update ${lab.toLowerCase()}`, oil: true, onDone: (f, q, u, v, oil) => {
+      const same = f.id === x.food.id && q === x.qty && u === x.unit && (oil || null) === (x.oil || null);
+      if (same) { back(); return; }   // nothing changed: nothing locked
+      let prev, prevLater;
+      planEdit(d, p => { prev = p.items.map(y => ({ ...y })); prevLater = p.later ? [...p.later] : null; const y = p.items[i]; if (!y) return;
+        p.items[i] = { ...y, food: f, qty: q, unit: u, oil: oil || null, idea: f.source === 'idea' }; p.items.forEach(z => { if (z.slot === x.slot) z.lock = true; }); });
+      makePlan(planCtx(d)); back(); renderPlanBtn();
+      toast(`${lab} updated, locked`, { label: 'Undo', fn: () => planUndo(d, prev, prevLater) });
+    },
+    alt: logNow ? { label: 'Log just this now', fn: (f, q, u, v, oil, detail) => {     // logs only this food, as tapping a planned food used to
+      const e = addEntry(f.name, v.kcal, v.pro, detail, { food: f, qty: q, unit: u, fib: v.fib, oil }, x.slot), nd = day;
+      back(); toast(`Added ${kc(v.kcal)} kcal · ${fmtG(v.pro)}g protein`, { label: 'Undo', fn: () => unlogEntry(e.id, nd) });
+    } } : null };
+  openAmount(x.food, { qty: x.qty, unit: x.unit, oil: x.oil }, { slot: x.slot });
+}
 function openPlanPick(s) {
   const d = planDay(), label = slotLabel(s).toLowerCase(), c = planCandidates();
   const meals = S.meals.map(mealFood), own = c.list.filter(x => !x.idea && x.food.source !== 'meal').sort((a, b) => (b.slots.includes(s) - a.slots.includes(s)) || b.freq - a.freq);
   const ideas = c.list.filter(x => x.idea).sort((a, b) => b.slots.includes(s) - a.slots.includes(s));
-  const locked = (planStore().plans?.[d]?.items || []).some(x => x.slot === s && x.lock);
   const PK = [];
   const row = (f, qty, unit, sub) => { PK.push({ f, qty, unit }); const v = calc(f, qty, unit); return `<button class="item" data-pk2="${PK.length - 1}"><span class="nm">${esc(f.name)}<small>${esc(sub)}</small></span><span class="meta">${kc(v.kcal)} kcal · ${fmtG(v.pro)}g</span></button>`; };
-  openSheet(`Choose ${label}`, `<p class="hint">${locked ? `It’s added to your ${label}.` : `It replaces what’s planned for ${label}.`} Your choice is locked in, and the rest of the day is re-planned around it.</p>
+  openSheet(`Add to ${label}`, `<p class="hint">It’s added to your ${label}, and ${label} is locked so Shuffle leaves it alone. The rest of the day is re-planned around it.</p>
     ${meals.length ? `<h3>Your meals</h3><div class="list">${meals.map(f => row(f, 1, 'serving', '1 serving')).join('')}</div>` : ''}
     ${own.length ? `<h3>Your usual foods</h3><div class="list">${own.map(x => row(x.food, x.qty, x.unit, `${fmtQty(x.qty)} ${unitWord(x.food, x.unit, x.qty)}`)).join('')}</div>` : ''}
     ${ideas.length ? `<h3>Home ideas</h3><div class="list">${ideas.map(x => row(x.food, 1, 'serving', ideaWhat(x.food))).join('')}</div>` : ''}
@@ -4625,15 +4670,19 @@ function openPlanPick(s) {
     <button class="btn ghost" id="plBack">Back to the plan</button>`);
   const put = (f, q, u) => {
     const st = planStore(); if (!st.plans?.[d]) makePlan(planCtx(d));
-    planEdit(d, p => { const keep = p.items.filter(x => x.slot === s && x.lock); p.items = [...p.items.filter(x => x.slot !== s), ...keep, { slot: s, food: f, qty: q, unit: u, oil: null, idea: f.source === 'idea', lock: true }];
+    let prev, prevLater;   // v112: always added (to swap a food, take it out with its ×); the meal is locked
+    planEdit(d, p => { prev = p.items.map(x => ({ ...x })); prevLater = p.later ? [...p.later] : null;
+      p.items.forEach(x => { if (x.slot === s) x.lock = true; }); p.items.push({ slot: s, food: f, qty: q, unit: u, oil: null, idea: f.source === 'idea', lock: true });
       if (p.later) { p.later = p.later.filter(x => x !== s); if (!p.later.length) delete p.later; } });
-    makePlan(planCtx(d)); openPlan(PL.tab); toast(`${f.name} is in ${label}, locked`);
+    makePlan(planCtx(d)); openPlan(PL.tab); renderPlanBtn();
+    toast(`Added to ${label}, locked`, { label: 'Undo', fn: () => planUndo(d, prev, prevLater) });
   };
-  pick = { label: `Put in ${label}`, title: `Choose ${label}`, onDone: (f, q, u) => put(f, q, u) };
+  const mk = () => ({ label: `Add to ${label}`, title: `Add to ${label}`, onDone: (f, q, u) => put(f, q, u) });
+  pick = mk();
   sheetBody.onclick = e => {
     const b = e.target.closest('[data-pk2]');
-    if (b) { const x = PK[+b.dataset.pk2]; pick = { label: `Put in ${label}`, title: `Choose ${label}`, onDone: (f, q, u) => put(f, q, u) }; openAmount(x.f, { qty: x.qty, unit: x.unit }); return; }
-    if (e.target.closest('#plSearch')) { pick = { label: `Put in ${label}`, title: `Choose ${label}`, onDone: (f, q, u) => put(f, q, u) }; openSearch(); return; }
+    if (b) { const x = PK[+b.dataset.pk2]; pick = mk(); openAmount(x.f, { qty: x.qty, unit: x.unit }); return; }
+    if (e.target.closest('#plSearch')) { pick = mk(); openSearch(); return; }
     if (e.target.closest('#plBack')) { pick = null; openPlan(PL.tab); }
   };
 }
@@ -4688,23 +4737,24 @@ function renderPlan() {
       const pOk = r.pro >= 5, pg = Math.round(r.pro);
       const txt = r.kcal >= 50 ? `Room for about <b>${kc(r.kcal)} kcal</b>${pOk ? ` and <b>${pg}g protein</b>` : ''}${r.hi - r.kcal >= 50 ? ` (up to ${kc(r.hi)} kcal keeps you in range)` : ''}.${pOk ? '' : ' The rest of the plan already covers your protein.'}${ctx.light ? ' Keep it light, it’s getting late.' : ''} Log whatever you have.` : `Your other meals already fill your range, so keep ${lab} light.`;
       return `<div class="pl-slot pl-later" data-slot="${s}"><div class="mg-h"><span>${label}<i class="pl-tag">Not planned yet</i></span><span class="mg-t">${r.kcal >= 50 ? `~${kc(r.kcal)} kcal${pOk ? ` · ${pg}g` : ''}` : ''}</span></div><p class="hint pl-room" id="plRoom-${s}">${txt}</p>`
-        + `<div class="pl-acts"><button class="linkbtn" data-pc="${s}">Choose ${lab}</button><button class="linkbtn" data-pa="${s}">Plan it for me</button></div></div>`; }
+        + `<div class="pl-btns"><button type="button" class="pl-btn" data-pc="${s}">${icon('i-plus')}Add food</button><button type="button" class="pl-btn" data-pa="${s}">${icon('i-plan')}Plan it for me</button></div></div>`; }
     const g = items.filter(x => x.slot === s);
-    if (!g.length) return `<div class="pl-slot pl-empty" data-slot="${s}"><div class="mg-h"><span>${label}</span><button class="linkbtn" data-pc="${s}">+ Add</button></div></div>`;
+    if (!g.length) return `<div class="pl-slot pl-empty" data-slot="${s}"><div class="mg-h"><span>${label}</span><button type="button" class="pl-btn" data-pc="${s}">${icon('i-plus')}Add food</button></div></div>`;
     const isLate = ctx.late.includes(s);   // v102
     const lock = !isLate && g.every(x => x.lock), v = g.reduce((a, x) => { const y = planVal(x); return { kcal: a.kcal + y.kcal, pro: a.pro + y.pro }; }, { kcal: 0, pro: 0 });
     const rows = g.map(x => { const y = planVal(x), amt = `${fmtQty(x.qty)} ${unitWord(x.food, x.unit, x.qty)}${x.oil ? ` · ${OIL[x.oil].d}` : ''}`;
-      const btn = `<button class="item" data-pi="${x.i}"${ctx.isToday ? '' : ' tabindex="-1"'}><span class="nm">${esc(x.food.name)}${x.idea ? '<i class="pl-tag">Idea</i>' : ''}<small>${esc(amt)}</small></span><span class="meta">${kc(y.kcal)} kcal · ${fmtG(y.pro)}g</span></button>`;
-      return lock ? `<div class="meal-row">${btn}<button class="x" data-px="${x.i}" aria-label="Take ${esc(x.food.name)} out">${icon('i-x')}</button></div>` : btn; }).join('');
+      const btn = `<button class="item" data-pi="${x.i}" aria-label="${esc(x.food.name)}, ${esc(amt)}. Tap to change it"><span class="nm">${esc(x.food.name)}${x.idea ? '<i class="pl-tag">Idea</i>' : ''}<small>${esc(amt)}</small></span><span class="meta">${kc(y.kcal)} kcal · ${fmtG(y.pro)}g</span></button>`;
+      return `<div class="meal-row">${btn}<button class="x" data-px="${x.i}" aria-label="Take ${esc(x.food.name)} out">${icon('i-x')}</button></div>`; }).join('');   // v112: every food, suggested or chosen
     if (isLate) return `<div class="pl-slot pl-late" data-slot="${s}"><div class="mg-h"><span>${label}<i class="pl-tag">Late</i></span><span class="mg-t">${kc(v.kcal)} kcal · ${fmtG(v.pro)}g</span></div><p class="hint pl-room" id="plLate-${s}">Past your usual ${label.toLowerCase()} time, so it stays as planned. Still having it? Log it when you do. If not, skip it and the rest is re-planned.</p><div class="list">${rows}</div>`
       + `<button class="btn ghost pl-log" data-pl="${s}">Log ${label.toLowerCase()} · ${kc(v.kcal)} kcal</button><div class="pl-acts"><button class="linkbtn" data-psk="${s}">Skip ${label.toLowerCase()}</button></div></div>`;
-    return `<div class="pl-slot${lock ? ' pl-locked' : ''}" data-slot="${s}"><div class="mg-h"><span>${label}${lock ? '<i class="pl-tag pl-lock">🔒 Locked</i>' : ''}</span><span class="mg-t">${kc(v.kcal)} kcal · ${fmtG(v.pro)}g</span></div><div class="list">${rows}</div>`
+    const lk = `<button type="button" class="pl-lk" data-pk="${s}" aria-pressed="${lock}" aria-label="${lock ? `${label} is locked: Shuffle leaves it alone. Tap to unlock` : `Lock ${label.toLowerCase()} so Shuffle leaves it alone`}">${icon(lock ? 'i-lock' : 'i-unlock')}${lock ? 'Locked' : 'Lock'}</button>`;   // v112: the lock is a switch in the header
+    return `<div class="pl-slot${lock ? ' pl-locked' : ''}" data-slot="${s}"><div class="mg-h"><span class="pl-hl"><span>${label}</span>${lk}</span><span class="mg-t">${kc(v.kcal)} kcal · ${fmtG(v.pro)}g</span></div><div class="list">${rows}</div>`
       + (ctx.isToday ? `<button class="btn ghost pl-log" data-pl="${s}">Log ${label.toLowerCase()} · ${kc(v.kcal)} kcal</button>` : '')
-      + `<div class="pl-acts"><button class="linkbtn" data-pc="${s}">${lock ? `+ Add to ${label.toLowerCase()}` : `Choose ${label.toLowerCase()}`}</button><button class="linkbtn" data-plt="${s}">Plan later</button><button class="linkbtn" data-pk="${s}">${lock ? 'Unlock' : '🔒 Lock'}</button></div></div>`;
+      + `<div class="pl-btns"><button type="button" class="pl-btn" data-pc="${s}">${icon('i-plus')}Add food</button><button type="button" class="pl-btn" data-plt="${s}">${icon('i-clock')}Decide later</button></div></div>`;
   }).join('');
   box.innerHTML = tabs + sum + note + groups
     + (ctx.open.some(s => !later.includes(s)) && !(ctx.isToday && ctx.base.kcal >= T.calHi) ? `<button class="btn ghost" id="plShuffle">Shuffle${anyLock ? ' the unlocked meals' : ': another plan'}</button>` : '')
-    + `<p class="hint">${ctx.isToday ? 'Tap a food to change its amount before logging it, or log a whole meal with one tap. Logged something by mistake? Tap its × to take it back out.' : 'Tomorrow this plan opens on Today, so you can log each meal as you eat it.'} Choose a meal to plan it yourself, or lock one you like: locked meals stay put and the rest is planned around them. Not sure yet? Plan later keeps room for that meal. Shuffle mixes up the rest and rotates in a home idea or two.</p>`;
+    + `<p class="hint" id="plHint">${ctx.isToday ? '' : 'Tomorrow this plan opens on Today, so you can log each meal as you eat it. '}Tap a food to change it, or its × to take it out. A meal you change is locked, so Shuffle leaves it alone.</p>`;   // v112
 }
 function logPlanSlot(s) {
   const p = planStore().plans?.[todayIso()]; if (!p || day !== todayIso()) return;
@@ -5165,6 +5215,7 @@ $('adjNo').onclick = () => adjClose(false);
    set the app up don't get it). Always available in You → Help. Last seen version: localStorage cutlog.seenV (per device).
    Every release adds an entry at the top, in plain words for everyone who uses Cut Log. */
 const CHANGELOG = [
+  { v: 112, d: '2026-11-10', items: ['Plan my day: every planned food now has an × to take it out, and tapping a food lets you change it (on Tomorrow too). A meal you change is locked, so Shuffle leaves it alone. The lock is now a switch beside each meal\'s name, and the buttons under a meal are Add food and Decide later.'] },
   { v: 111, d: '2026-11-09', items: ['On a laptop, the Trends cards now sit at their natural height and fill the space under each other, so the Weight trend card no longer has a big empty area.'] },
   { v: 110, d: '2026-11-08', items: ['A new How to use Cut Log guide: short, step-by-step and easier to read, with a tip for each topic and the finer details tucked under “Good to know”. Find it in You → Help.'] },
   { v: 109, d: '2026-11-08', items: ['Paying a day back now shows everywhere it matters: Free day settings, This week, the status under your rings, Plan my day, History and your weekly check-in all use the same numbers and say so.'] },

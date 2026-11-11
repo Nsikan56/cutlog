@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '112';
+const APP_V = '113';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -1080,7 +1080,7 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape' && SH.open) c
 /* finger tracking */
 function dragStart(y, t, target) {
   if (!SH.open || WIDE_Q.matches) return;
-  if (target && target.closest && target.closest('.wh-chart')) return;   // v55: dragging along the weight chart reads it, it doesn't move the panel
+  if (target && target.closest && target.closest('.wh-chart, .ml-grip')) return;   // v55 (v113: or a meal being dragged): dragging along the weight chart reads it, it doesn't move the panel
   SH.drag = { y0: y, startY: SH.y, mode: null, inBody: sheetBody.contains(target), samples: [[y, t]] };
 }
 function dragMove(y, t, e) {
@@ -1874,15 +1874,31 @@ function mealFood(m) {
   return f;
 }
 function entryFood(e) { return e.food || { id: 'entry-' + e.id, name: e.name, source: 'entry', kcalServ: e.kcal, proServ: e.pro }; }
-function openMeals() {
+function openMeals(org) {
+  /* v113: Organize (Kan, 10 Nov 2026: "drag and reposition built meals just in case we wanted to reorganize"): the order of S.meals is
+     the order everywhere (this list, Plan my day's picker, search), so moving a meal just reorders that list (it syncs with the meals). */
+  const many = S.meals.length > 1; org = !!org && many;
   openSheet('My meals', `
-    ${draftRow()}
-    <div class="list" id="mealList">${S.meals.length ? S.meals.map((m, i) => `<div class="meal-row">
-        <button class="item" data-m="${i}"><span class="nm">${esc(m.name)}<small>${m.items?.length ? `${m.items.length} ingredient${m.items.length > 1 ? 's' : ''}${m.servings > 1 ? ` · makes ${m.servings}` : ''}${m.cookedG ? ` · weighed ${Math.round(m.cookedG).toLocaleString()} g` : ''}` : 'quick meal'}</small></span>
+    ${org ? '' : draftRow()}
+    ${many ? `<div class="ml-h"><span class="ml-n">${org ? 'Drag a meal by its handle' : `${S.meals.length} meals`}</span><button class="pl-btn" id="mOrg" type="button" aria-pressed="${org}">${org ? 'Done' : 'Organize'}</button></div>` : ''}
+    <div class="list${org ? ' ml-org' : ''}" id="mealList">${S.meals.length ? S.meals.map((m, i) => `<div class="meal-row" data-mi="${i}">
+        <button class="item" data-m="${i}"${org ? ' tabindex="-1"' : ''}><span class="nm">${esc(m.name)}<small>${m.items?.length ? `${m.items.length} ingredient${m.items.length > 1 ? 's' : ''}${m.servings > 1 ? ` · makes ${m.servings}` : ''}${m.cookedG ? ` · weighed ${Math.round(m.cookedG).toLocaleString()} g` : ''}` : 'quick meal'}</small></span>
         <span class="meta">${m.kcal} kcal · ${m.pro}g</span></button>
-        <button class="edit" data-edit="${i}" aria-label="Edit ${esc(m.name)}">Edit</button></div>`).join('') : '<p class="empty">No saved meals yet. Build one from the foods you cook with.</p>'}</div>
-    <p class="hint">Tap a meal, choose how many, and add it.</p>
-    <button class="btn" id="newMeal">Build a new meal</button>`);
+        ${org ? `<button class="ml-grip" data-grip="${i}" type="button" aria-label="Move ${esc(m.name)}. Use the up and down arrow keys.">${icon('i-grip')}</button>`
+          : `<button class="edit" data-edit="${i}" aria-label="Edit ${esc(m.name)}">Edit</button>`}</div>`).join('') : '<p class="empty">No saved meals yet. Build one from the foods you cook with.</p>'}</div>
+    ${org ? '<p class="hint" id="mOrgHint">Hold the handle and drag a meal up or down. The new order is saved as you go and shows wherever you pick a meal.</p>'
+      : `<p class="hint">Tap a meal, choose how many, and add it.</p>
+    <button class="btn" id="newMeal">Build a new meal</button>`}`);
+  if (many) $('mOrg').onclick = () => {
+    haptic();
+    if (!org) { MORG = S.meals.map(m => m.id); openMeals(true); return; }
+    const before = MORG; MORG = null; openMeals();
+    if (before && before.join() !== S.meals.map(m => m.id).join()) {
+      const back = before.map(id => S.meals.find(m => m.id === id)).filter(Boolean);
+      toast('New meal order saved', { label: 'Undo', fn: () => { if (back.length === S.meals.length) { S.meals = back; touchMeta(); if (SH.open && $('sheetTitle').textContent === 'My meals') openMeals(); } } });
+    }
+  };
+  if (org) { mealDrag($('mealList')); return; }
   if ($('mDraft')) $('mDraft').onclick = () => { const x = loadDraft(); if (x) resumeDraft(x.d); };
   if ($('mDraftX')) $('mDraftX').onclick = () => { clearDraft(); haptic(); openMeals(); };
   $('mealList').onclick = e => {
@@ -1921,6 +1937,56 @@ function markDraft(k, v) { try { const x = JSON.parse(localStorage.getItem(DRAFT
 const autoResume = x => !!(x && x.open && !x.resumed && Date.now() - x.at < DRAFT_RESUME_MS);
 function loadDraft() { try { const x = JSON.parse(localStorage.getItem(DRAFT_KEY)); return x && draftWorth(x.d) ? x : null; } catch (e) { return null; } }
 function clearDraft() { try { localStorage.removeItem(DRAFT_KEY); } catch (e) {} }
+/* v113: drag a meal by its handle (finger or mouse), or move it with the arrow keys. The row follows the finger, the others slide
+   out of its way, and the list scrolls when the finger is near the top or bottom of the panel. */
+let MORG = null;
+function mealMove(from, to) {
+  if (from === to || to < 0 || to >= S.meals.length) return false;
+  const [m] = S.meals.splice(from, 1); S.meals.splice(to, 0, m); touchMeta(); return true;
+}
+function mealDrag(list) {
+  const rows = () => [...list.querySelectorAll('.meal-row')];
+  list.addEventListener('keydown', e => {
+    const g = e.target.closest('[data-grip]'); if (!g || !/^Arrow(Up|Down)$/.test(e.key)) return;
+    e.preventDefault(); const i = +g.dataset.grip, j = i + (e.key === 'ArrowUp' ? -1 : 1);
+    if (!mealMove(i, j)) return; haptic(); openMeals(true);
+    const n = $('mealList').querySelector(`[data-grip="${j}"]`); if (n) n.focus();
+  });
+  list.addEventListener('pointerdown', e => {
+    const g = e.target.closest('[data-grip]'); if (!g || (e.pointerType === 'mouse' && e.button !== 0)) return;
+    e.preventDefault();
+    const from = +g.dataset.grip, rs = rows(), row = rs[from], boxes = rs.map(r => r.getBoundingClientRect());
+    const h = boxes[from].height, body = sheetBody, s0 = body.scrollTop;
+    let y0 = e.clientY, y = y0, to = from, raf = 0, done = false;
+    try { g.setPointerCapture(e.pointerId); } catch (x) {}
+    row.classList.add('ml-lift'); list.classList.add('ml-busy'); haptic();
+    const place = () => {
+      const dy = y - y0 + (body.scrollTop - s0), mid = boxes[from].top + h / 2 + dy;
+      let t = from;
+      boxes.forEach((b, k) => { if (k < from && mid < b.top + b.height / 2) t = Math.min(t, k); if (k > from && mid > b.top + b.height / 2) t = Math.max(t, k); });
+      if (t !== to) { to = t; haptic(); }
+      row.style.transform = `translateY(${dy}px)`;
+      rs.forEach((r, k) => { if (k === from) return; r.style.transform = k > from && k <= to ? `translateY(${-h}px)` : k < from && k >= to ? `translateY(${h}px)` : ''; });
+    };
+    const edge = () => {   // scroll the panel while the finger is near its top or bottom edge
+      if (done) return; const b = body.getBoundingClientRect(), z = 56;
+      const v = y < b.top + z ? -Math.ceil((b.top + z - y) / 6) : y > b.bottom - z ? Math.ceil((y - (b.bottom - z)) / 6) : 0;
+      if (v) { body.scrollTop += v; place(); }
+      raf = requestAnimationFrame(edge);
+    };
+    raf = requestAnimationFrame(edge);
+    const mv = ev => { if (ev.pointerId !== e.pointerId) return; y = ev.clientY; place(); };
+    const up = ev => {
+      if (ev.pointerId !== e.pointerId) return;
+      done = true; cancelAnimationFrame(raf);
+      g.removeEventListener('pointermove', mv); g.removeEventListener('pointerup', up); g.removeEventListener('pointercancel', up);
+      const moved = mealMove(from, to); if (moved) haptic();
+      const st = body.scrollTop; openMeals(true); sheetBody.scrollTop = st;
+      const n = $('mealList').querySelector(`[data-grip="${to}"]`); if (n && ev.pointerType !== 'touch') n.focus({ preventScroll: true });
+    };
+    g.addEventListener('pointermove', mv); g.addEventListener('pointerup', up); g.addEventListener('pointercancel', up);
+  });
+}
 function draftRow() {
   const x = loadDraft(); if (!x) return '';
   const d = x.d, n = d.items.length, what = [(d.name || '').trim() || 'No name yet', n ? `${n} ingredient${n > 1 ? 's' : ''}` : ''].filter(Boolean).join(' · ');
@@ -2595,7 +2661,17 @@ function renderTrends() {
   /* v71: the sign only shows when the rounded number isn't zero (no "−0.0") */
   const sgn = d => { const v = fW(Math.abs(d)); return (+v === 0 ? '' : d > 0 ? '+' : '−') + v; };
   $('tRate').textContent = rate == null ? '–' : sgn(rate);
-  $('tNow').textContent = now ? fW(now) : '–';
+  /* v113: the middle tile follows the range (Kan, 10 Nov: "I tried to see the average in the past 30 days but it's giving me the same number
+     as the last 7 days"). 7 days: the 7-day average as before. 30 and 90: the average of the weigh-ins in that range, named by how far
+     back they really go ("Avg since Oct 12" when the weigh-ins start later than the range). The goal date still uses the 7-day average. */
+  $('tNowK').title = '';
+  if (range < RATE_MIN_DAYS || !inR.length) { $('tNowK').textContent = '7-day avg'; $('tNow').textContent = now ? fW(now) : '–'; }
+  else {
+    const since = inR[0].date > shift(from, 3) && parseIso(inR[0].date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    $('tNowK').textContent = since ? `Since ${since}` : `${range}-day avg`;   // "Avg since Oct 1" wrapped in the tile on a phone
+    $('tNow').textContent = fW(inR.reduce((a, w) => a + w.lb, 0) / inR.length);
+    $('tNowK').title = `Average of your weigh-ins ${since ? `since ${since}` : `over the last ${range} days`}`;
+  }
   /* v71: on the 7-day view the old Change compared two windows that almost fully overlap (it sat at 0.0), so it compares this
      week's average with the week before instead. 30 and 90 days are as before. */
   if (range < RATE_MIN_DAYS) {
@@ -3328,7 +3404,8 @@ const GUIDE = [
       'Add the ingredients, and how many servings it makes.',
       'Next time, tap the meal to log it.')}
     ${gTip('Cooking a big pot? Weigh the food once it\'s cooked (without the pot) and enter the cooked weight. Then log whatever you dish out in grams.')}
-    ${gMore('If the app closes while you\'re building a meal, it keeps your progress: My meals shows <b>Finish your unsaved meal</b>.')}`, 'i-bowl', 'Build once, log in one tap'],
+    ${gMore('If the app closes while you\'re building a meal, it keeps your progress: My meals shows <b>Finish your unsaved meal</b>.',
+      'To change the order of your meals, tap <b>Organize</b> in My meals, drag a meal by its handle, then tap <b>Done</b>. The order shows everywhere you pick a meal.')}`, 'i-bowl', 'Build once, log in one tap'],
   ['Weigh in', `<p class="g-lead">Your weight moves around a lot day to day. Cut Log shows the real trend underneath.</p>
     ${gStep('Choose how often in <b>You → Weigh-ins</b>: every morning, once a week, or no scale.',
       'Weigh after the bathroom, before you eat or drink.',
@@ -3344,6 +3421,7 @@ const GUIDE = [
       'Charts for calories, protein, carbs (with your average protein, carbs and fat split) and fibre. Tap a bar to open that day.')}
     ${gTip('When your calories should change, a <b>Calorie check-in pop-up</b> asks you first, at most once a week. <b>Yes</b> updates your target; <b>Not now</b> leaves it.')}
     ${gMore('The weekly rate always uses at least 14 days of weigh-ins, because one week is mostly water. On the 7-day view, <b>Vs last week</b> compares this week\'s average with the week before.',
+      'The middle number is your <b>7-day average</b> on the 7-day view, and the average of every weigh-in in the range on 30 and 90 days (it says <b>Since</b> a date when your weigh-ins start later than that).',
       `Your real burn uses your weight trend line and leaves out your first 2 weeks of weigh-ins (early loss is mostly water). Big changes are suggested in steps of up to ${BURN_STEP} kcal.`,
       'On a cut, a day a little under your range still counts as <b>on target</b>. Only days more than 300 kcal under it are flagged.',
       'If your loss is slow but you already eat at the low end of your range, it suggests another week of full logging rather than eating less.',
@@ -5215,6 +5293,7 @@ $('adjNo').onclick = () => adjClose(false);
    set the app up don't get it). Always available in You → Help. Last seen version: localStorage cutlog.seenV (per device).
    Every release adds an entry at the top, in plain words for everyone who uses Cut Log. */
 const CHANGELOG = [
+  { v: 113, d: '2026-11-10', items: ['My meals: tap Organize to drag your meals into the order you want. The new order shows wherever you pick a meal.', 'Trends: on 30 and 90 days, the middle weight number is now the average for that range, not the last 7 days.'] },
   { v: 112, d: '2026-11-10', items: ['Plan my day: every planned food now has an × to take it out, and tapping a food lets you change it (on Tomorrow too). A meal you change is locked, so Shuffle leaves it alone. The lock is now a switch beside each meal\'s name, and the buttons under a meal are Add food and Decide later.'] },
   { v: 111, d: '2026-11-09', items: ['On a laptop, the Trends cards now sit at their natural height and fill the space under each other, so the Weight trend card no longer has a big empty area.'] },
   { v: 110, d: '2026-11-08', items: ['A new How to use Cut Log guide: short, step-by-step and easier to read, with a tip for each topic and the finer details tucked under “Good to know”. Find it in You → Help.'] },

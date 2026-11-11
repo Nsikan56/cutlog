@@ -1033,6 +1033,21 @@ details.shut>:not(summary){opacity:0;transform:translateY(-4px);transition:opaci
 .nt-foot{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
 .nt-off{color:var(--muted)}
 
+/* v113: My meals → Organize (drag a meal by its handle) */
+.ml-h{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.ml-n{font-size:13px;font-weight:600;color:var(--muted)}
+#mOrg{color:var(--accent);padding:7px 14px}
+#mOrg[aria-pressed="true"]{background:var(--accent);color:var(--on-accent);border-color:transparent}
+.ml-org .meal-row{position:relative;background:var(--surface);transition:transform .18s cubic-bezier(.2,.8,.2,1)}
+.ml-org .item{pointer-events:none}
+.ml-grip{display:grid;place-items:center;width:44px;height:44px;margin-right:-6px;border-radius:12px;color:var(--muted);touch-action:none;cursor:grab}
+.ml-grip svg{width:22px;height:22px}
+.ml-grip:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.ml-org .meal-row.ml-lift{transition:none;z-index:2;border-radius:14px;background:var(--raised);box-shadow:0 0 0 1.5px var(--accent),0 12px 30px rgba(0,0,0,.3);border-top-color:transparent;padding:0 10px;margin:0 -10px}
+.ml-lift .ml-grip{color:var(--accent);cursor:grabbing}
+.ml-busy{user-select:none;-webkit-user-select:none}
+@media (prefers-reduced-motion:reduce){.ml-org .meal-row{transition:none}}
+
 @media (min-width:980px){
   #scroller{padding:28px 32px 48px calc(var(--side) + 32px)}
   :root{--side:204px}

@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '113';
+const APP_V = '114';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -476,7 +476,8 @@ function renderRows() {
   const rowHtml = e => {
     const time = e.at ? new Date(e.at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : '';
     const sub = [e.detail, time].filter(Boolean).join(' · ');
-    return `<div class="row${fresh.includes(e.id) ? ' row-in' : ''}" data-id="${esc(e.id)}"><span class="n">${esc(e.name)}${sub ? `<small>${esc(sub)}</small>` : ''}</span>
+    const mi = e.food?.source === 'meal' && entryIngs(e) ? `<button class="mi-b" type="button" data-mi="${esc(e.id)}" aria-label="What's in ${esc(e.name)}">${icon('i-info')}</button>` : '';   // v114
+    return `<div class="row${fresh.includes(e.id) ? ' row-in' : ''}" data-id="${esc(e.id)}"><span class="n">${esc(e.name)}${mi}${sub ? `<small>${esc(sub)}</small>` : ''}</span>
       <span class="c">${Math.round(e.kcal)}<small>kcal</small></span><span class="pill">${fmtG(e.pro)}g</span></div>`;
   };
   r.innerHTML = SLOTS.map(([k, label]) => {
@@ -880,7 +881,7 @@ function slotChips(sel) { return `<div class="chips slots" id="aSlot" role="grou
 /* ---------- log actions ---------- */
 function addEntry(name, kcal, pro, detail, src, slot) {
   const e = { id: uid(), name, kcal: r1(kcal), pro: r1(pro), detail: detail || '', at: Date.now(), slot: slot || defaultSlot(src?.food?.id) };
-  if (src) { e.food = src.food; e.qty = src.qty; e.unit = src.unit; setFib(e, src.fib); if (src.oil) e.oil = src.oil; if (src.adds?.length) e.adds = src.adds; }
+  if (src) { e.food = src.food; e.qty = src.qty; e.unit = src.unit; setFib(e, src.fib); if (src.oil) e.oil = src.oil; if (src.adds?.length) e.adds = src.adds; snapMealEntry(e); }   // v114: a meal keeps its ingredients
   (S.log[day] ||= []).push(e);
   if (e.food?.id && day === todayIso()) flLogged(e.food.id);   // v97: logged from What fits
   touchDay(day); renderTotals(); renderRows(); haptic();
@@ -1316,7 +1317,7 @@ function openAmount(f, preset, opts = {}) {
     }
     S.slotPref[f.id] = slot;
     // logging the same thing again in the same meal adds to the existing line
-    const same = entriesFor(day).find(x => x.food && x.food.id === f.id && x.unit === unit && slotOf(x) === slot && (x.oil || null) === oil && addsKey(x) === adds.join(','));   // a different oil choice gets its own line
+    const same = entriesFor(day).find(x => x.food && x.food.id === f.id && x.unit === unit && slotOf(x) === slot && (x.oil || null) === oil && addsKey(x) === adds.join(',') && !(f.source === 'meal' && (x.mi ? JSON.stringify(x.mi) !== JSON.stringify(mealSnap(mealOf(f), f)) : mealOf(f)?.items?.length && !entryIngs(x))));   // v114: a meal whose recipe changed since gets its own line   // a different oil choice gets its own line
     if (same) {
       const prev = { kcal: same.kcal, pro: same.pro, qty: same.qty, detail: same.detail }, prevFib = same.fib;
       const had = entryFib(same);
@@ -1874,6 +1875,65 @@ function mealFood(m) {
   return f;
 }
 function entryFood(e) { return e.food || { id: 'entry-' + e.id, name: e.name, source: 'entry', kcalServ: e.kcal, proServ: e.pro }; }
+/* =================== v114: WHAT'S IN A LOGGED MEAL =================== */
+/* Kan, 11 Nov 2026: "Logged built meals should have an info icon showing what the ingredients are and their macros" (view only).
+   From v114 a meal entry keeps a copy of its ingredients from when it was logged (e.mi: {s servings, k whole-recipe kcal, g cooked
+   weight?, items: [{n name, q amount, w unit word (w1 for one), k, p, c?, f?}]}, the whole recipe), so changing the recipe later never
+   changes an older day. Entries logged before v114 use the saved meal as it is now, only while it still gives the calories that were
+   logged (like v49's fibre). Amounts are scaled to what the entry logged (servings, or grams of a weighed pot). */
+const MI_WHOLE = new Set(['g', 'ml']);
+function mealSnap(m, f) {
+  const items = (m?.items || []).filter(it => it.food); if (!items.length) return null;
+  const n = Math.max(1, m.servings || 1), out = { s: n, k: r1(calc(f || mealFood(m), n, 'serving').kcal), items: [] };
+  if (m.cookedG > 0) out.g = m.cookedG;
+  items.forEach(it => {
+    const v = calc(it.food, it.qty, it.unit), x = { n: it.food.name, q: it.qty, w: unitWord(it.food, it.unit, 2) || it.unit, k: r1(v.kcal), p: r1(v.pro) };
+    const w1 = unitWord(it.food, it.unit, 1); if (w1 && w1 !== x.w) x.w1 = w1;
+    const mc = itemMac(it); if (mc) { x.c = r1(mc.carb); x.f = r1(mc.fat); }
+    out.items.push(x);
+  });
+  return out;
+}
+/* a meal being logged keeps its ingredients, but only when the food logged is the saved meal as it is now (not an old Recent copy) */
+function snapMealEntry(e) {
+  if (e.food?.source !== 'meal' || e.mi) return;
+  const m = mealOf(e.food); if (!m) return;
+  const now = mealFood(m); if (now.kcalServ !== e.food.kcalServ || (now.kcal100 ?? null) !== (e.food.kcal100 ?? null)) return;
+  const s = mealSnap(m, e.food); if (s) e.mi = s;
+}
+/* the ingredients of a logged meal, scaled to what was logged; null when they can't be shown exactly */
+function entryIngs(e) {
+  if (e?.food?.source !== 'meal' || !(e.qty > 0) || !(e.kcal >= 0)) return null;
+  let s = e.mi, live = false;
+  if (!s) {
+    const m = mealOf(e.food); if (!m) return null;
+    const f = mealFood(m); if (!unitsFor(f).some(u => u.key === e.unit)) return null;
+    if (Math.abs(calc(f, e.qty, e.unit).kcal - e.kcal) > Math.max(3, e.kcal * 0.03)) return null;   // changed since it was logged
+    s = mealSnap(m, f); live = true;
+  }
+  if (!s?.items?.length) return null;
+  const u = unitsFor(e.food).find(x => x.key === e.unit);
+  const frac = e.unit === 'serving' ? e.qty / s.s : s.g > 0 && u?.g ? e.qty * u.g / s.g : s.k > 0 ? e.kcal / s.k : null;
+  if (!(frac > 0)) return null;
+  const items = s.items.map(x => { const q = x.q * frac, qs = MI_WHOLE.has(x.w) ? String(Math.max(1, Math.round(q))) : fmtQty(q);
+    return { n: x.n, amt: `${qs} ${+qs <= 1 ? x.w1 || x.w : x.w}`, k: x.k * frac, p: x.p * frac, c: x.c != null ? x.c * frac : null, f: x.f != null ? x.f * frac : null }; });
+  return { items, frac, s, live };
+}
+function openMealInfo(id) {
+  const e = entriesFor(day).find(x => x.id === id), r = entryIngs(e); if (!r) return;
+  const allMac = r.items.every(x => x.c != null), sum = k => r.items.reduce((a, x) => a + x[k], 0);
+  const time = e.at ? new Date(e.at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : '';
+  const amt = (e.detail || '').split(' · ')[0];
+  const whole = Math.abs(r.frac - 1) < 0.005;
+  const note = whole ? (r.s.s > 1 ? `The whole recipe (${r.s.s} servings).` : '')
+    : r.s.g > 0 && e.unit !== 'serving' ? `Scaled to the ${amt} you logged, from a ${kc(r.s.g)} g pot.`
+    : `Scaled to the ${amt} you logged. The recipe makes ${r.s.s} serving${r.s.s === 1 ? '' : 's'}.`;
+  openSheet('Ingredients', `
+    <div class="food-head" id="miHead"><strong>${esc(e.name)}</strong><span>${esc([amt, time].filter(Boolean).join(' · '))}</span></div>
+    ${note ? `<p class="hint" id="miNote">${esc(note)}</p>` : ''}
+    <div class="mi-list" id="miList">${r.items.map(x => `<div class="mi-r"><span class="n">${esc(x.n)}<small>${esc(x.amt)}${x.c != null ? ` · ${fmtG(x.c)}g carbs · ${fmtG(x.f)}g fat` : ''}</small></span><span class="c">${Math.round(x.k)}<small>kcal</small></span><span class="pill">${fmtG(x.p)}g</span></div>`).join('')}</div>
+    <div class="mi-tot" id="miTot"><span class="n">Total<small>${allMac ? `${fmtG(sum('c'))}g carbs · ${fmtG(sum('f'))}g fat` : 'Carbs and fat aren\'t known for every ingredient'}</small></span><span class="c">${Math.round(e.kcal)}<small>kcal</small></span><span class="pill">${fmtG(e.pro)}g</span></div>`);
+}
 function openMeals(org) {
   /* v113: Organize (Kan, 10 Nov 2026: "drag and reposition built meals just in case we wanted to reorganize"): the order of S.meals is
      the order everywhere (this list, Plan my day's picker, search), so moving a meal just reorders that list (it syncs with the meals). */
@@ -3405,7 +3465,8 @@ const GUIDE = [
       'Next time, tap the meal to log it.')}
     ${gTip('Cooking a big pot? Weigh the food once it\'s cooked (without the pot) and enter the cooked weight. Then log whatever you dish out in grams.')}
     ${gMore('If the app closes while you\'re building a meal, it keeps your progress: My meals shows <b>Finish your unsaved meal</b>.',
-      'To change the order of your meals, tap <b>Organize</b> in My meals, drag a meal by its handle, then tap <b>Done</b>. The order shows everywhere you pick a meal.')}`, 'i-bowl', 'Build once, log in one tap'],
+      'To change the order of your meals, tap <b>Organize</b> in My meals, drag a meal by its handle, then tap <b>Done</b>. The order shows everywhere you pick a meal.',
+      'On Today, tap the <b>ⓘ</b> next to a logged meal to see its ingredients and their numbers, scaled to how much you logged. Changing the recipe later doesn\'t change days already logged.')}`, 'i-bowl', 'Build once, log in one tap'],
   ['Weigh in', `<p class="g-lead">Your weight moves around a lot day to day. Cut Log shows the real trend underneath.</p>
     ${gStep('Choose how often in <b>You → Weigh-ins</b>: every morning, once a week, or no scale.',
       'Weigh after the bathroom, before you eat or drink.',
@@ -4840,7 +4901,7 @@ function logPlanSlot(s) {
   const now = Date.now(), ids = [];
   its.forEach((x, i) => { const f = freshFood(x.food), v = planVal({ ...x, food: f });
     const e = { id: uid(), name: f.name, kcal: r1(v.kcal), pro: r1(v.pro), detail: `${fmtQty(x.qty)} ${unitWord(f, x.unit, x.qty)}${x.oil ? ` · ${OIL[x.oil].d}` : ''}`, at: now + i, slot: s, food: f, qty: x.qty, unit: x.unit };
-    setFib(e, v.fib); if (x.oil) e.oil = x.oil; (S.log[todayIso()] ||= []).push(e); ids.push(e.id); pushRecent(f, x.qty, x.unit); });
+    setFib(e, v.fib); if (x.oil) e.oil = x.oil; snapMealEntry(e); (S.log[todayIso()] ||= []).push(e); ids.push(e.id); pushRecent(f, x.qty, x.unit); });
   const st = planStore(); if (st.plans?.[todayIso()]) { st.plans[todayIso()].at = now + its.length; planSave(st); }   // logged from the plan: still on plan
   touchDay(todayIso()); touchMeta(); renderTotals(); renderRows(); haptic(); renderPlan();
   const k = its.reduce((a, x) => a + planVal(x).kcal, 0);
@@ -5293,6 +5354,7 @@ $('adjNo').onclick = () => adjClose(false);
    set the app up don't get it). Always available in You → Help. Last seen version: localStorage cutlog.seenV (per device).
    Every release adds an entry at the top, in plain words for everyone who uses Cut Log. */
 const CHANGELOG = [
+  { v: 114, d: '2026-11-11', items: ['Today: meals you built now have an ⓘ next to their name. Tap it to see the ingredients, with the calories, protein, carbs and fat of each, scaled to how much you logged.'] },
   { v: 113, d: '2026-11-10', items: ['My meals: tap Organize to drag your meals into the order you want. The new order shows wherever you pick a meal.', 'Trends: on 30 and 90 days, the middle weight number is now the average for that range, not the last 7 days.'] },
   { v: 112, d: '2026-11-10', items: ['Plan my day: every planned food now has an × to take it out, and tapping a food lets you change it (on Tomorrow too). A meal you change is locked, so Shuffle leaves it alone. The lock is now a switch beside each meal\'s name, and the buttons under a meal are Add food and Decide later.'] },
   { v: 111, d: '2026-11-09', items: ['On a laptop, the Trends cards now sit at their natural height and fill the space under each other, so the Weight trend card no longer has a big empty area.'] },
@@ -5852,6 +5914,7 @@ function slideDay(dir) {
 $('prev').onclick = () => { day = shift(day, -1); renderDay(); renderTotals(); renderRows(); slideDay(-1); };
 $('next').onclick = () => { if (day < todayIso()) { day = shift(day, 1); renderDay(); renderTotals(); renderRows(); slideDay(1); } };
 $('rows').onclick = e => {
+  const mi = e.target.closest('[data-mi]'); if (mi) { haptic(); openMealInfo(mi.dataset.mi); return; }   // v114: what's in a logged meal
   const r = e.target.closest('.row[data-id]'); if (!r) return;
   const en = entriesFor(day).find(z => z.id === r.dataset.id); if (!en) return;
   openAmount(entryFood(en), en.food ? { qty: en.qty, unit: en.unit, oil: en.oil, adds: en.adds } : { qty: 1, unit: 'serving' }, { editId: en.id });

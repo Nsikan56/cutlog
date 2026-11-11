@@ -1048,6 +1048,22 @@ details.shut>:not(summary){opacity:0;transform:translateY(-4px);transition:opaci
 .ml-busy{user-select:none;-webkit-user-select:none}
 @media (prefers-reduced-motion:reduce){.ml-org .meal-row{transition:none}}
 
+/* v114: the ⓘ beside a logged meal on Today (Kan asked), and its Ingredients panel (rows look like Today's) */
+.mi-b{position:relative;display:inline-grid;place-items:center;width:22px;height:22px;margin:-4px 0 -4px 5px;vertical-align:-4px;border-radius:50%;color:var(--accent);-webkit-tap-highlight-color:transparent}
+.mi-b svg{width:18px;height:18px}
+.mi-b::before{content:"";position:absolute;inset:-10px}   /* a bigger tap area than the icon */
+.mi-b:active{transform:scale(.85)}
+.mi-list{display:flex;flex-direction:column}
+.mi-r,.mi-tot{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:10px;align-items:center}
+.mi-r{padding:10px 0;border-top:1px solid var(--line)}
+.mi-r:first-child{border-top:0;padding-top:2px}
+.mi-r .n,.mi-tot .n{min-width:0;overflow-wrap:anywhere;font-weight:500}
+.mi-r .n small,.mi-tot .n small{display:block;color:var(--muted);font-size:12px;font-weight:400}
+.mi-r .c,.mi-tot .c{font-family:var(--display);font-weight:700;font-size:19px;font-variant-numeric:tabular-nums;text-align:right}
+.mi-r .c small,.mi-tot .c small{font-size:11px;color:var(--muted);font-family:var(--body);font-weight:500;margin-left:2px}
+.mi-tot{padding:12px 14px;border-radius:14px;background:var(--raised)}
+.mi-tot .n{font-weight:700}
+
 @media (min-width:980px){
   #scroller{padding:28px 32px 48px calc(var(--side) + 32px)}
   :root{--side:204px}

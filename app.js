@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '114';
+const APP_V = '115';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -103,6 +103,7 @@ function load() {
   return seed();
 }
 let S = load();
+if (S.targets && !S.targets.rng) noteTargets();   // v115: the range in use now, so the first change keeps the old one for past days
 function applyTheme() {
   const c = S.theme || 'cobalt';
   if (c === 'cobalt') document.documentElement.removeAttribute('data-accent'); else document.documentElement.setAttribute('data-accent', c);
@@ -115,7 +116,7 @@ function persist() {
 }
 function markDirty(key) { if (!S.dirty.includes(key)) S.dirty.push(key); }
 function touchDay(d) { S.stamps.days[d] = Date.now(); markDirty('d:' + d); persist(); scheduleFlush(); queueMicrotask(() => checkMilestones()); alertsKick(); }   // v91: weigh-ins too
-function touchMeta() { S.stamps.meta = Date.now(); markDirty('meta'); persist(); scheduleFlush(); if (!msBusy) queueMicrotask(() => checkMilestones()); }
+function touchMeta() { noteTargets(); S.stamps.meta = Date.now(); markDirty('meta'); persist(); scheduleFlush(); if (!msBusy) queueMicrotask(() => checkMilestones()); }
 function touchAll() {
   const now = Date.now();
   S.stamps.meta = now; markDirty('meta');
@@ -443,7 +444,7 @@ $('rings').onclick = () => {
 $('rings').onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('rings').click(); } };
 function renderTotals() {
   alertsKick();   // v91: the alarm clock's note for today follows the log
-  const T = dayT(day), es = entriesFor(day), noLim = !isFinite(T.calHi), ringHi = noLim ? S.targets.calHi : T.calHi;   // v99: the day's own targets
+  const T = dayT(day), es = entriesFor(day), noLim = !isFinite(T.calHi), ringHi = noLim ? baseT(day).calHi : T.calHi;   // v99: the day's own targets
   const cal = Math.round(es.reduce((a, e) => a + e.kcal, 0));
   const pro = Math.round(es.reduce((a, e) => a + e.pro, 0));
   renderRingNums(cal, pro, T);
@@ -2176,7 +2177,7 @@ function applyDay(id, data) {
 function applyMeta(data) {
   ['targets', 'meals', 'foods', 'recent', 'theme', 'slotPref', 'name', 'scale', 'units', 'startWeight', 'milestones', 'msInit', 'pins'].forEach(k => { if (data[k] !== undefined) S[k] = data[k]; });
   S.onboarded = true; delete S.metaUnsynced;   // this account was already set up somewhere
-  S.targets = Object.assign({ mode: 'lose' }, S.targets); S.milestones ||= {};
+  S.targets = Object.assign({ mode: 'lose' }, S.targets); S.milestones ||= {}; if (!S.targets.rng) noteTargets();   // v115
   applyTheme(); if (typeof hideOnboarding === 'function') hideOnboarding();
   S.stamps.meta = data.updatedAt || 0;
   S.dirty = S.dirty.filter(k => k !== 'meta');
@@ -2460,10 +2461,35 @@ function freeOfWeek(ws, withSkipped) {
   return { d, pay: f.pay, extra: f.extra, cut: f.pay === 'budget' ? freeCut(f.extra, n) : 0, s: s0, skipped };
 }
 function freeOf(d) { const fi = d && freeOfWeek(weekStart(d)); return fi && fi.d === d ? fi : null; }
+/* =================== v115: TARGET HISTORY ===================
+   Kan, 13 Nov 2026 (Trends screenshots): after raising his range from 2,100–2,400 to 2,350–2,650, last week's check-in flagged days
+   under 2,050 (the new range's floor) although that week was set at 2,100–2,400, and his free day's pay-back shrank by the size of the
+   raise. Past days are now judged by the range that applied on that day. Stored inside targets (synced like free and payback;
+   nothing new at the top level): rng = {lo, hi, p, since} (the current range and the first day it applies, '' = always) and
+   hist = [{to, lo, hi, p}] (earlier ranges, oldest first, each covering the days after the one before it up to `to`). A change
+   applies from today: the old range keeps every day up to yesterday. Changing it again the same day (or Undo) just replaces today's.
+   Saved before v115: no history, so every day uses the current range as before. */
+const HIST_KEEP = 60;
+function noteTargets() {
+  const T = S.targets; if (!T || !(T.calLo > 0)) return;
+  const r = T.rng, now = { lo: T.calLo, hi: T.calHi, p: T.protein };
+  if (!r) { T.rng = { ...now, since: '' }; return; }
+  if (r.lo === now.lo && r.hi === now.hi && r.p === now.p) return;
+  const t = todayIso(), y = shift(t, -1), h = Array.isArray(T.hist) ? T.hist.filter(x => x.to < t) : [];
+  if (!r.since || r.since <= y) { const last = h[h.length - 1]; if (!last || last.to < y) h.push({ to: y, lo: r.lo, hi: r.hi, p: r.p }); }
+  T.hist = h.slice(-HIST_KEEP); T.rng = { ...now, since: t };
+}
+/* the targets that applied on day d (calories and protein from the history; everything else as now) */
+function baseT(d) {
+  const T = S.targets, h = T.hist;
+  if (!d || !Array.isArray(h) || !h.length || (T.rng?.since && d >= T.rng.since)) return T;
+  const e = h.find(x => d <= x.to);
+  return e ? { ...T, calLo: e.lo, calHi: e.hi, protein: e.p } : T;
+}
 /* the targets for one day (v107: free day first, then any pay-back on top) */
 function dayT(d) { return pbApply(d, freeT(d)); }
 function freeT(d) {
-  const T = S.targets, fi = d && freeOfWeek(weekStart(d));
+  const T = baseT(d), fi = d && freeOfWeek(weekStart(d));
   if (!fi) return T;
   if (fi.d === d) { const hi = fi.extra > 0 ? T.calHi + fi.extra : Infinity;
     return { ...T, calHi: hi, fday: fi, bankHi: fi.extra > 0 ? hi : fi.pay === 'budget' ? T.calHi : null }; }
@@ -2471,7 +2497,7 @@ function freeT(d) {
   return T;
 }
 /* the same with a number for the top on a no-limit day (for planning, What fits and alerts, which need one) */
-function dayTf(d) { const T = dayT(d); return isFinite(T.calHi) ? T : { ...T, calHi: S.targets.calHi }; }
+function dayTf(d) { const T = dayT(d); return isFinite(T.calHi) ? T : { ...T, calHi: baseT(d).calHi }; }
 
 /* =================== v107: PAY IT BACK ===================
    Kan, 8 Nov 2026, after an all-you-can-eat lunch (about 4,450 kcal): "can we make the app [pay it back]? And then after
@@ -2489,7 +2515,7 @@ function pbFloor(T = S.targets) { return Math.max(1200, Math.min(1800, T.calLo -
 function pbRoom(T = S.targets) { return Math.max(0, T.calLo - pbFloor(T)); }       // the most a day can drop
 /* one pay-back's days: { days: {date: {lo, hi, eff, moved}}, left (kcal still to pay after the scheduled days), end, paid } */
 /* the day's overage, live from the log (so eating more after setting it up, or deleting an entry, is followed) */
-function pbOver(p) { const tt = dayTotals(p.d), b = freeT(p.d), top = isFinite(b.calHi) ? b.calHi : S.targets.calHi; return tt ? Math.max(0, Math.round(tt.kcal - top)) : 0; }
+function pbOver(p) { const tt = dayTotals(p.d), b = freeT(p.d), top = isFinite(b.calHi) ? b.calHi : baseT(p.d).calHi; return tt ? Math.max(0, Math.round(tt.kcal - top)) : 0; }
 function pbCut(over, n) { return Math.min(pbRoom(), Math.ceil(over / Math.max(1, n) / 10) * 10); }
 function pbSched(p) {
   const t = todayIso(), over = pbOver(p), cut = pbCut(over, p.n), out = { days: {}, left: over, over, cut, end: null, paid: 0 }, floor = pbFloor();
@@ -2666,7 +2692,16 @@ function burnStep(lo, hi, T = S.targets) {
   const gap = (lo + hi) / 2 - (T.calLo + T.calHi) / 2;
   if (Math.abs(gap) <= BURN_STEP) return { lo, hi, capped: false };
   const d = Math.sign(gap) * BURN_STEP, nlo = Math.max(1200, T.calLo + d);
-  return { lo: nlo, hi: Math.max(nlo + 100, T.calHi + d), capped: true };
+  return { lo: nlo, hi: Math.max(nlo + 100, T.calHi + d), capped: true, rest: Math.round(Math.abs(gap) - BURN_STEP) };   // v115: how far the step leaves you
+}
+const STEP_NEAR = 100;    // v115: a step that lands this close to the suggestion is the whole change, not "step 1"
+/* v115: an active pay-back while the burn says eat more. Kan (13 Nov): paying back his free day (about 260 kcal a day less) while
+   the burn card and the trend card said to eat 250 more. Both are fine on their own; together they mostly cancel, so say so. */
+function pbClash(up) {
+  const p = up ? pbActive() : null; if (!p) return null;
+  const s = pbSched(p), t = todayIso(), left = Object.keys(s.days).filter(d => d >= t); if (!left.length || !(s.cut > 0)) return null;
+  return { cut: s.cut, end: s.end, n: left.length,
+    txt: `You're also paying back ${DAY_NAME(p.d)}: about ${kc(s.cut)} kcal less a day until ${pbDate(s.end)}. A higher target raises those days too, so the two mostly cancel until then. Losing faster than planned? You can stop paying it back from Today.` };
 }
 const r50 = n => Math.round(n / 50) * 50;
 function renderBurn() {
@@ -2701,7 +2736,9 @@ function renderBurn() {
       <div><span class="k">${label}</span><span class="v">${lo.toLocaleString()}–${hi.toLocaleString()}<small>kcal</small></span></div>
       <div><span class="k">Your target now</span><span class="v">${T.calLo.toLocaleString()}–${T.calHi.toLocaleString()}<small>kcal</small></span></div>
     </div>
-    ${st.capped && !same ? `<p class="hint" id="bStep">That's a big change, so move there in steps: ${st.lo > T.calLo ? 'up' : 'down'} ${BURN_STEP} kcal now, then check again after a week of weigh-ins.</p>` : ''}
+    ${st.capped && !same ? (st.rest < STEP_NEAR ? `<p class="hint" id="bStep">Going ${st.lo > T.calLo ? 'up' : 'down'} ${BURN_STEP} kcal gets you within ${st.rest} kcal of it, which is close enough.</p>`
+      : `<p class="hint" id="bStep">That's a big change, so move there in steps: ${st.lo > T.calLo ? 'up' : 'down'} ${BURN_STEP} kcal now, then check again after a week of weigh-ins.</p>`) : ''}
+    ${!same && pbClash(st.lo > T.calLo) ? `<p class="hint pb-clash" id="bPb">${esc(pbClash(true).txt)}</p>` : ''}
     ${same ? '<p class="hint">Your target already matches. Nothing to change.</p>' : `<button class="btn" id="useBurn">Use ${st.lo.toLocaleString()}–${st.hi.toLocaleString()} as my target</button>`}
     <p class="hint">Only as accurate as your logging: days with forgotten snacks make your burn look lower than it is.</p>`;
   if ($('viewTrends').classList.contains('anim') || chartAnim) { const n = $('burnNum'); n._v = 0; animateNum(n, r50(e.burn), undefined, 800); }
@@ -2736,7 +2773,7 @@ function renderTrends() {
      week's average with the week before instead. 30 and 90 days are as before. */
   if (range < RATE_MIN_DAYS) {
     const wb = avgBetween(arr, shift(to, -13), shift(to, -7));
-    $('tChangeK').textContent = 'Vs last week'; $('tChange').textContent = now != null && wb != null ? sgn(now - wb) : '–';
+    $('tChangeK').textContent = 'Vs 7 days ago'; $('tChange').textContent = now != null && wb != null ? sgn(now - wb) : '–';
   } else {
     $('tChangeK').textContent = 'Change';
     $('tChange').textContent = inR.length >= 2 ? sgn(avgBetween(arr, shift(to, -6), to) - avgBetween(arr, inR[0].date, shift(inR[0].date, 6))) : '–';
@@ -2790,12 +2827,12 @@ function renderTrends() {
     colorFor: (v, d) => { const D = dayT(d); return kcalOver(v, D) ? 'var(--warn)' : kcalIn(v, D) ? 'var(--protein)' : 'var(--accent)'; } }) : empty;
   $('tProChart').innerHTML = logged.length ? barChart(days, tots.map(t => t && t.pro), {
     line: T.protein, ticks: [50, 100, 150, 200, 250], label: 'Daily protein',
-    colorFor: v => proHit(v) ? 'var(--protein)' : 'var(--accent)' }) : empty;
+    colorFor: (v, d) => proHit(v, baseT(d)) ? 'var(--protein)' : 'var(--accent)' }) : empty;
   $('tCalNote').textContent = logged.length ? 'Green band is your cut range. Tap a bar to open that day.' : '';
   safe(() => renderFibChart(days)); safe(() => renderMacChart(days));
   $('tProNote').textContent = logged.length ? `Dashed line is your ${T.protein}g target.` : '';
   $('tProHist').hidden = !logged.length;   // v87
-  const inRange = days.filter((d, i) => tots[i] && kcalIn(tots[i].kcal, dayT(d))).length, hit = logged.filter(t => proHit(t.pro)).length;
+  const inRange = days.filter((d, i) => tots[i] && kcalIn(tots[i].kcal, dayT(d))).length, hit = days.filter((d, i) => tots[i] && proHit(tots[i].pro, baseT(d))).length;
   $('tDays').textContent = `last ${range} days`;
   $('tInRange').textContent = logged.length ? `${inRange}/${logged.length}` : '–';
   $('tProHit').textContent = logged.length ? `${hit}/${logged.length}` : '–';
@@ -2847,7 +2884,7 @@ function runLength(test) {             // consecutive days ending today (or yest
   return n;
 }
 const logStreak = () => runLength(d => entriesFor(d).length > 0);
-const proStreak = () => runLength(d => { const t = dayTotals(d); return !!t && proHit(t.pro); });
+const proStreak = () => runLength(d => { const t = dayTotals(d); return !!t && proHit(t.pro, baseT(d)); });
 function trendNow() {
   const t = todayIso(), w = weightsArr().filter(x => x.date >= shift(t, -6));
   if (w.length >= 3) return w.reduce((a, x) => a + x.lb, 0) / w.length;
@@ -3481,7 +3518,8 @@ const GUIDE = [
       '<b>Your real burn</b>: after about 4 weeks, how many calories you actually burn, worked out from what you ate and how your weight moved. No watch needed.',
       'Charts for calories, protein, carbs (with your average protein, carbs and fat split) and fibre. Tap a bar to open that day.')}
     ${gTip('When your calories should change, a <b>Calorie check-in pop-up</b> asks you first, at most once a week. <b>Yes</b> updates your target; <b>Not now</b> leaves it.')}
-    ${gMore('The weekly rate always uses at least 14 days of weigh-ins, because one week is mostly water. On the 7-day view, <b>Vs last week</b> compares this week\'s average with the week before.',
+    ${gMore('The weekly rate always uses at least 14 days of weigh-ins, because one week is mostly water. On the 7-day view, <b>Vs 7 days ago</b> compares the last 7 days\' average with the 7 days before (the weekly check-in compares whole Monday-to-Sunday weeks, so the two can differ).',
+      'A new calorie or protein target counts from the day you set it. Earlier days, the check-in and History keep the range you had then.',
       'The middle number is your <b>7-day average</b> on the 7-day view, and the average of every weigh-in in the range on 30 and 90 days (it says <b>Since</b> a date when your weigh-ins start later than that).',
       `Your real burn uses your weight trend line and leaves out your first 2 weeks of weigh-ins (early loss is mostly water). Big changes are suggested in steps of up to ${BURN_STEP} kcal.`,
       'On a cut, a day a little under your range still counts as <b>on target</b>. Only days more than 300 kcal under it are flagged.',
@@ -3738,7 +3776,7 @@ function monthStats(m) {
   const tots = days.map(dayTotals).filter(Boolean), n = tots.length, avg = k => n ? tots.reduce((a, x) => a + x[k], 0) / n : null;
   const ws = weightsArr().filter(w => ym(w.date) === m).map(w => w.lb);
   return { m, n, kcal: avg('kcal'), pro: avg('pro'), inRange: days.filter(x => { const tt = dayTotals(x); return tt && kcalIn(tt.kcal, dayT(x)); }).length,
-    proHit: tots.filter(x => proHit(x.pro)).length, miss: days.filter(x => first && x >= first && !dayTotals(x)).length,
+    proHit: days.filter(x => { const tt = dayTotals(x); return tt && proHit(tt.pro, baseT(x)); }).length, miss: days.filter(x => first && x >= first && !dayTotals(x)).length,
     wavg: ws.length ? ws.reduce((a, b) => a + b, 0) / ws.length : null, weighs: ws.length, wlo: ws.length ? Math.min(...ws) : null, whi: ws.length ? Math.max(...ws) : null };
 }
 const monthList = () => { const out = [], s = historyStart(); for (let m = ym(todayIso()); m >= s; m = addMonth(m, -1)) out.push(m); return out; };
@@ -3775,7 +3813,7 @@ function historyCal(m) {
   for (let w = weekStart(days[0]); w <= last; w = shift(w, 7)) {
     for (let i = 0; i < 7; i++) {
       const x = shift(w, i); if (ym(x) !== m) { h += '<span class="hc out"></span>'; continue; }
-      const tt = dayTotals(x), c = dayClass(x, tt, t, first), pro = tt && proHit(tt.pro), dt = parseIso(x), fr = !!freeOf(x);
+      const tt = dayTotals(x), c = dayClass(x, tt, t, first), pro = tt && proHit(tt.pro, baseT(x)), dt = parseIso(x), fr = !!freeOf(x);
       const say = `${dt.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}${fr ? ', free day' : ''}: ${tt ? `${kc(tt.kcal)} kcal, ${Math.round(tt.pro)}g protein` : c === 'miss' ? 'not logged' : 'nothing logged'}`;
       h += `<button class="hc ${c}${fr ? ' fr' : ''}" data-hd="${x}"${c === 'ahead' ? ' disabled' : ''} aria-label="${esc(say)}"><i>${dt.getDate()}</i><em>${tt ? kc(tt.kcal) : c === 'miss' ? '–' : ''}</em><s${pro ? ' class="on"' : ''}></s></button>`;
     }
@@ -4616,7 +4654,8 @@ function planScore(items, base, T, recent, pairs) {
   let k = base.kcal, p = base.pro, ideas = 0, fam = 0; const per = {};
   for (const it of items) { const a = it.c.at[it.s]; k += a.kcal; p += a.pro; if (it.c.idea) ideas++; fam += Math.min(it.c.freq, 8); per[it.slot] = (per[it.slot] || 0) + 1; }
   const mid = (T.calLo + T.calHi) / 2;
-  let sc = (Math.round(k) < T.calLo ? 40 + (T.calLo - k) * 8 : 0) + (Math.round(k) > T.calHi ? 40 + (k - T.calHi) * 8 : 0) + Math.abs(k - mid) * 0.15;
+  let sc = (Math.round(k) < T.calLo ? 40 + (T.calLo - k) * 8 : 0) + (Math.round(k) > T.calHi ? 40 + (k - T.calHi) * 30 : 0) + Math.abs(k - mid) * 0.15;
+  /* v115: going over the top costs more than a gram of protein, so a plan never trades a few kcal over the range for protein it can't reach anyway (BH25 landed at 2,408 of 2,400 now and then) */
   sc += Math.max(0, T.protein - p) * 12 + (proHit(p, T) ? 0 : 60) + Math.max(0, p - T.protein - 30) * 0.5;   // showing 179 of 180 is a miss
   if (ideas > 2) sc += 1e4; if (ideas === 2) sc += 70; if (!ideas && items.length) sc += 25;   // one home idea is the norm, two now and then
   const bySlot = {}; items.forEach(it => (bySlot[it.slot] ||= []).push(it));
@@ -4919,7 +4958,7 @@ function lastWeek() {
   const arr = weightsArr(), wNow = avgBetween(arr, ws, we), wPrev = avgBetween(arr, shift(ws, -7), shift(ws, -1));
   return { ws, we, n: days.length, avgK: days.length ? days.reduce((s, x) => s + x.kcal, 0) / days.length : null,
     avgP: days.length ? days.reduce((s, x) => s + x.pro, 0) / days.length : null,
-    inRange: days.filter(x => kcalIn(x.kcal, x.T)).length, proHit: days.filter(x => proHit(x.pro)).length,
+    inRange: days.filter(x => kcalIn(x.kcal, x.T)).length, proHit: days.filter(x => proHit(x.pro, x.T)).length,
     onTarget: days.filter(x => kcalOnTarget(x.kcal, x.T)).length, low: mode() === 'lose' ? days.filter(x => kcalLow(x.kcal, x.T)).length : 0, lowAt: [...new Set(days.filter(x => kcalLow(x.kcal, x.T)).map(x => x.T.calLo - LOW_GAP))],   // v109: pay-back days have a lower floor   // v76
     free: fi && { ...fi, kcal: fd ? fd.kcal : null, ok: fd ? !kcalOver(fd.kcal, fd.T) : null },   // v99
     wChange: wNow != null && wPrev != null ? wNow - wPrev : null };
@@ -4945,7 +4984,7 @@ function renderCheckin() {
   const sug0 = goalSuggestion(m), sug = sug0 && sug0.src === 'burn' ? { ...sug0, ...burnStep(sug0.lo, sug0.hi, T) } : sug0;   // v79: one step at a time
   let adj;
   if (sug && sug.src === 'burn' && (Math.abs(sug.lo - T.calLo) >= 100 || Math.abs(sug.hi - T.calHi) >= 100))
-    adj = `<div class="ci-adj"><p class="hint">Your real burn now suggests <b>${kc(sug0.lo)}–${kc(sug0.hi)} kcal</b> for ${MODES[m]}. You're set to ${kc(T.calLo)}–${kc(T.calHi)}.${sug.capped ? ` That's a big change, so ${sug.lo > T.calLo ? 'go up' : 'come down'} ${BURN_STEP} kcal first and check again next week.` : ''}</p>
+    adj = `<div class="ci-adj"><p class="hint">Your real burn now suggests <b>${kc(sug0.lo)}–${kc(sug0.hi)} kcal</b> for ${MODES[m]}. You're set to ${kc(T.calLo)}–${kc(T.calHi)}.${sug.capped ? (sug.rest < STEP_NEAR ? ` Going ${sug.lo > T.calLo ? 'up' : 'down'} ${BURN_STEP} kcal gets you within ${sug.rest} kcal of it, which is close enough.` : ` That's a big change, so ${sug.lo > T.calLo ? 'go up' : 'come down'} ${BURN_STEP} kcal first and check again next week.`) : ''}</p>${pbClash(sug.lo > T.calLo) ? `<p class="hint pb-clash" id="ciPb">${esc(pbClash(true).txt)}</p>` : ''}
       <button class="btn ghost" id="ciUse">Update my targets to ${kc(sug.lo)}–${kc(sug.hi)}</button></div>`;
   else if (sug && sug.src === 'burn') adj = '<p class="hint">Your targets still match your real burn. Nothing to change.</p>';
   else adj = '<p class="hint">After about 4 weeks of logging and weighing in, your check-in can suggest target changes from your real burn.</p>';
@@ -4957,7 +4996,7 @@ function renderCheckin() {
       <div><span class="v">${w.proHit}/${w.n}</span><span class="k">protein days</span></div>
       <div><span class="v">${w.n}/7</span><span class="k">days logged</span></div>
     </div>
-    <p class="ci-verdict">${esc(verdict)}</p>${w.n >= RC_MIN ? '<button class="linkbtn" id="ciShare" type="button">Share your week as a recap</button>' : ''}${w.free && w.free.kcal != null ? `<p class="hint" id="ciFree">${esc(DAY_NAME(w.free.d))} was your free day: ${kc(w.free.kcal)} kcal${w.free.ok ? ', counted as on plan' : `, over its ${kc(S.targets.calHi + w.free.extra)} limit`}.${pbAbout(w.free.d) ? ` ${esc(pbAbout(w.free.d).ci)}` : w.free.cut ? ` The other days were ${kc(w.free.cut)} kcal less to pay for it.` : ''}</p>` : ''}${w.low ? `<p class="hint" id="ciLow">${w.low === 1 ? '1 day was' : `${w.low} days were`} ${w.lowAt && w.lowAt.length > 1 ? `more than ${LOW_GAP} kcal under their range` : `under ${kc(w.lowAt && w.lowAt.length ? w.lowAt[0] : T.calLo - LOW_GAP)} kcal`}. Now and then is fine; eating that little often can cost muscle and energy.</p>` : ''}${adj}`;
+    <p class="ci-verdict">${esc(verdict)}</p>${w.n >= RC_MIN ? '<button class="linkbtn" id="ciShare" type="button">Share your week as a recap</button>' : ''}${w.free && w.free.kcal != null ? `<p class="hint" id="ciFree">${esc(DAY_NAME(w.free.d))} was your free day: ${kc(w.free.kcal)} kcal${w.free.ok ? ', counted as on plan' : `, over its ${kc(baseT(w.free.d).calHi + w.free.extra)} limit`}.${pbAbout(w.free.d) ? ` ${esc(pbAbout(w.free.d).ci)}` : w.free.cut ? ` The other days were ${kc(w.free.cut)} kcal less to pay for it.` : ''}</p>` : ''}${w.low ? `<p class="hint" id="ciLow">${w.low === 1 ? '1 day was' : `${w.low} days were`} ${w.lowAt && w.lowAt.length > 1 ? `more than ${LOW_GAP} kcal under their range` : `under ${kc(w.lowAt && w.lowAt.length ? w.lowAt[0] : T.calLo - LOW_GAP)} kcal`}. Now and then is fine; eating that little often can cost muscle and energy.</p>` : ''}${adj}`;
   if ($('ciShare')) $('ciShare').onclick = () => { haptic(); openRecap('week'); };   // v98
   if ($('ciUse')) $('ciUse').onclick = () => {
     const old = { ...S.targets };
@@ -5027,7 +5066,7 @@ function recapStats(p) {
     w = { w0, w1, ch: w1 - w0, days, rate: (w1 - w0) / days * 7, pts: win, trend: tr, d0: win[0].date, d1: win[win.length - 1].date };
   }
   const good = mode() === 'lose' ? tot.filter(x => kcalOnTarget(x.kcal, dayT(x.d))).length : tot.filter(x => kcalIn(x.kcal, dayT(x.d))).length;   // v99
-  return { p, n, total: ds.length, kcal: avg('kcal'), pro: avg('pro'), proDays: tot.filter(x => proHit(x.pro)).length, best, streak, early, top, w, good,
+  return { p, n, total: ds.length, kcal: avg('kcal'), pro: avg('pro'), proDays: tot.filter(x => proHit(x.pro, baseT(x.d))).length, best, streak, early, top, w, good,
     days: tot, from, to: ds[ds.length - 1] || from, protein: T.protein, calLo: T.calLo, calHi: T.calHi };
 }
 /* ---- drawing ---- */
@@ -5299,7 +5338,7 @@ function adjOffer() {
     if (Math.abs(st.lo - T.calLo) >= 100 || Math.abs(st.hi - T.calHi) >= 100) {
       const gap = (sug.lo + sug.hi) / 2 - (T.calLo + T.calHi) / 2;
       return { kind: 'burn', lo: st.lo, hi: st.hi, steps: Math.max(1, Math.ceil(Math.abs(gap) / BURN_STEP - 0.2)),
-        why: `Your real burn is about ${kc(r50(sug.burn))} kcal a day, so ${MODES[m].toLowerCase()} is about ${kc(sug.lo)}\u2060–\u2060${kc(sug.hi)}.${st.capped ? ` Going ${st.lo > T.calLo ? 'up' : 'down'} ${BURN_STEP} at a time lets next week's weigh-ins check it.` : ''}` };
+        why: `Your real burn is about ${kc(r50(sug.burn))} kcal a day, so ${MODES[m].toLowerCase()} is about ${kc(sug.lo)}\u2060–\u2060${kc(sug.hi)}.${st.capped && st.rest >= STEP_NEAR ? ` Going ${st.lo > T.calLo ? 'up' : 'down'} ${BURN_STEP} at a time lets next week's weigh-ins check it.` : ''}${pbClash(st.lo > T.calLo) ? ` ${pbClash(true).txt}` : ''}` };
     }
   }
   // trend watch
@@ -5314,7 +5353,7 @@ function adjOffer() {
   const base = `Your trend line has ${moved} a week over the last 2 weeks, ${pace}.`;
   if (logged < ADJ_LOGGED) return { kind: 'log', why: `${base} But only ${logged} of the last ${RATE_MIN_DAYS} days are logged, so Cut Log can't tell whether your calories need to change. Log everything for a week and it will check again.` };
   const st = adjStepOf(T, dir); if (st.lo === T.calLo && st.hi === T.calHi) return null;
-  return { kind: 'trend', lo: st.lo, hi: st.hi, steps: 1, why: base };
+  return { kind: 'trend', lo: st.lo, hi: st.hi, steps: 1, why: base + (pbClash(dir > 0) ? ` ${pbClash(true).txt}` : '') };
 }
 function adjCheck() {
   adjPending = false;
@@ -5354,6 +5393,7 @@ $('adjNo').onclick = () => adjClose(false);
    set the app up don't get it). Always available in You → Help. Last seen version: localStorage cutlog.seenV (per device).
    Every release adds an entry at the top, in plain words for everyone who uses Cut Log. */
 const CHANGELOG = [
+  { v: 115, d: '2026-11-13', items: ['Changing your calorie or protein target now counts from that day on. Last week\'s check-in, History and a free day\'s pay-back keep the range you had then.', 'Your real burn, the weekly check-in and the calorie pop-up now mention it when you\'re paying back a big day while they suggest eating more, since the two mostly cancel.', 'Trends: the 7-day weight tile now reads Vs 7 days ago, so it isn\'t mixed up with the check-in\'s Monday-to-Sunday weeks.'] },
   { v: 114, d: '2026-11-11', items: ['Today: meals you built now have an ⓘ next to their name. Tap it to see the ingredients, with the calories, protein, carbs and fat of each, scaled to how much you logged.'] },
   { v: 113, d: '2026-11-10', items: ['My meals: tap Organize to drag your meals into the order you want. The new order shows wherever you pick a meal.', 'Trends: on 30 and 90 days, the middle weight number is now the average for that range, not the last 7 days.'] },
   { v: 112, d: '2026-11-10', items: ['Plan my day: every planned food now has an × to take it out, and tapping a food lets you change it (on Tomorrow too). A meal you change is locked, so Shuffle leaves it alone. The lock is now a switch beside each meal\'s name, and the buttons under a meal are Add food and Decide later.'] },
@@ -6065,7 +6105,7 @@ $('importIn').onchange = async () => {
     if (data?.v !== 1 || typeof data.log !== 'object') throw new Error('bad');
     if (!confirm('Replace everything in the app with this backup?')) return;
     msSilent = true;
-    S = Object.assign(seed(), data); S.onboarded = true; S.slotPref ||= {}; S.milestones ||= {}; S.targets = Object.assign({ mode: 'lose' }, S.targets); S.dirty = []; touchAll();
+    S = Object.assign(seed(), data); S.onboarded = true; S.slotPref ||= {}; S.milestones ||= {}; S.targets = Object.assign({ mode: 'lose' }, S.targets); S.dirty = []; if (!S.targets.rng) noteTargets(); touchAll();
     setTimeout(() => { msSilent = false; }, 0); hideOnboarding(); renderAll(); toast('Backup restored');
   } catch (e) { toast("That file isn't a Cut Log backup."); }
 };

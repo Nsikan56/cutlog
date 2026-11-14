@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '116';
+const APP_V = '117';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -2575,6 +2575,13 @@ function pbAbout(d) {
   const ci = stopped ? `Pay it back was stopped part way (${kc(s.over - s.left)} of ${kc(s.over)} kcal).` : done ? `It was paid back over the ${n} days after.` : `It’s being paid back over the ${n} days after it.`;
   return { short, long, ci, n };
 }
+/* v117: what stopping did, in words */
+function pbStopTxt(p) {
+  const t = todayIso(), T = dayT(t), r = `${kc(T.calLo)}–${kc(T.calHi)}`;
+  if (!p.stop || p.stop <= t) return `Today is back to ${r}.`;
+  if (p.stop === shift(t, 1)) return `Today’s done, so it stays at ${r}. Your usual range is back tomorrow.`;
+  return `Your usual range is back on ${pbDate(p.stop)}.`;
+}
 function pbActive() { return mode() === 'gain' ? null : pbList().find(p => !p.stop && (pbSched(p).end || '') >= todayIso()) || null; }
 /* where the current settings start: today, or next Monday when a budgeted free day this week would leave fewer than 4 days to pay */
 function freeStart(f, t) {
@@ -3545,7 +3552,7 @@ const GUIDE = [
     ${gMore('Protein stays the same on a free day.',
       'Tap <b>✦ Free day</b> on Today to see the numbers, or skip that one.',
       'A higher weigh-in the morning after is water and salt, not fat.',
-      'Pay it back never drops below 1,800 kcal a day (or 200 under your range, if your range is lower). Going over a lowered day adds to what\'s left. Tap <b>Paying back</b> on Today to see how much is left, or stop it.')}`, 'i-star', 'Eat more, or make up for it'],
+      'Pay it back never drops below 1,800 kcal a day (or 200 under your range, if your range is lower). Going over a lowered day adds to what\'s left. Tap <b>Paying back</b> on Today to see how much is left, or stop it. Stopping before your latest meal time puts today back to your usual range too; after it, today stays and it ends from tomorrow.')}`, 'i-star', 'Eat more, or make up for it'],
   ['Settings and reminders', `<p class="g-lead">Make Cut Log yours in the <b>You</b> tab.</p>
     ${gStep('<b>Goal</b>: Cutting, Maintaining or Building, with suggested targets.',
       '<b>Meal times</b>: when you usually eat. Plan my day and reminders use them. If your days off look different, turn on <b>different times on off days</b>.',
@@ -5410,6 +5417,7 @@ $('adjNo').onclick = () => adjClose(false);
    set the app up don't get it). Always available in You → Help. Last seen version: localStorage cutlog.seenV (per device).
    Every release adds an entry at the top, in plain words for everyone who uses Cut Log. */
 const CHANGELOG = [
+  { v: 117, d: '2026-11-13', items: ['Stop paying it back now works on today too, as long as your latest meal time hasn\'t passed: today goes straight back to your usual range. After that time, today is done, so it stays and the pay-back ends from tomorrow. The message and Today now say which one happened.'] },
   { v: 116, d: '2026-11-13', items: ['Plan my day: tap the ⓘ beside a built meal to see what\'s in it, with each ingredient\'s calories, protein, carbs and fat. It works for meals you\'ve logged and for meals the plan suggests, at the planned amount.'] },
   { v: 115, d: '2026-11-13', items: ['Changing your calorie or protein target now counts from that day on. Last week\'s check-in, History and a free day\'s pay-back keep the range you had then.', 'Your real burn, the weekly check-in and the calorie pop-up now mention it when you\'re paying back a big day while they suggest eating more, since the two mostly cancel.', 'Trends: the 7-day weight tile now reads Vs 7 days ago, so it isn\'t mixed up with the check-in\'s Monday-to-Sunday weeks.'] },
   { v: 114, d: '2026-11-11', items: ['Today: meals you built now have an ⓘ next to their name. Tap it to see the ingredients, with the calories, protein, carbs and fat of each, scaled to how much you logged.'] },
@@ -5737,7 +5745,8 @@ function pbWhen(d) { return freeWhen(d).replace(/^./, c => c.toUpperCase()); }
 function renderPbLine() {
   const el = $('pbLine'); if (!el) return;
   const t = todayIso(), T = dayT(day); let txt = '', d = null;
-  if (T.pbDay) { d = T.pbDay.p.d; txt = `<b>Paying back</b><span>${kc(T.pbDay.eff)} kcal less ${day === t ? 'today' : 'that day'}</span>`; }
+  if (T.pbDay) { d = T.pbDay.p.d; const lastDay = day === t && T.pbDay.p.stop === shift(t, 1);   // v117: stopped from tomorrow
+    txt = `<b>${lastDay ? 'Stopped' : 'Paying back'}</b><span>${lastDay ? `${kc(T.pbDay.eff)} less, last day` : `${kc(T.pbDay.eff)} kcal less ${day === t ? 'today' : 'that day'}`}</span>`; }
   else if (T.pbOver) { const p = T.pbOver, s = pbSched(p); d = p.d;
     if (p.stop && s.left > 0.5) txt = `<b>Pay-back stopped</b><span>${kc(s.over - s.left)} of ${kc(s.over)}</span>`;
     else if (!s.end || s.end < t) txt = `<b>Paid back ✓</b><span>${kc(s.over)} kcal</span>`;
@@ -5764,11 +5773,14 @@ function openPayback(d) {
       <p class="fd-p" id="pbWhat"><b>${esc(pbWhen(mine.d))}: ${kc(s.over)} kcal over.</b><br>${done ? (mine.stop && s.left > 0.5 ? `Stopped with ${kc(s.over - s.left)} kcal paid back.` : `Paid back. You’re on your usual ${range} again.`)
         : `Being paid back at ${kc(s.cut)} kcal less a day${first ? ` (${kc(first.lo)}–${kc(first.hi)})` : ''}.`}</p>
       ${done ? '' : `<p class="hint" id="pbProg">Paid so far: ${kc(Math.max(0, s.paid))} of ${kc(s.over)} kcal. ${now ? `Today: ${kc(now.lo)}–${kc(now.hi)}. ` : ''}${ahead} day${ahead === 1 ? '' : 's'} to go; back to ${range} on ${esc(pbDate(shift(s.end, 1)))}.</p>`}
-      ${done ? '' : `<p class="hint">${esc(rule)}</p><button class="btn ghost" id="pbStop" type="button">Stop paying it back</button>`}`);
+      ${done ? '' : mine.stop ? `<p class="hint" id="pbStopped">Stopped. ${esc(pbStopTxt(mine))}</p>` : `<p class="hint">${esc(rule)}</p><button class="btn ghost" id="pbStop" type="button">Stop paying it back</button>`}`);
     if ($('pbStop')) $('pbStop').onclick = () => {
-      const before = S.targets.payback, stop = s.days[t] && !dayTotals(t) ? t : shift(t, s.days[t] ? 1 : 0);
-      S.targets = { ...S.targets, payback: pbList().map(p => p === mine ? { ...p, stop: p.from > stop ? p.from : stop } : p) }; touchMeta(); closeSheet(); renderAll(); haptic();
-      toast('Stopped paying it back', { label: 'Undo', fn: () => { S.targets = { ...S.targets, payback: before }; touchMeta(); renderAll(); } });
+      /* v117 (Kan, 13 Nov, 8 pm: "Nothing happened it still says paying back"): today stops too while there's still eating ahead (before
+         your latest meal time, or nothing logged yet). After it, today is done, so it stays and the pay-back ends from tomorrow, and says so. */
+      const before = S.targets.payback, todayToo = s.days[t] && (!dayTotals(t) || nowH() < dayTimes(t).last), stop = todayToo ? t : shift(t, s.days[t] ? 1 : 0);
+      const upd = { ...mine, stop: mine.from > stop ? mine.from : stop };
+      S.targets = { ...S.targets, payback: pbList().map(p => p === mine ? upd : p) }; touchMeta(); closeSheet(); renderAll(); haptic();
+      toast(upd.stop <= t ? `Stopped. Today: ${kc(dayT(t).calLo)}–${kc(dayT(t).calHi)}` : upd.stop === shift(t, 1) ? 'Stopped from tomorrow' : 'Stopped paying it back', { label: 'Undo', fn: () => { S.targets = { ...S.targets, payback: before }; touchMeta(); renderAll(); } });
     };
     return;
   }

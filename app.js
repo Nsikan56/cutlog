@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '115';
+const APP_V = '116';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -1920,20 +1920,31 @@ function entryIngs(e) {
     return { n: x.n, amt: `${qs} ${+qs <= 1 ? x.w1 || x.w : x.w}`, k: x.k * frac, p: x.p * frac, c: x.c != null ? x.c * frac : null, f: x.f != null ? x.f * frac : null }; });
   return { items, frac, s, live };
 }
-function openMealInfo(id) {
-  const e = entriesFor(day).find(x => x.id === id), r = entryIngs(e); if (!r) return;
+/* v116: also from Plan my day (Kan, 13 Nov: "Add the information icon too here in the plan my day"): a logged meal there, or a
+   planned one (opts.planned = its meal: worked out from the saved meal at the planned amount). opts.back reopens Plan my day. */
+function openMealInfo(id, opts = {}) {
+  const e = typeof id === 'object' ? id : entriesFor(opts.d || day).find(x => x.id === id), r = entryIngs(e); if (!r) return;
+  const verb = opts.planned ? 'planned' : 'logged';
   const allMac = r.items.every(x => x.c != null), sum = k => r.items.reduce((a, x) => a + x[k], 0);
-  const time = e.at ? new Date(e.at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : '';
+  const time = opts.planned ? `Planned for ${slotLabel(opts.planned).toLowerCase()}` : e.at ? new Date(e.at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : '';
   const amt = (e.detail || '').split(' · ')[0];
   const whole = Math.abs(r.frac - 1) < 0.005;
   const note = whole ? (r.s.s > 1 ? `The whole recipe (${r.s.s} servings).` : '')
-    : r.s.g > 0 && e.unit !== 'serving' ? `Scaled to the ${amt} you logged, from a ${kc(r.s.g)} g pot.`
-    : `Scaled to the ${amt} you logged. The recipe makes ${r.s.s} serving${r.s.s === 1 ? '' : 's'}.`;
+    : r.s.g > 0 && e.unit !== 'serving' ? `Scaled to the ${amt} you ${verb}, from a ${kc(r.s.g)} g pot.`
+    : `Scaled to the ${amt} you ${verb}. The recipe makes ${r.s.s} serving${r.s.s === 1 ? '' : 's'}.`;
   openSheet('Ingredients', `
     <div class="food-head" id="miHead"><strong>${esc(e.name)}</strong><span>${esc([amt, time].filter(Boolean).join(' · '))}</span></div>
     ${note ? `<p class="hint" id="miNote">${esc(note)}</p>` : ''}
     <div class="mi-list" id="miList">${r.items.map(x => `<div class="mi-r"><span class="n">${esc(x.n)}<small>${esc(x.amt)}${x.c != null ? ` · ${fmtG(x.c)}g carbs · ${fmtG(x.f)}g fat` : ''}</small></span><span class="c">${Math.round(x.k)}<small>kcal</small></span><span class="pill">${fmtG(x.p)}g</span></div>`).join('')}</div>
-    <div class="mi-tot" id="miTot"><span class="n">Total<small>${allMac ? `${fmtG(sum('c'))}g carbs · ${fmtG(sum('f'))}g fat` : 'Carbs and fat aren\'t known for every ingredient'}</small></span><span class="c">${Math.round(e.kcal)}<small>kcal</small></span><span class="pill">${fmtG(e.pro)}g</span></div>`);
+    <div class="mi-tot" id="miTot"><span class="n">Total<small>${allMac ? `${fmtG(sum('c'))}g carbs · ${fmtG(sum('f'))}g fat` : 'Carbs and fat aren\'t known for every ingredient'}</small></span><span class="c">${Math.round(e.kcal)}<small>kcal</small></span><span class="pill">${fmtG(e.pro)}g</span></div>
+    ${opts.back ? '<button class="btn ghost" id="miBack">Back to Plan my day</button>' : ''}`);
+  if ($('miBack')) $('miBack').onclick = () => { haptic(); opts.back(); };
+}
+/* v116: a planned meal as an entry, so its ingredients show at the planned amount (null when it isn't a built meal with ingredients) */
+function planMealEntry(x) {
+  const f = freshFood(x.food); if (f?.source !== 'meal') return null;
+  const v = planVal({ ...x, food: f });
+  return { id: 'plan', name: f.name, food: f, qty: x.qty, unit: x.unit, kcal: v.kcal, pro: v.pro, detail: `${fmtQty(x.qty)} ${unitWord(f, x.unit, x.qty)}` };
 }
 function openMeals(org) {
   /* v113: Organize (Kan, 10 Nov 2026: "drag and reposition built meals just in case we wanted to reorganize"): the order of S.meals is
@@ -3503,7 +3514,7 @@ const GUIDE = [
     ${gTip('Cooking a big pot? Weigh the food once it\'s cooked (without the pot) and enter the cooked weight. Then log whatever you dish out in grams.')}
     ${gMore('If the app closes while you\'re building a meal, it keeps your progress: My meals shows <b>Finish your unsaved meal</b>.',
       'To change the order of your meals, tap <b>Organize</b> in My meals, drag a meal by its handle, then tap <b>Done</b>. The order shows everywhere you pick a meal.',
-      'On Today, tap the <b>ⓘ</b> next to a logged meal to see its ingredients and their numbers, scaled to how much you logged. Changing the recipe later doesn\'t change days already logged.')}`, 'i-bowl', 'Build once, log in one tap'],
+      'On Today and in Plan my day, tap the <b>ⓘ</b> next to a meal to see its ingredients and their numbers, scaled to how much you logged or planned. Changing the recipe later doesn\'t change days already logged.')}`, 'i-bowl', 'Build once, log in one tap'],
   ['Weigh in', `<p class="g-lead">Your weight moves around a lot day to day. Cut Log shows the real trend underneath.</p>
     ${gStep('Choose how often in <b>You → Weigh-ins</b>: every morning, once a week, or no scale.',
       'Weigh after the bathroom, before you eat or drink.',
@@ -4762,7 +4773,13 @@ function openPlan(tab) {
   PL.tab = tab || (nowH() >= dayTimes(todayIso()).last ? 'tomorrow' : 'today');
   openSheet('Plan my day', '<div id="plWrap"></div>');
   renderPlan();
+  sheetBody.onkeydown = e => { const m = e.target.closest?.('[data-pmp]'); if (m && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); e.stopPropagation(); m.click(); } };   // v116
   sheetBody.onclick = e => {
+    const mu = e.target.closest('[data-pmu]'), mp = e.target.closest('[data-pmp]');      // v116: what's in a meal
+    if (mu || mp) { e.stopPropagation(); haptic(); const tb = PL.tab, back = () => openPlan(tb);
+      if (mu) openMealInfo(mu.dataset.pmu, { d: todayIso(), back });
+      else { const d = planDay(), x = planStore().plans?.[d]?.items?.[+mp.dataset.pmp], pe = x && planMealEntry(x); if (pe) openMealInfo(pe, { planned: x.slot, back }); }
+      return; }
     const t = e.target.closest('[data-pt]'), lg = e.target.closest('[data-pl]'), it = e.target.closest('[data-pi]');
     const ch = e.target.closest('[data-pc]'), lk = e.target.closest('[data-pk]'), rm = e.target.closest('[data-px]');
     const lt = e.target.closest('[data-plt]'), pa = e.target.closest('[data-pa]'), un = e.target.closest('[data-pu]');
@@ -4908,7 +4925,7 @@ function renderPlan() {
   const sum = `<div class="result" id="plSum"><div><span class="num">${kc(tot.kcal)}</span><small>kcal${pw}</small></div><div class="pro"><span class="num">${fmtG(tot.pro)}g</span><small>protein${pw}</small></div></div><p class="hint pl-target" id="plTarget">${T.pbDay ? `<b id="plPb">Paying back ${kc(T.pbDay.eff)} kcal.</b> ` : ''}${T.fday ? `<b id="plFree">✦ Free day${T.fday.extra > 0 ? '' : ', no limit'}.</b> ` : ''}${T.fday && !(T.fday.extra > 0) ? 'Planned on your usual range; add what you like. Targets' : 'Your targets'}: ${kc(T.calLo)}–${kc(T.calHi)} kcal and ${T.protein}g protein${ctx.isToday && ctx.done.length ? ', counting what you’ve logged' : ''}${later.length ? `, with room kept for ${names(later)}` : ''}.</p>`;
   const groups = SLOTS.map(([s, label]) => {
     if (ctx.done.includes(s)) { const g = ctx.es.filter(e => slotOf(e) === s), k = g.reduce((a, e) => a + e.kcal, 0), pr = g.reduce((a, e) => a + e.pro, 0);
-      const lr = g.map(e => `<div class="meal-row"><div class="item"><span class="nm">${esc(e.name)}<small>${esc(e.detail || '')}</small></span><span class="meta">${kc(e.kcal)} kcal · ${fmtG(e.pro)}g</span></div><button class="x" data-pu="${esc(e.id)}" aria-label="Take ${esc(e.name)} back out">${icon('i-x')}</button></div>`).join('');   // v95
+      const lr = g.map(e => `<div class="meal-row"><div class="item"><span class="nm">${esc(e.name)}${e.food?.source === 'meal' && entryIngs(e) ? `<button class="mi-b" type="button" data-pmu="${esc(e.id)}" aria-label="What's in ${esc(e.name)}">${icon('i-info')}</button>` : ''}<small>${esc(e.detail || '')}</small></span><span class="meta">${kc(e.kcal)} kcal · ${fmtG(e.pro)}g</span></div><button class="x" data-pu="${esc(e.id)}" aria-label="Take ${esc(e.name)} back out">${icon('i-x')}</button></div>`).join('');   // v95
       return `<div class="pl-slot pl-done" data-slot="${s}"><div class="mg-h"><span>${label}</span><span class="mg-t">Logged ✓ · ${kc(k)} kcal · ${fmtG(pr)}g</span></div><div class="list pl-logged">${lr}</div></div>`; }
     if (!ctx.avail.includes(s)) return '';
     if (later.includes(s)) { const r = room[s], lab = label.toLowerCase();
@@ -4921,7 +4938,7 @@ function renderPlan() {
     const isLate = ctx.late.includes(s);   // v102
     const lock = !isLate && g.every(x => x.lock), v = g.reduce((a, x) => { const y = planVal(x); return { kcal: a.kcal + y.kcal, pro: a.pro + y.pro }; }, { kcal: 0, pro: 0 });
     const rows = g.map(x => { const y = planVal(x), amt = `${fmtQty(x.qty)} ${unitWord(x.food, x.unit, x.qty)}${x.oil ? ` · ${OIL[x.oil].d}` : ''}`;
-      const btn = `<button class="item" data-pi="${x.i}" aria-label="${esc(x.food.name)}, ${esc(amt)}. Tap to change it"><span class="nm">${esc(x.food.name)}${x.idea ? '<i class="pl-tag">Idea</i>' : ''}<small>${esc(amt)}</small></span><span class="meta">${kc(y.kcal)} kcal · ${fmtG(y.pro)}g</span></button>`;
+      const btn = `<button class="item" data-pi="${x.i}" aria-label="${esc(x.food.name)}, ${esc(amt)}. Tap to change it"><span class="nm">${esc(x.food.name)}${(pe => pe && entryIngs(pe) ? `<span class="mi-b" role="button" tabindex="0" data-pmp="${x.i}" aria-label="What's in ${esc(x.food.name)}">${icon('i-info')}</span>` : '')(planMealEntry(x))}${x.idea ? '<i class="pl-tag">Idea</i>' : ''}<small>${esc(amt)}</small></span><span class="meta">${kc(y.kcal)} kcal · ${fmtG(y.pro)}g</span></button>`;
       return `<div class="meal-row">${btn}<button class="x" data-px="${x.i}" aria-label="Take ${esc(x.food.name)} out">${icon('i-x')}</button></div>`; }).join('');   // v112: every food, suggested or chosen
     if (isLate) return `<div class="pl-slot pl-late" data-slot="${s}"><div class="mg-h"><span>${label}<i class="pl-tag">Late</i></span><span class="mg-t">${kc(v.kcal)} kcal · ${fmtG(v.pro)}g</span></div><p class="hint pl-room" id="plLate-${s}">Past your usual ${label.toLowerCase()} time, so it stays as planned. Still having it? Log it when you do. If not, skip it and the rest is re-planned.</p><div class="list">${rows}</div>`
       + `<button class="btn ghost pl-log" data-pl="${s}">Log ${label.toLowerCase()} · ${kc(v.kcal)} kcal</button><div class="pl-acts"><button class="linkbtn" data-psk="${s}">Skip ${label.toLowerCase()}</button></div></div>`;
@@ -5393,6 +5410,7 @@ $('adjNo').onclick = () => adjClose(false);
    set the app up don't get it). Always available in You → Help. Last seen version: localStorage cutlog.seenV (per device).
    Every release adds an entry at the top, in plain words for everyone who uses Cut Log. */
 const CHANGELOG = [
+  { v: 116, d: '2026-11-13', items: ['Plan my day: tap the ⓘ beside a built meal to see what\'s in it, with each ingredient\'s calories, protein, carbs and fat. It works for meals you\'ve logged and for meals the plan suggests, at the planned amount.'] },
   { v: 115, d: '2026-11-13', items: ['Changing your calorie or protein target now counts from that day on. Last week\'s check-in, History and a free day\'s pay-back keep the range you had then.', 'Your real burn, the weekly check-in and the calorie pop-up now mention it when you\'re paying back a big day while they suggest eating more, since the two mostly cancel.', 'Trends: the 7-day weight tile now reads Vs 7 days ago, so it isn\'t mixed up with the check-in\'s Monday-to-Sunday weeks.'] },
   { v: 114, d: '2026-11-11', items: ['Today: meals you built now have an ⓘ next to their name. Tap it to see the ingredients, with the calories, protein, carbs and fat of each, scaled to how much you logged.'] },
   { v: 113, d: '2026-11-10', items: ['My meals: tap Organize to drag your meals into the order you want. The new order shows wherever you pick a meal.', 'Trends: on 30 and 90 days, the middle weight number is now the average for that range, not the last 7 days.'] },

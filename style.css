@@ -68,6 +68,8 @@ svg{display:block}
 .ring-l{font-size:13px;color:var(--hero-muted);text-align:center}
 .status{margin:0;font-size:14px;line-height:1.4;padding:10px 12px;border-radius:12px;background:rgba(255,255,255,.07);color:var(--hero-ink)}
 .status.ok{background:rgba(79,214,156,.16)} .status.hi{background:rgba(255,155,94,.16)}
+/* v118: under the status, what range you're really on (a pay-back day, or a range that just changed) */
+.rng-note{margin:8px 4px 0;font-size:13px;line-height:1.4;color:var(--hero-ink);opacity:.72}
 
 /* actions */
 .actions{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}

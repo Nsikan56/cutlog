@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '117';
+const APP_V = '118';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -103,7 +103,8 @@ function load() {
   return seed();
 }
 let S = load();
-if (S.targets && !S.targets.rng) noteTargets();   // v115: the range in use now, so the first change keeps the old one for past days
+if (S.targets && !S.targets.rng) noteTargets();   // v115
+if (histFix118()) { S.stamps.meta = Date.now(); markDirty('meta'); persist(); }   // v118: the range in use now, so the first change keeps the old one for past days
 function applyTheme() {
   const c = S.theme || 'cobalt';
   if (c === 'cobalt') document.documentElement.removeAttribute('data-accent'); else document.documentElement.setAttribute('data-accent', c);
@@ -464,6 +465,7 @@ function renderTotals() {
   else if (cal <= T.calHi) { st.className = 'status ok'; st.textContent = T.fday ? 'In your free day range.' : 'In your range for today.'; }
   else if (T.pbDay) { st.className = 'status hi'; st.textContent = `${(cal - T.calHi).toLocaleString()} kcal over ${day === todayIso() ? 'today’s' : 'that day’s'} lower range. It’s added to what you’re paying back.`; }   // v109
   else { st.className = 'status hi'; st.textContent = `${(cal - T.calHi).toLocaleString()} kcal over your range. One day like this is fine; the weekly trend decides.`; }
+  safe(renderRngNote);
   safe(renderFits); safe(renderFreeLine); safe(renderPbLine); safe(renderWeek); safe(renderCiBanner); safe(renderRcBanner); safe(renderNudge); safe(renderNut); safe(renderGuideBanner); safe(renderEstBanner); safe(renderPlanBtn);
 }
 let shownRows = { day: null, ids: new Set() };
@@ -739,14 +741,14 @@ function quipReveal(key) {
 
 /* =================== v105: WITTY GREETING ===================
    Kan, 7 Nov 2026: "where it says good evening Kan ... witty things like late night snack or ... for breakfast, ... for lunch,
-   from what it knows you usually eat, once in a while". The header line sometimes (about 2 times in 5, the same all day part
+   from what it knows you usually eat, once in a while". The header line sometimes (about 2 times in 5, v118: 3 in 5 plus one sure meal a day; the same all day part
    on every device; always the first time after this update) swaps "Good evening, Kan" for a line about this part of the day:
    breakfast, lunch, an afternoon snack, dinner or late night, using that day's own meal times (off days too). With a food:
    the one you've had most in that meal over the last 4 weeks (3+ days), named short ("shake", "ground chicken").
    Tapping a line with a food opens How much? for it at your usual amount, in that meal. Still greets you by name.
    Picks the longest version that fits on one line. Per device: localStorage cutlog.quipSeen (first time), and cutlog.quip
    ('1' always, '0' never; a test seam, no setting). Nothing in saved data or sync. */
-const QUIP = { cur: null, show: {}, shown: new Set(), wait: null, DELAY: 2600, OUT: 320, P: 0.4, DAYS: 28, MIN: 3 };   // v106: DELAY before the line fades in (each time the app opens)
+const QUIP = { cur: null, show: {}, shown: new Set(), wait: null, DELAY: 2600, OUT: 320, P: 0.6, DAYS: 28, MIN: 3 };   // v106: DELAY before the line fades in (each time the app opens)
 const QUIP_SKIP = /^(day|day so far|quick add)$/i;
 function quipBand(h, T) {
   if (h < 4 || h >= T.last) return 'late';
@@ -792,7 +794,10 @@ function quipNow(now = new Date()) {
   const seed = quipHash(`${t}|${band}|${S.name || ''}`);
   let first = false; try { first = !localStorage.getItem('cutlog.quipSeen'); } catch (e) {}
   const key = `${t}|${band}`;
-  if (!(key in QUIP.show)) QUIP.show[key] = mode === '1' || first || seed % 100 < QUIP.P * 100;   // decided once per day part
+  /* v118 (Kan, 13 Nov: "doesn't give me those witty greetings anymore"; it had come up about 1 in 5): about 3 in 5, and every day one of
+     breakfast, lunch or dinner always gets a line, so no day is without one */
+  const sure = ['breakfast', 'lunch', 'dinner'][quipHash(`${t}|sure|${S.name || ''}`) % 3];
+  if (!(key in QUIP.show)) QUIP.show[key] = mode === '1' || first || band === sure || seed % 100 < QUIP.P * 100;   // decided once per day part
   if (mode !== '1' && !QUIP.show[key]) return null;
   const n = S.name ? esc(S.name.trim().split(/\s+/)[0]) : '', N = s => n ? s.replace(/\{n\}/g, n) : s.replace(/,? \{n\}/g, '').replace(/\{n\}, /g, '');
   const es = entriesFor(t), logged = s => es.some(e => slotOf(e) === s), tot = dayTotals(t), close = quipHour(T.last);
@@ -2192,6 +2197,7 @@ function applyMeta(data) {
   applyTheme(); if (typeof hideOnboarding === 'function') hideOnboarding();
   S.stamps.meta = data.updatedAt || 0;
   S.dirty = S.dirty.filter(k => k !== 'meta');
+  if (histFix118()) { S.stamps.meta = Date.now(); markDirty('meta'); }   // v118: an older copy from another device gets the same repair
 }
 /* Merge one remote document: newer side wins. Returns true when local data changed. */
 function mergeRemote(kind, id, data) {
@@ -2490,6 +2496,15 @@ function noteTargets() {
   if (!r.since || r.since <= y) { const last = h[h.length - 1]; if (!last || last.to < y) h.push({ to: y, lo: r.lo, hi: r.hi, p: r.p }); }
   T.hist = h.slice(-HIST_KEEP); T.rng = { ...now, since: t };
 }
+/* v118: Kan's range history. v115 started recording on 13 Nov, so his evening change (2,350–2,650 -> 2,100–2,400) put every earlier day
+   on 2,350–2,650, back to October. He confirmed (13 Nov): 2,100–2,400 from the start, 2,350–2,650 from the week of Nov 9. Sunday Nov 8
+   (his no-limit free day) stays on 2,350–2,650, because its pay-back was set up and shown against that (2,333 kcal over, 260 a day).
+   Runs once: only that exact history, written on Nov 13, matches. */
+function histFix118() {
+  const h = S.targets?.hist;
+  if (!Array.isArray(h) || h.length !== 1 || h[0].to !== '2026-11-12' || h[0].lo !== 2350 || h[0].hi !== 2650 || S.targets.rng?.since !== '2026-11-13') return false;
+  S.targets.hist = [{ to: '2026-11-07', lo: 2100, hi: 2400, p: h[0].p }, { ...h[0] }]; return true;
+}
 /* the targets that applied on day d (calories and protein from the history; everything else as now) */
 function baseT(d) {
   const T = S.targets, h = T.hist;
@@ -2574,6 +2589,21 @@ function pbAbout(d) {
     : `Being paid back: about ${kc(s.cut)} kcal less a day for ${n} days, ${esc(pbDate(from))} to ${esc(pbDate(s.end))}. Then your usual range is back.`;
   const ci = stopped ? `Pay it back was stopped part way (${kc(s.over - s.left)} of ${kc(s.over)} kcal).` : done ? `It was paid back over the ${n} days after.` : `It’s being paid back over the ${n} days after it.`;
   return { short, long, ci, n };
+}
+/* v118 (Kan, 13 Nov: his range had gone 2,100–2,400 -> 2,350–2,650 with one tap, and a pay-back then showed 2,090–2,390 all
+   week, so it looked like nothing had changed): under Today's status, say what the range really is on a pay-back day, and when
+   it changed in the last week. Today only; the payback panel and You -> Goal say the rest. */
+function renderRngNote() {
+  const el = $('rngNote'); if (!el) return;
+  const t = todayIso(), T = dayT(day), B = baseT(day), rng = `${kc(B.calLo)}–${kc(B.calHi)}`, rT = S.targets.rng;
+  let txt = '';
+  if (day === t && T.pbDay) txt = T.pbDay.p.stop === shift(t, 1) ? `Your usual range, ${rng}, is back tomorrow.`
+    : `Your usual range is ${rng}. Today is ${kc(T.pbDay.eff)} lower while you pay back ${DAY_NAME(T.pbDay.p.d)}.`;
+  else if (day === t && rT?.since && rT.since >= shift(t, -6) && S.targets.hist?.length) {
+    const h = S.targets.hist[S.targets.hist.length - 1], was = `${kc(h.lo)}–${kc(h.hi)}`;
+    if (h.lo !== rT.lo || h.hi !== rT.hi) txt = `Your range changed ${rT.since === t ? 'today' : `on ${parseIso(rT.since).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}`}: ${was} → ${kc(rT.lo)}–${kc(rT.hi)}.`;
+  }
+  el.hidden = !txt; el.textContent = txt;
 }
 /* v117: what stopping did, in words */
 function pbStopTxt(p) {
@@ -3267,6 +3297,7 @@ function renderGoalSuggest() {
   if ($('gsRedo')) $('gsRedo').onclick = () => { GS.calc = null; GS.open = true; renderGoalSuggest(); };
 }
 ['tLo', 'tHi', 'tPro', 'tGoal'].forEach(id => $(id).addEventListener('input', renderGoalSuggest));
+['tLo', 'tHi'].forEach(id => $(id).addEventListener('input', goalChgReset));   // v118: typing again asks again
 
 /* =================== v41: PROTEIN NUDGE, FIBRE, NUTRI-SCORE =================== */
 /* Protein nudge: only on today, only when calories are well along and protein is clearly behind them.
@@ -5417,6 +5448,7 @@ $('adjNo').onclick = () => adjClose(false);
    set the app up don't get it). Always available in You → Help. Last seen version: localStorage cutlog.seenV (per device).
    Every release adds an entry at the top, in plain words for everyone who uses Cut Log. */
 const CHANGELOG = [
+  { v: 118, d: '2026-11-13', items: ['Today: on a pay-back day, a line under the status shows your usual range and how much lower today is. After you change your range, it shows what it changed from for a week.', 'You → Goal: changing your calorie range now shows the change first (for example 2,350–2,650 to 2,100–2,400, 250 kcal less a day) and asks you to confirm.', 'Fixed: after a range change, days from before the update could show the new range. They now keep the range you had then.', 'The witty greetings come up more often, and at least once every day.'] },
   { v: 117, d: '2026-11-13', items: ['Stop paying it back now works on today too, as long as your latest meal time hasn\'t passed: today goes straight back to your usual range. After that time, today is done, so it stays and the pay-back ends from tomorrow. The message and Today now say which one happened.'] },
   { v: 116, d: '2026-11-13', items: ['Plan my day: tap the ⓘ beside a built meal to see what\'s in it, with each ingredient\'s calories, protein, carbs and fat. It works for meals you\'ve logged and for meals the plan suggests, at the planned amount.'] },
   { v: 115, d: '2026-11-13', items: ['Changing your calorie or protein target now counts from that day on. Last week\'s check-in, History and a free day\'s pay-back keep the range you had then.', 'Your real burn, the weekly check-in and the calorie pop-up now mention it when you\'re paying back a big day while they suggest eating more, since the two mostly cancel.', 'Trends: the 7-day weight tile now reads Vs 7 days ago, so it isn\'t mixed up with the check-in\'s Monday-to-Sunday weeks.'] },
@@ -5581,8 +5613,9 @@ $('pNameSave').onclick = () => {
   toast(S.name ? `Nice to meet you, ${S.name}` : 'Name cleared');
 };
 $('pName').addEventListener('keydown', e => { if (e.key === 'Enter') $('pNameSave').click(); });
+function goalChgReset() { const gc = $('gChg'); if (!gc) return; gc.hidden = true; delete gc.dataset.ok; $('goalSave').textContent = 'Save'; }
 function openGoalEdit(open) {
-  delete $('pMode').dataset.pending;
+  delete $('pMode').dataset.pending; goalChgReset();
   toggleEdit('goalView', 'goalForm', open); $('goalEdit').hidden = open;
   renderSettings(); if (open) renderGoalSuggest();
 }
@@ -6065,6 +6098,13 @@ $('tForm').onsubmit = e => {
   const lo = +$('tLo').value, hi = +$('tHi').value, pr = +$('tPro').value, g = rW(fromW(+$('tGoal').value)), sw = $('tStart').value.trim();
   if (!(lo > 0 && hi >= lo && pr > 0 && g > 0)) { toast('Check the targets: the low number must be below the high one.'); return; }
   if (sw && !(fromW(+sw) >= 80 && fromW(+sw) <= 600)) { toast(`Starting weight should be in ${metric() ? 'kilograms' : 'pounds'}.`); return; }
+  /* v118: a new calorie range shows the change before it's saved (Kan lowered 2,350–2,650 to 2,100–2,400 thinking he was raising it) */
+  const T0 = S.targets, key = `${lo}-${hi}`, gc = $('gChg');
+  if ((lo !== T0.calLo || hi !== T0.calHi) && gc.dataset.ok !== key) {
+    const d = Math.round(((lo + hi) - (T0.calLo + T0.calHi)) / 2), dt = d === 0 ? 'the same on average' : `${kc(Math.abs(d))} kcal ${d > 0 ? 'more' : 'less'} a day`;
+    gc.textContent = `Your calories change from ${kc(T0.calLo)}–${kc(T0.calHi)} to ${kc(lo)}–${kc(hi)}: ${dt}, from today. Tap ${d < 0 ? 'Yes, eat less' : d > 0 ? 'Yes, eat more' : 'Yes, save'} to confirm.`;
+    gc.hidden = false; gc.dataset.ok = key; $('goalSave').textContent = d < 0 ? 'Yes, eat less' : d > 0 ? 'Yes, eat more' : 'Yes, save'; haptic(); replay(gc, 'fade-in'); return;
+  }
   const newMode = $('pMode').dataset.pending || mode(), changed = newMode !== mode();
   if (changed && freeCfg()) { const t = todayIso(), f = freeKeepPast(t); S.targets = { ...S.targets, free: { ...f, from: freeStart(f, t) } }; }   // v99
   S.targets = { ...S.targets, calLo: lo, calHi: hi, protein: pr, goal: g, mode: newMode };

@@ -81,7 +81,7 @@ const CA_FOODS = [
   {name:"Butter chicken", alias:"indian curry murgh makhani", kcal100:150, pro100:12, cup:240},
   {name:"Pizza, pepperoni", alias:"slice pie", kcal100:290, pro100:12, piece:110, pieceLabel:"slice"},
   {name:"Cheeseburger", alias:"burger hamburger", kcal100:260, pro100:14, piece:200, pieceLabel:"burger"},
-  {name:"French fries", alias:"chips fries", kcal100:310, pro100:3.4, fib100:3.8, piece:150, pieceLabel:"medium"},
+  {name:"French fries", alias:"chips fries potato", kcal100:310, pro100:3.4, fib100:3.8, piece:150, pieceLabel:"medium"},
   {name:"Chicken wings", alias:"wings", kcal100:290, pro100:27, fib100:0, piece:35, pieceLabel:"wing"},
   {name:"Spaghetti with meat sauce", alias:"pasta bolognese", kcal100:150, pro100:7, cup:250},
   {name:"Pasta, cooked plain", alias:"spaghetti noodles", kcal100:158, pro100:5.8, fib100:1.8, cup:140, state:"cooked", twin:"Pasta (dry)", cook:true},
@@ -123,6 +123,26 @@ const TWIN_FOODS = [
   {name:"Oatmeal, cooked with water", alias:"porridge oats", kcal100:71, pro100:2.5, fib100:1.7, cup:234, state:"cooked", twin:"Oats, rolled (dry)"},
   {name:"Black beans (cooked or canned, drained)", alias:"beans", kcal100:132, pro100:8.9, fib100:8.7, cup:172, state:"cooked", twin:"Black beans (dry)"},
   {name:"Black beans (dry)", alias:"beans uncooked", kcal100:341, pro100:21.6, fib100:15.5, cup:194, state:"dry", twin:"Black beans (cooked or canned, drained)"},
+  /* v119: more potatoes (Kan, 15 Nov 2026: "no option for baked white potatoes or boiled sweet potatoes... white, yellow, russet"). Appended so no id moves.
+     A cooked form whose twin is the raw food gets the Raw weight / Cooked switch; the raw food's own Cooked stays its first partner.
+     USDA FoodData Central where it has the food; yellow (Yukon Gold), red boiled, baby potatoes and the oven/roasted ones are close estimates (est). */
+  {name:"Potato, white (baked)", alias:"baked potato jacket", kcal100:93, pro100:2.5, fib100:2.2, piece:173, pieceLabel:"medium potato", state:"cooked", twin:"Potato, white (raw)", cook:true},
+  {name:"Potato, russet (raw)", alias:"idaho", kcal100:79, pro100:2.1, fib100:1.3, piece:213, pieceLabel:"medium potato", state:"raw", twin:"Potato, russet (baked)", cook:true},
+  {name:"Potato, russet (baked)", alias:"baked potato idaho jacket", kcal100:97, pro100:2.6, fib100:2.3, piece:173, pieceLabel:"medium potato", state:"cooked", twin:"Potato, russet (raw)", cook:true},
+  {name:"Potato, russet (boiled)", alias:"idaho", kcal100:86, pro100:1.7, fib100:1.8, piece:170, pieceLabel:"medium potato", cup:156, state:"cooked", twin:"Potato, russet (raw)", cook:true, est:true},
+  {name:"Potato, yellow / Yukon Gold (raw)", alias:"gold", kcal100:76, pro100:1.9, fib100:1.4, piece:170, pieceLabel:"medium potato", state:"raw", twin:"Potato, yellow / Yukon Gold (boiled)", cook:true, est:true},
+  {name:"Potato, yellow / Yukon Gold (boiled)", alias:"gold", kcal100:84, pro100:1.8, fib100:1.5, piece:165, pieceLabel:"medium potato", cup:156, state:"cooked", twin:"Potato, yellow / Yukon Gold (raw)", cook:true, est:true},
+  {name:"Potato, yellow / Yukon Gold (baked)", alias:"gold baked potato", kcal100:92, pro100:2.2, fib100:1.8, piece:140, pieceLabel:"medium potato", state:"cooked", twin:"Potato, yellow / Yukon Gold (raw)", cook:true, est:true},
+  {name:"Potato, red (raw)", kcal100:70, pro100:1.9, fib100:1.7, piece:213, pieceLabel:"medium potato", state:"raw", twin:"Potato, red (boiled)", cook:true},
+  {name:"Potato, red (boiled)", kcal100:79, pro100:1.9, fib100:1.8, piece:190, pieceLabel:"medium potato", cup:156, state:"cooked", twin:"Potato, red (raw)", cook:true, est:true},
+  {name:"Potato, red (baked)", alias:"baked potato", kcal100:89, pro100:2.3, fib100:1.8, piece:173, pieceLabel:"medium potato", state:"cooked", twin:"Potato, red (raw)", cook:true},
+  {name:"Baby potatoes (boiled)", alias:"potato new mini creamer", kcal100:76, pro100:1.9, fib100:1.8, piece:40, pieceLabel:"baby potato", cup:156, cook:true, est:true},
+  {name:"Sweet potato, boiled", alias:"yam", kcal100:76, pro100:1.4, fib100:2.5, piece:150, pieceLabel:"medium potato", cup:200, state:"cooked", twin:"Sweet potato (raw weight)", cook:true},
+  {name:"Roasted potatoes (with oil)", alias:"potato roast", kcal100:150, pro100:2.5, fib100:2.0, cup:150, est:true},
+  {name:"Hash browns", alias:"potato hashbrown", kcal100:265, pro100:3, fib100:3.2, piece:55, pieceLabel:"patty"},
+  {name:"Oven fries (frozen, baked)", alias:"potato fries chips", kcal100:170, pro100:2.7, fib100:2.5, piece:85, pieceLabel:"serving (about 12 fries)", est:true},
+  {name:"Sweet potato fries (frozen, baked)", alias:"fries chips", kcal100:200, pro100:2, fib100:3.5, piece:85, pieceLabel:"serving (about 12 fries)", est:true},
+  {name:"Potato chips", alias:"crisps", kcal100:536, pro100:7, fib100:4.4, piece:28, pieceLabel:"small bag (28 g)"},
 ].map((f,i)=>({...f, id:"tw"+i, source:"built-in"}));
 BUILTIN_FOODS.push(...TWIN_FOODS);
 
@@ -237,6 +257,23 @@ const MACRO100 = {
   "Oatmeal, cooked with water":[12,1.5],
   "Black beans (cooked or canned, drained)":[23.7,0.5],
   "Black beans (dry)":[62.4,1.4],
+  "Potato, white (baked)":[21.2,0.1],
+  "Potato, russet (raw)":[18.1,0.1],
+  "Potato, russet (baked)":[21.4,0.1],
+  "Potato, russet (boiled)":[20,0.1],
+  "Potato, yellow / Yukon Gold (raw)":[16.9,0.1],
+  "Potato, yellow / Yukon Gold (boiled)":[19.1,0.1],
+  "Potato, yellow / Yukon Gold (baked)":[20.7,0.1],
+  "Potato, red (raw)":[15.9,0.1],
+  "Potato, red (boiled)":[17.6,0.1],
+  "Potato, red (baked)":[19.6,0.2],
+  "Baby potatoes (boiled)":[17,0.1],
+  "Sweet potato, boiled":[17.7,0.1],
+  "Roasted potatoes (with oil)":[21,6.5],
+  "Hash browns":[35.1,12.5],
+  "Oven fries (frozen, baked)":[26,6],
+  "Sweet potato fries (frozen, baked)":[30,8.5],
+  "Potato chips":[53,35],
 };
 BUILTIN_FOODS.forEach(f => { const m = MACRO100[f.name]; if (m) { f.carb100 = m[0]; f.fat100 = m[1]; } });
 

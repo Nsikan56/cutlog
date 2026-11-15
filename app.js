@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '118';
+const APP_V = '119';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -5448,6 +5448,7 @@ $('adjNo').onclick = () => adjClose(false);
    set the app up don't get it). Always available in You → Help. Last seen version: localStorage cutlog.seenV (per device).
    Every release adds an entry at the top, in plain words for everyone who uses Cut Log. */
 const CHANGELOG = [
+  { v: 119, d: '2026-11-15', items: ['More potatoes: white, russet, yellow (Yukon Gold) and red potatoes, each raw, boiled and baked; boiled sweet potato; baby potatoes, roasted potatoes, hash browns, oven fries, sweet potato fries and potato chips. Type "potato" to see them all.'] },
   { v: 118, d: '2026-11-13', items: ['Today: on a pay-back day, a line under the status shows your usual range and how much lower today is. After you change your range, it shows what it changed from for a week.', 'You → Goal: changing your calorie range now shows the change first (for example 2,350–2,650 to 2,100–2,400, 250 kcal less a day) and asks you to confirm.', 'Fixed: after a range change, days from before the update could show the new range. They now keep the range you had then.', 'The witty greetings come up more often, and at least once every day.'] },
   { v: 117, d: '2026-11-13', items: ['Stop paying it back now works on today too, as long as your latest meal time hasn\'t passed: today goes straight back to your usual range. After that time, today is done, so it stays and the pay-back ends from tomorrow. The message and Today now say which one happened.'] },
   { v: 116, d: '2026-11-13', items: ['Plan my day: tap the ⓘ beside a built meal to see what\'s in it, with each ingredient\'s calories, protein, carbs and fat. It works for meals you\'ve logged and for meals the plan suggests, at the planned amount.'] },

@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '120';
+const APP_V = '121';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -5513,6 +5513,7 @@ $('adjNo').onclick = () => adjClose(false);
    set the app up don't get it). Always available in You → Help. Last seen version: localStorage cutlog.seenV (per device).
    Every release adds an entry at the top, in plain words for everyone who uses Cut Log. */
 const CHANGELOG = [
+  { v: 121, d: '2026-11-17', items: ['Raw chicken thighs (boneless, skinless): weigh them before cooking and log them as they are, like the Costco packs. Chicken thigh, cooked now has the same Raw weight / Cooked switch as chicken breast.'] },
   { v: 120, d: '2026-11-16', items: ['Reaching your goal: the first morning the scale shows your goal weight, you get a cheer. The goal itself counts once your 7-day average gets there, and then Today asks what’s next: keep going with a new goal, maintain or build, with suggested calories for each.', 'After you change your calorie range, the note on Today now shows for 3 days instead of a week.'] },
   { v: 119, d: '2026-11-15', items: ['More potatoes: white, russet, yellow (Yukon Gold) and red potatoes, each raw, boiled and baked; boiled sweet potato; baby potatoes, roasted potatoes, hash browns, oven fries, sweet potato fries and potato chips. Type "potato" to see them all.'] },
   { v: 118, d: '2026-11-13', items: ['Today: on a pay-back day, a line under the status shows your usual range and how much lower today is. After you change your range, it shows what it changed from for a week.', 'You → Goal: changing your calorie range now shows the change first (for example 2,350–2,650 to 2,100–2,400, 250 kcal less a day) and asks you to confirm.', 'Fixed: after a range change, days from before the update could show the new range. They now keep the range you had then.', 'The witty greetings come up more often, and at least once every day.'] },

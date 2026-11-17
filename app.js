@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '119';
+const APP_V = '120';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -466,7 +466,7 @@ function renderTotals() {
   else if (T.pbDay) { st.className = 'status hi'; st.textContent = `${(cal - T.calHi).toLocaleString()} kcal over ${day === todayIso() ? 'today’s' : 'that day’s'} lower range. It’s added to what you’re paying back.`; }   // v109
   else { st.className = 'status hi'; st.textContent = `${(cal - T.calHi).toLocaleString()} kcal over your range. One day like this is fine; the weekly trend decides.`; }
   safe(renderRngNote);
-  safe(renderFits); safe(renderFreeLine); safe(renderPbLine); safe(renderWeek); safe(renderCiBanner); safe(renderRcBanner); safe(renderNudge); safe(renderNut); safe(renderGuideBanner); safe(renderEstBanner); safe(renderPlanBtn);
+  safe(renderFits); safe(renderFreeLine); safe(renderPbLine); safe(renderWeek); safe(renderCiBanner); safe(renderNextBanner); safe(renderRcBanner); safe(renderNudge); safe(renderNut); safe(renderGuideBanner); safe(renderEstBanner); safe(renderPlanBtn);
 }
 let shownRows = { day: null, ids: new Set() };
 function renderRows() {
@@ -2593,13 +2593,14 @@ function pbAbout(d) {
 /* v118 (Kan, 13 Nov: his range had gone 2,100–2,400 -> 2,350–2,650 with one tap, and a pay-back then showed 2,090–2,390 all
    week, so it looked like nothing had changed): under Today's status, say what the range really is on a pay-back day, and when
    it changed in the last week. Today only; the payback panel and You -> Goal say the rest. */
+const RNG_NOTE_DAYS = 3;   // v120 (Kan, 16 Nov: still showing on Monday after Friday's change): 3 days, was 7
 function renderRngNote() {
   const el = $('rngNote'); if (!el) return;
   const t = todayIso(), T = dayT(day), B = baseT(day), rng = `${kc(B.calLo)}–${kc(B.calHi)}`, rT = S.targets.rng;
   let txt = '';
   if (day === t && T.pbDay) txt = T.pbDay.p.stop === shift(t, 1) ? `Your usual range, ${rng}, is back tomorrow.`
     : `Your usual range is ${rng}. Today is ${kc(T.pbDay.eff)} lower while you pay back ${DAY_NAME(T.pbDay.p.d)}.`;
-  else if (day === t && rT?.since && rT.since >= shift(t, -6) && S.targets.hist?.length) {
+  else if (day === t && rT?.since && rT.since >= shift(t, -(RNG_NOTE_DAYS - 1)) && S.targets.hist?.length) {
     const h = S.targets.hist[S.targets.hist.length - 1], was = `${kc(h.lo)}–${kc(h.hi)}`;
     if (h.lo !== rT.lo || h.hi !== rT.hi) txt = `Your range changed ${rT.since === t ? 'today' : `on ${parseIso(rT.since).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}`}: ${was} → ${kc(rT.lo)}–${kc(rT.hi)}.`;
   }
@@ -2960,13 +2961,14 @@ function earnedNow() {
   const ps = proStreak();
   PRO_STREAKS.forEach(n => { if (ps >= n) out.push({ id: 'protein-' + n, title: `Protein goal ${n} days running`, sub: `${T.protein}g or more every day for ${n} days.` }); });
   const wp = weightProgress();
+  { const sh = scaleHit(wp); if (sh) out.push(sh); }   // v120: the first time the scale shows the goal, before the average gets there
   if (wp) {
     const step = stepLb(), u = wU(), toGo = T.goal ? ` · ${fW(Math.abs(wp.now - T.goal))} ${u} to go` : '';
     for (let k = step; k <= wp.prog + 1e-9; k += step)
       out.push({ id: metric() ? `w-${m}-kg-${k}` : `w-${m}-${k}`, title: `${m === 'lose' ? 'Down' : 'Up'} ${k} ${u}`, sub: `Your average is ${fW(wp.now)} ${u}${toGo}.` });
     if (wp.total != null && wp.total >= 4) {
       if (wp.prog >= wp.total / 2) out.push({ id: `half-${m}-${T.goal}`, title: `Halfway to ${fWs(T.goal)} ${wU()}`, sub: `${Math.max(0, wp.total - wp.prog).toFixed(1)} ${wU()} to go. Keep going.` });
-      if (wp.prog >= wp.total) out.push({ id: `goal-${m}-${T.goal}`, title: `Goal reached: ${fWs(T.goal)} ${wU()}`, sub: 'Switch to Maintaining in the You tab to hold it, or set a new goal.' });
+      if (wp.prog >= wp.total) out.push({ id: `goal-${m}-${T.goal}`, title: `Goal reached: ${fWs(T.goal)} ${wU()}`, sub: 'Today has a “What’s next?” card: keep going, maintain or build. Or change it any time in You → Goal.' });
     }
   }
   if (waistArr().length) out.push({ id: 'first-waist', title: 'First waist measurement', sub: 'Measure again in a week or two to see it move.' });
@@ -2979,6 +2981,21 @@ function earnedNow() {
       out.push({ id: `hold-14-${T.goal}`, title: 'Held steady for 2 weeks', sub: `Every weigh-in within ${metric() ? '1.1 kg' : '2.5 lb'} of ${fWs(T.goal)} ${wU()}.` });
   }
   return out;
+}
+/* v120 (Kan, 16 Nov: "the day I weigh in at 198, will the app tell me I've reached my goal or wait till the trend line gets there?"):
+   the goal counts on the 7-day average (as before), and the first weigh-in at or past the goal gets its own moment. Only for a weigh-in
+   in the last 7 days, while the average isn't there yet, and only when you started on the other side of the goal. */
+function scaleHit(wp) {
+  const T = S.targets, m = mode(), s = startW();
+  if (!T.goal || (m !== 'lose' && m !== 'gain') || s == null) return null;
+  const dir = m === 'lose' ? -1 : 1;
+  if ((T.goal - s) * dir <= 0) return null;
+  if (wp && wp.total != null && wp.prog >= wp.total - 1e-9) return null;
+  const t = todayIso(), hit = weightsArr().find(x => x.date >= shift(t, -6) && x.date <= t && (x.lb - T.goal) * dir >= -1e-9);
+  if (!hit) return null;
+  const u = wU(), g = `${fWs(T.goal)} ${u}`, now = trendNow();
+  return { id: `scale-${m}-${T.goal}`, title: `${g} on the scale`, sub: `The first time you’ve weighed in at ${g} or ${m === 'lose' ? 'under' : 'over'}. `
+    + (now != null ? `Your 7-day average is ${fW(now)} ${u}. ` : '') + 'Goal reached counts once your average gets there too.' };
 }
 let msBusy = false, msSilent = false;
 const celQueue = [];
@@ -3596,7 +3613,8 @@ const GUIDE = [
       '<b>After about 4 weeks:</b> your real burn is ready and can fine-tune your targets.')}
     ${gTip('A day over your range is fine. The weekly trend decides your progress.')}
     ${gMore('Hand portions, plate sizes and dishes are estimates. Being consistent matters more than being exact, because your real burn adjusts to how you log.',
-      'A steady cut is about 0.5–1% of your body weight a week. Hitting your protein target most days helps keep muscle while you lose fat.')}`, 'i-medal', 'The first week, month and beyond'],
+      'A steady cut is about 0.5–1% of your body weight a week. Hitting your protein target most days helps keep muscle while you lose fat.',
+      '<b>Reaching your goal:</b> the first morning the scale shows it, you get a cheer. It counts once your 7-day average gets there. Then Today asks <b>What’s next?</b>: keep going, maintain or build.')}`, 'i-medal', 'The first week, month and beyond'],
 ];
 const GUIDE_KEY = 'cutlog.guide', GUIDE_DAYS = 7;
 function guideState() { try { return JSON.parse(localStorage.getItem(GUIDE_KEY)) || {}; } catch (e) { return {}; } }
@@ -5067,6 +5085,53 @@ function renderCiBanner() {
 }
 $('ciBanner').onclick = () => { haptic(); showTab('trends'); requestAnimationFrame(() => $('ciCard').scrollIntoView({ behavior: REDUCED ? 'auto' : 'smooth', block: 'start' })); };
 
+/* ===================== v120: GOAL REACHED, WHAT'S NEXT ===================== */
+/* Kan (16 Nov): "when I get to 198, will the app ask if I want to keep cutting, maintain or bulk, and suggest new targets for the
+   weight I choose?" Once the 7-day average reaches the goal (Cutting or Building, started on the other side of it), Today shows a
+   "What's next?" banner. Its panel offers the three ways on, with the range each would suggest (from the real burn, the same as
+   You → Goal). Picking one opens You → Goal with that mode chosen and the suggestion filled in; nothing changes until Save (and the
+   v118 confirm). Not now hides it for that goal on this phone (localStorage cutlog.next). */
+function goalAt() {
+  const T = S.targets, m = mode(), s = startW(), now = trendNow();
+  if (!T.goal || (m !== 'lose' && m !== 'gain') || s == null || now == null) return false;
+  const dir = m === 'lose' ? -1 : 1;
+  return (T.goal - s) * dir > 0 && (now - T.goal) * dir >= -1e-9;
+}
+const nextKey = () => `${mode()}-${S.targets.goal}`;
+function renderNextBanner() {
+  const b = $('nextBanner'); if (!b) return;
+  let seen = null; try { seen = localStorage.getItem('cutlog.next'); } catch (e) {}
+  const show = day === todayIso() && goalAt() && seen !== nextKey();
+  b.hidden = !show; if (show) $('nextBannerT').textContent = `You reached ${fWs(S.targets.goal)} ${wU()}. What’s next?`;
+}
+function openNext() {
+  const T = S.targets, m = mode(), u = wU(), g = `${fWs(T.goal)} ${u}`, now = trendNow(), e = estimateBurn();
+  const opt = (k, title, txt) => { const sg = goalSuggestion(k);
+    return `<button type="button" class="ob-card nx-opt" data-nx="${k}"><strong>${title}</strong><span>${txt}</span>${sg ? `<span class="nx-r">About <b>${kc(sg.lo)}–${kc(sg.hi)}</b> kcal a day</span>` : ''}</button>`; };
+  const cut = opt('lose', m === 'lose' ? 'Keep cutting' : 'Cut', 'Pick a lower goal weight and keep going. You’ll see when you’d get there.');
+  const keep = opt('maintain', 'Maintain', `Hold around ${g}. Calories go up to about what you burn.`);
+  const build = opt('gain', m === 'gain' ? 'Keep building' : 'Build', 'A slow, lean gain. Pick a higher goal weight.');
+  openSheet('What’s next?', `<p class="nx-lead">Your 7-day average is <b>${fW(now)} ${u}</b>, so you’ve reached your goal of ${g}. Well done. What would you like to do now?</p>
+    <div class="ob-cards nx-opts" id="nxOpts">${m === 'lose' ? cut + keep + build : build + keep + cut}</div>
+    <p class="hint" id="nxSrc">${e.ready ? `Ranges come from your real burn of about ${kc(r50(e.burn))} kcal a day. You can check and change everything before it’s saved.`
+      : 'Your real burn isn’t ready yet, so You → Goal can work out an estimate. You can check everything before it’s saved.'}</p>
+    <button type="button" class="btn ghost" id="nxLater">Not now</button>`);
+  $('nxOpts').onclick = ev => { const b = ev.target.closest('[data-nx]'); if (!b) return; haptic(); nextPick(b.dataset.nx); };
+  $('nxLater').onclick = () => { try { localStorage.setItem('cutlog.next', nextKey()); } catch (e2) {} closeSheet(); renderTotals(); toast('It’s in You → Goal any time'); };
+}
+function nextPick(k) {
+  const m = mode(), now = trendNow();
+  closeSheet(); showTab('you'); openGoalEdit(true);
+  $('pMode').dataset.pending = k;
+  [...$('pMode').children].forEach(c => c.setAttribute('aria-pressed', c.dataset.v === k));
+  $('pModeHint').textContent = MODE_HINT[k];
+  if (k !== 'maintain' && k !== m && now != null) $('tStart').value = fW(now);   // a new direction starts from where you are now
+  renderGoalSuggest(); if ($('gsUse')) $('gsUse').click();
+  requestAnimationFrame(() => { $('goalForm').scrollIntoView({ block: 'start', behavior: REDUCED ? 'auto' : 'smooth' });
+    if (k !== 'maintain') { $('tGoal').focus({ preventScroll: true }); $('tGoal').select(); } });
+}
+$('nextBanner').onclick = () => { haptic(); openNext(); };
+
 /* ===================== v98: RECAP CARDS ===================== */
 /* Kan (6 Nov): a Spotify-style recap of a week, a month or a year to share in Messages, WhatsApp or Instagram. He chose both a
    single image and swipeable slides, a switch between actual weights and change only, three vivid palettes picked when sharing,
@@ -5448,6 +5513,7 @@ $('adjNo').onclick = () => adjClose(false);
    set the app up don't get it). Always available in You → Help. Last seen version: localStorage cutlog.seenV (per device).
    Every release adds an entry at the top, in plain words for everyone who uses Cut Log. */
 const CHANGELOG = [
+  { v: 120, d: '2026-11-16', items: ['Reaching your goal: the first morning the scale shows your goal weight, you get a cheer. The goal itself counts once your 7-day average gets there, and then Today asks what’s next: keep going with a new goal, maintain or build, with suggested calories for each.', 'After you change your calorie range, the note on Today now shows for 3 days instead of a week.'] },
   { v: 119, d: '2026-11-15', items: ['More potatoes: white, russet, yellow (Yukon Gold) and red potatoes, each raw, boiled and baked; boiled sweet potato; baby potatoes, roasted potatoes, hash browns, oven fries, sweet potato fries and potato chips. Type "potato" to see them all.'] },
   { v: 118, d: '2026-11-13', items: ['Today: on a pay-back day, a line under the status shows your usual range and how much lower today is. After you change your range, it shows what it changed from for a week.', 'You → Goal: changing your calorie range now shows the change first (for example 2,350–2,650 to 2,100–2,400, 250 kcal less a day) and asks you to confirm.', 'Fixed: after a range change, days from before the update could show the new range. They now keep the range you had then.', 'The witty greetings come up more often, and at least once every day.'] },
   { v: 117, d: '2026-11-13', items: ['Stop paying it back now works on today too, as long as your latest meal time hasn\'t passed: today goes straight back to your usual range. After that time, today is done, so it stays and the pay-back ends from tomorrow. The message and Today now say which one happened.'] },

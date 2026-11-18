@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '121';
+const APP_V = '122';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -5513,6 +5513,7 @@ $('adjNo').onclick = () => adjClose(false);
    set the app up don't get it). Always available in You → Help. Last seen version: localStorage cutlog.seenV (per device).
    Every release adds an entry at the top, in plain words for everyone who uses Cut Log. */
 const CHANGELOG = [
+  { v: 122, d: '2026-11-17', items: ['Chicken thigh, cooked now uses USDA\'s numbers for a leaner thigh: 176 kcal and 24.6 g protein per 100 g (was 210 and 26). One thigh now reads about the same raw or cooked. Days you already logged keep their numbers.'] },
   { v: 121, d: '2026-11-17', items: ['Raw chicken thighs (boneless, skinless): weigh them before cooking and log them as they are, like the Costco packs. Chicken thigh, cooked now has the same Raw weight / Cooked switch as chicken breast.'] },
   { v: 120, d: '2026-11-16', items: ['Reaching your goal: the first morning the scale shows your goal weight, you get a cheer. The goal itself counts once your 7-day average gets there, and then Today asks what’s next: keep going with a new goal, maintain or build, with suggested calories for each.', 'After you change your calorie range, the note on Today now shows for 3 days instead of a week.'] },
   { v: 119, d: '2026-11-15', items: ['More potatoes: white, russet, yellow (Yukon Gold) and red potatoes, each raw, boiled and baked; boiled sweet potato; baby potatoes, roasted potatoes, hash browns, oven fries, sweet potato fries and potato chips. Type "potato" to see them all.'] },

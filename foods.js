@@ -95,7 +95,7 @@ const CA_FOODS = [
   {name:"Chicken Caesar salad", alias:"caesar salad", kcal100:160, pro100:11, piece:300, pieceLabel:"salad"},
   {name:"Chicken noodle soup", alias:"soup", kcal100:35, pro100:2.5, cup:250, liquid:true},
   {name:"Roast chicken (with skin)", alias:"rotisserie chicken", kcal100:220, pro100:24, fib100:0, piece:100, pieceLabel:"palm-size piece"},
-  {name:"Chicken thigh, cooked", alias:"thigh", kcal100:210, pro100:26, fib100:0, piece:85, pieceLabel:"thigh", state:"cooked", twin:"Chicken thigh, boneless skinless (raw)", cook:true},
+  {name:"Chicken thigh, cooked", alias:"thigh", kcal100:176, pro100:24.6, fib100:0, piece:85, pieceLabel:"thigh", state:"cooked", twin:"Chicken thigh, boneless skinless (raw)", cook:true},
   {name:"Steak, cooked", alias:"beef sirloin", kcal100:250, pro100:26, fib100:0, piece:225, pieceLabel:"8 oz steak", cook:true},
   {name:"Salmon, cooked", alias:"fish", kcal100:206, pro100:22, fib100:0, piece:150, pieceLabel:"fillet", state:"cooked", twin:"Salmon, Atlantic (raw)", cook:true},
   {name:"Mashed potatoes", alias:"potato mash", kcal100:110, pro100:2, cup:210},
@@ -143,6 +143,9 @@ const TWIN_FOODS = [
   {name:"Oven fries (frozen, baked)", alias:"potato fries chips", kcal100:170, pro100:2.7, fib100:2.5, piece:85, pieceLabel:"serving (about 12 fries)", est:true},
   {name:"Sweet potato fries (frozen, baked)", alias:"fries chips", kcal100:200, pro100:2, fib100:3.5, piece:85, pieceLabel:"serving (about 12 fries)", est:true},
   {name:"Potato chips", alias:"crisps", kcal100:536, pro100:7, fib100:4.4, piece:28, pieceLabel:"small bag (28 g)"},
+  /* v122: "Chicken thigh, cooked" (ca20, in CA_FOODS above) now uses USDA's braised thigh, meat only (FDC 172853: 176 kcal, 24.6 g protein,
+     8.6 g fat per 100 g). Before v122 it was USDA's roasted thigh (209 kcal, 25.9 g, 10.9 g fat), a much fattier sample than the raw one below,
+     so 1 thigh read 132 kcal raw but 179 cooked (Kan, 17 Nov). Entries logged before keep the calories they were logged with. */
   /* v121: raw boneless skinless chicken thigh (Kan, 17 Nov 2026, Costco photo of Kirkland boneless skinless thighs: "Do we have this on the app?").
      USDA FoodData Central, dark meat thigh, meat only, raw. Partner of "Chicken thigh, cooked" (Raw weight / Cooked switch). Appended so no id moves. */
   {name:"Chicken thigh, boneless skinless (raw)", alias:"thighs kirkland", kcal100:120, pro100:19.7, fib100:0, piece:110, pieceLabel:"thigh", state:"raw", twin:"Chicken thigh, cooked", cook:true},
@@ -238,7 +241,7 @@ const MACRO100 = {
   "Chicken Caesar salad":[6,10.5],
   "Chicken noodle soup":[4,0.9],
   "Roast chicken (with skin)":[0,13.5],
-  "Chicken thigh, cooked":[0,11.5],
+  "Chicken thigh, cooked":[0,8.6],
   "Steak, cooked":[0,16],
   "Salmon, cooked":[0,12.4],
   "Mashed potatoes":[16,4.2],

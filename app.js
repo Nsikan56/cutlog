@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '123';
+const APP_V = '124';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -2268,6 +2268,7 @@ function startUser(user) {
     if (snap.exists) { seenMeta = true; if (mergeRemote('meta', 'main', snap.data())) { persist(); renderAll(); } }
     if (!gotMeta) { gotMeta = true; firstDone(); }
   }, e => setSync(e?.code === 'permission-denied' ? 'denied' : 'error')));
+  Sync.unsub.push(planListen(base));   // v124: Plan my day syncs too
   Sync.unsub.push(base.collection('days').onSnapshot(qs => {
     let changed = false;
     qs.docChanges().forEach(c => {
@@ -3565,7 +3566,7 @@ const GUIDE = [
       'Tap a food to change it, or its <b>×</b> to take it out. Don\'t like the plan? Tap <b>Shuffle</b>.',
       'Already know a meal? Tap <b>Add food</b> under it. A meal you change is <b>locked</b>, and the rest is planned around it.')}
     ${gTip('Not sure what dinner will be? Tap <b>Decide later</b>. Room is kept for it, and you log it when you know.')}
-    ${gMore('Tap <b>Lock</b> beside a meal\'s name to keep it as it is when you Shuffle. <b>Locked</b> means it stays; tap it to let it change again.',
+    ${gMore('Tap <b>Lock</b> beside a meal\'s name to keep it as it is when you Shuffle. <b>Locked</b> means it stays; tap it to let it change again.', 'Signed in, your plan is the same on your phone and laptop: change it on one and the other follows.',
       'On Today, a food you tap also has <b>Log just this now</b>, to log only that food.',
       'It follows your <b>Meal times</b> (You → Meal times). In the hour before your latest meal it keeps what\'s left light, so it doesn\'t hurt your sleep.',
       'A planned meal that\'s past its time shows as <b>Late</b> until you log it or skip it.',
@@ -4619,13 +4620,62 @@ function saveIdeaMeal(f) {
    usual amounts, in the meals you usually have them), plus one or two of the built-in home ideas, rotated. It aims for the
    calorie range and the protein target, leaning on the most protein per calorie, and changes things up from the last few
    plans (Shuffle gives another version). Today fills only the meals still ahead; Tomorrow plans a whole day. Nothing is planned
-   after 8 pm. Plans live on this device only (localStorage cutlog.plan), never in saved or synced data; logging a meal from the
-   plan makes ordinary entries. */
+   after 8 pm. Plans are kept in localStorage cutlog.plan (not in the saved data); since v124 they also sync through their own
+   Firestore document (users/{uid}/meta/plan, see PLAN SYNC below); logging a meal from the plan makes ordinary entries. */
 const PLAN_KEY = 'cutlog.plan', PLAN_DAYS = 28, PLAN_END_H = 20, PLAN_MIN_KCAL = 30;
 const SLOT_END = { breakfast: 11.5, lunch: 16, dinner: PLAN_END_H, snacks: PLAN_END_H };   // the defaults; v90: slotEnd() follows your meal times
 const IDEA_SLOTS = { protoats: ['breakfast'], eggstoast: ['breakfast', 'lunch'], beanseggs: ['breakfast', 'lunch'], yogbowl: ['snacks', 'breakfast'], cottage: ['snacks', 'breakfast'], whites: ['snacks', 'breakfast'] };
 function planStore() { try { return JSON.parse(localStorage.getItem(PLAN_KEY)) || {}; } catch (e) { return {}; } }
-function planSave(x) { try { localStorage.setItem(PLAN_KEY, JSON.stringify(x)); } catch (e) {} }
+function planSave(x, remote) { try {
+  if (!remote) { x.updatedAt = Math.max(Date.now(), (x.updatedAt || 0) + 1); x.dirty = true; }   // v124: a change here gets sent to your other devices
+  localStorage.setItem(PLAN_KEY, JSON.stringify(x));
+} catch (e) {} if (!remote) planFlushSoon(); }
+/* =================== v124: PLAN SYNC ===================
+   Kan, 20 Nov 2026: "Plan my day on pc is different from plan my day on mobile" (plans were per device), then "Yes please make them
+   sync". The plans go in their own document, users/{uid}/meta/plan = {plans, recent, updatedAt}, so a plan change never fights with
+   a food or meal change in meta/main (the invite-list rules already cover everything under users/{uid}). Nothing new in cutlog.v1.
+   Merging is per day: a plan you've touched (locked, chose, shuffled, left for later, logged from) beats one the app only built by
+   itself (u = touched); otherwise the newer one wins. So a laptop that opens Plan my day a second before your phone's plan arrives
+   doesn't wipe it. Days before yesterday are dropped. Merging is the same on both sides, so the two devices settle on one plan. */
+const PLAN_SYNC = { timer: null, busy: false };
+function planPick(a, b) { if (!a) return b; if (!b) return a; if (!!a.u !== !!b.u) return a.u ? a : b; return (b.at || 0) > (a.at || 0) ? b : a; }
+function planMerge(local, remote) {
+  const keep = shift(todayIso(), -1), plans = {};
+  new Set([...Object.keys(local.plans || {}), ...Object.keys(remote.plans || {})]).forEach(d => { if (d >= keep) { const w = planPick(local.plans?.[d], remote.plans?.[d]); if (w) plans[d] = w; } });
+  const newer = (remote.updatedAt || 0) > (local.updatedAt || 0);
+  return { plans, recent: (newer ? remote.recent : local.recent) || [], updatedAt: Math.max(local.updatedAt || 0, remote.updatedAt || 0) };
+}
+const planDocOf = st => ({ plans: st.plans || {}, recent: st.recent || [], updatedAt: st.updatedAt || Date.now() });
+/* a plan document from another device */
+function planRemote(data) {
+  if (!data) return false;
+  const st = planStore(), m = planMerge(st, data);
+  const sameAsRemote = JSON.stringify(m.plans) === JSON.stringify(Object.fromEntries(Object.entries(data.plans || {}).filter(([d]) => d >= shift(todayIso(), -1))));
+  const changed = JSON.stringify(m.plans) !== JSON.stringify(st.plans || {}) || JSON.stringify(m.recent) !== JSON.stringify(st.recent || []);
+  const out = { ...m, dirty: !sameAsRemote || (st.dirty && (st.updatedAt || 0) > (data.updatedAt || 0)) };
+  if (out.dirty) out.updatedAt = Math.max(Date.now(), out.updatedAt + 1);
+  planSave(out, true); if (out.dirty) planFlushSoon();
+  if (changed) safe(() => { renderPlanBtn(); if (SH.open && $('sheetTitle').textContent === 'Plan my day' && $('plWrap')) renderPlan(); });
+  return changed;
+}
+function planFlushSoon() { if (!Sync.user) return; clearTimeout(PLAN_SYNC.timer); PLAN_SYNC.timer = setTimeout(planFlush, 900); }
+async function planFlush() {
+  const st = planStore(); if (!Sync.user || !Sync.db || !st.dirty || PLAN_SYNC.busy) return;
+  if (!navigator.onLine) { clearTimeout(PLAN_SYNC.timer); PLAN_SYNC.timer = setTimeout(planFlush, 15000); return; }
+  PLAN_SYNC.busy = true; const doc = planDocOf(st);
+  try {
+    await Sync.db.collection('users').doc(Sync.user.uid).collection('meta').doc('plan').set(doc);
+    const now = planStore(); if (now.updatedAt === doc.updatedAt) { now.dirty = false; planSave(now, true); }
+    PLAN_SYNC.busy = false; if (planStore().dirty) planFlushSoon();
+  } catch (e) { PLAN_SYNC.busy = false; if (e?.code !== 'permission-denied') { clearTimeout(PLAN_SYNC.timer); PLAN_SYNC.timer = setTimeout(planFlush, 15000); } }
+}
+function planListen(base) {
+  return base.collection('meta').doc('plan').onSnapshot(snap => {
+    if (snap.metadata.hasPendingWrites) return;
+    if (snap.exists) planRemote(snap.data());
+    else { const st = planStore(); if (st.plans && Object.keys(st.plans).length) { st.dirty = true; planSave(st, true); planFlushSoon(); } }   // first device to sync: send its plans
+  }, () => {});
+}
 const nowH = () => { const d = new Date(); return d.getHours() + d.getMinutes() / 60; };
 const slotLabel = k => SLOTS.find(s => s[0] === k)[1];
 
@@ -4800,7 +4850,7 @@ function planCtx(d) {
 }
 const planTk = T => `${T.calLo}|${T.calHi}|${T.protein}`;     // v74: the targets a plan was built for
 /* builds (or rebuilds) a day's plan. Locked meals stay exactly as they are; everything else is planned around them. */
-function makePlan(ctx, avoid) {
+function makePlan(ctx, avoid, auto) {   // v124: auto = built by the app on its own (not something you did)
   const st = planStore(), recent = st.recent || [], old = st.plans?.[ctx.d];
   const later = (old?.later || []).filter(s => ctx.avail.includes(s));     // v90: meals left "not planned yet"
   const lateS = ctx.late || [];   // v102: late meals stay exactly as planned, like locked ones
@@ -4817,12 +4867,13 @@ function makePlan(ctx, avoid) {
   const items = [...locked, ...(r ? r.items.map(x => ({ slot: x.slot, food: x.c.food, qty: x.c.at[x.s].q, unit: x.c.unit, oil: x.c.oil, idea: x.c.idea })) : [])];
   st.plans = Object.fromEntries(Object.entries(st.plans || {}).filter(([k]) => k >= shift(todayIso(), -1)));
   st.plans[ctx.d] = { items, sig: r?.sig || '', at: Date.now(), tk: planTk(ctx.T) };
+  if (!auto || old?.u) st.plans[ctx.d].u = true;   // v124: touched by you (wins when two devices disagree)
   if (later.length) st.plans[ctx.d].later = later;
   if (ctx.light) st.plans[ctx.d].light = true;
   st.recent = [...items.filter(x => !x.lock && !lateS.includes(x.slot)).map(x => x.food.id), ...recent.filter(k => !items.some(x => x.food.id === k))].slice(0, 24);
   planSave(st); return st.plans[ctx.d];
 }
-function planEdit(d, fn) { const st = planStore(), p = st.plans?.[d]; if (!p) return null; fn(p); p.at = Date.now(); planSave(st); return p; }
+function planEdit(d, fn) { const st = planStore(), p = st.plans?.[d]; if (!p) return null; fn(p); p.at = Date.now(); p.u = true; planSave(st); return p; }
 const planVal = it => { const v = calc(it.food, it.qty, it.unit); return { kcal: v.kcal + (OIL[it.oil]?.k || 0), pro: v.pro, fib: v.fib }; };
 function planReady() { const c = planCandidates(); return c.days >= 3 && c.list.filter(x => !x.idea).length >= 4; }
 function renderPlanBtn() {
@@ -4951,9 +5002,9 @@ function renderPlan() {
   const box = $('plWrap'); if (!box) return;
   const d = planDay(), ctx = planCtx(d), T = ctx.T;
   let p = planStore().plans?.[d], rebuilt = false;
-  if (!p && !ctx.closed) p = makePlan(ctx);
-  else if (p && !ctx.closed && p.tk !== planTk(T)) { p = makePlan(ctx); rebuilt = true; }   // v74: targets changed since it was built
-  else if (p && !ctx.closed && !!p.light !== ctx.light && ctx.isToday) { p = makePlan(ctx); rebuilt = 'light'; }   // v90: it got late (or your meal times changed)
+  if (!p && !ctx.closed) p = makePlan(ctx, null, true);
+  else if (p && !ctx.closed && p.tk !== planTk(T)) { p = makePlan(ctx, null, true); rebuilt = true; }   // v74: targets changed since it was built
+  else if (p && !ctx.closed && !!p.light !== ctx.light && ctx.isToday) { p = makePlan(ctx, null, true); rebuilt = 'light'; }   // v90: it got late (or your meal times changed)
   const later = (p?.later || []).filter(s => ctx.avail.includes(s));
   const items = (p?.items || []).map((x, i) => ({ ...x, i })).filter(x => ctx.avail.includes(x.slot));
   const tot = items.reduce((a, x) => { const v = planVal(x); return { kcal: a.kcal + v.kcal, pro: a.pro + v.pro }; }, { ...ctx.base });
@@ -5024,7 +5075,7 @@ function logPlanSlot(s) {
   its.forEach((x, i) => { const f = freshFood(x.food), v = planVal({ ...x, food: f });
     const e = { id: uid(), name: f.name, kcal: r1(v.kcal), pro: r1(v.pro), detail: `${fmtQty(x.qty)} ${unitWord(f, x.unit, x.qty)}${x.oil ? ` · ${OIL[x.oil].d}` : ''}`, at: now + i, slot: s, food: f, qty: x.qty, unit: x.unit };
     setFib(e, v.fib); if (x.oil) e.oil = x.oil; snapMealEntry(e); (S.log[todayIso()] ||= []).push(e); ids.push(e.id); pushRecent(f, x.qty, x.unit); });
-  const st = planStore(); if (st.plans?.[todayIso()]) { st.plans[todayIso()].at = now + its.length; planSave(st); }   // logged from the plan: still on plan
+  const st = planStore(); if (st.plans?.[todayIso()]) { st.plans[todayIso()].at = now + its.length; st.plans[todayIso()].u = true; planSave(st); }   // logged from the plan: still on plan
   touchDay(todayIso()); touchMeta(); renderTotals(); renderRows(); haptic(); renderPlan();
   const k = its.reduce((a, x) => a + planVal(x).kcal, 0);
   toast(`Logged ${slotLabel(s).toLowerCase()} · ${kc(k)} kcal`, { label: 'Undo', fn: () => {
@@ -5523,6 +5574,7 @@ $('adjNo').onclick = () => adjClose(false);
    set the app up don't get it). Always available in You → Help. Last seen version: localStorage cutlog.seenV (per device).
    Every release adds an entry at the top, in plain words for everyone who uses Cut Log. */
 const CHANGELOG = [
+  { v: 124, d: '2026-11-20', items: ['Plan my day now syncs: your phone and laptop show the same plan, with the same locked meals, choices and meals left for later. If both had a different plan, the one you changed yourself is kept.'] },
   { v: 123, d: '2026-11-20', items: ['Editing or building a meal now has a Back to My meals button at the bottom. Changes you haven\'t saved are kept, and you can still save them from the message.'] },
   { v: 122, d: '2026-11-17', items: ['Chicken thigh, cooked now uses USDA\'s numbers for a leaner thigh: 176 kcal and 24.6 g protein per 100 g (was 210 and 26). One thigh now reads about the same raw or cooked. Days you already logged keep their numbers.'] },
   { v: 121, d: '2026-11-17', items: ['Raw chicken thighs (boneless, skinless): weigh them before cooking and log them as they are, like the Costco packs. Chicken thigh, cooked now has the same Raw weight / Cooked switch as chicken breast.'] },

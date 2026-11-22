@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '124';
+const APP_V = '125';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -149,34 +149,81 @@ const twinOf = f => {
    so x0.36). Rice, pasta and oats must also have dry-food numbers (closer to the dry food than the cooked one), so a
    package that's already cooked (ready rice) never gets it. Cooked versions are made when needed, never saved as foods. */
 const PKG_PAIRS = [
-  [/\b(ground|minced) chicken\b|\bchicken,? (ground|mince)|\bpoulet hache|\bhache de poulet\b/, 'Ground chicken, extra lean (raw)'],
+  [/\b(ground|minced) (chicken|turkey)\b|\b(chicken|turkey),? (ground|mince)|\b(poulet|dinde) hache|\bhache de (poulet|dinde)\b/, 'Ground chicken, extra lean (raw)'],   // v125: ground turkey too
   [/\b(ground|minced) beef\b|\bbeef,? (ground|mince)|\bboeuf hache|\bhache de boeuf\b/, 'Ground beef, extra lean (raw)'],
-  [/\bchicken breasts?\b|\bpoitrines? de poulet\b/, 'Chicken breast (raw)'],
+  [/\b(ground|minced) (pork|lamb|veal|goat)\b|\b(pork|lamb|veal),? (ground|mince)|\b(porc|agneau|veau) hache|\bhache de (porc|agneau|veau)\b/, 'groundfat'],   // v125
+  [/\bchicken breasts?\b|\bpoitrines? de poulet\b|\bturkey breasts?\b|\bpoitrines? de dinde\b|\bchicken (tenders?|tenderloins?|cutlets?|fillets?|filets?|cubes?)\b|\bfilets? de poulet\b|\bescalopes? de (poulet|dinde)\b/, 'Chicken breast (raw)'],   // v125: turkey breast, tenders, cutlets
+  [/\bthighs?\b|\bhauts? de cuisses?\b|\bdrumsticks?\b|\bpilons?\b|\bchicken legs?\b|\bcuisses? de poulet\b/, 'Chicken thigh, boneless skinless (raw)'],   // v125: thighs and drumsticks (dark meat)
   [/\bbasa\b|\bswai\b|\bpangasius\b/, 'Basa / swai fillet (raw)'],
   [/\bsalmon\b|\bsaumon\b/, 'Salmon, Atlantic (raw)'],
+  [/\b(whiting|merlan|hake|pescada|merlu|merluza|cod|codfish|morue|cabillaud|haddock|aiglefin|pollock|pollack|goberge|tilapia|sole|flounder|plie|halibut|fletan|perch|perche|catfish|barbue|snapper|vivaneau|grouper|merou|croaker|corvina|mullet|mulet|swordfish|espadon|mahi|walleye|pickerel|turbot|monkfish|lotte|bream|dorade|sea bass|loup de mer|white ?fish|poisson blanc|fish fillets?|filets? de poisson|fish steaks?)\b/, 'Basa / swai fillet (raw)'],   // v125: lean white fish lose water like basa (USDA cod 82 -> 105, whiting 90 -> 116: about x1.29)
+  [/\b(trout|truite|mackerel|maquereau|tuna|thon|sardines?|herring|hareng|arctic char|omble|sablefish|black cod|kingfish|bluefish|barracuda)\b/, 'oilyfish'],
+  [/\b(shrimps?|prawns?|crevettes?|scampi|langoustines?)\b/, 'shrimp'],
+  [/\b(pork|porc)\b/, 'pork'],
+  [/\b(beef|boeuf|steaks?|sirloin|surlonge|striploin|contre[ -]filet|ribeye|rib eye|faux[ -]filet|filet mignon|flank|bavette|brisket|stewing|chuck|veal|veau|bison)\b/, 'beef'],
+  [/\b(lamb|agneau|mutton|mouton|goat|chevreau|cabrito)\b/, 'beef'],
+  [/\begg noodles?\b|\bnouilles aux oeufs\b/, 'eggnoodle'],
+  [/\brice (noodles?|sticks?|vermicelli)\b|\bvermicell[ie]s?\b|\bnouilles de riz\b/, 'ricenoodle'],
   [/\bbrown rice\b|\briz (brun|complet)\b/, 'Brown rice (dry)'],
   [/\brice\b|\briz\b/, 'White rice (dry)'],
-  [/\b(pasta|spaghetti|spaghettis|spaghettini|penne|macaroni|fusilli|linguine|rigatoni|rotini|fettuccine|farfalle|orzo|pates|coquillettes)\b/, 'Pasta (dry)'],
+  [/\b(pasta|spaghetti|spaghettis|spaghettini|penne|macaroni|fusilli|linguine|rigatoni|rotini|fettuccine|farfalle|orzo|pates|coquillettes|noodles?|nouilles|udon|soba)\b/, 'Pasta (dry)'],
   [/\boats\b|\boatmeal\b|\bporridge\b|\bavoine\b|\bgruau\b/, 'Oats, rolled (dry)'],
+  [/\bquinoa\b/, 'quinoa'],
+  [/\bcouscous\b/, 'couscous'],
+  [/\blentils?\b|\blentilles?\b/, 'lentils'],
+  [/\bchick ?peas?\b|\bgarbanzos?\b|\bpois chiches?\b/, 'chickpeas'],
+  [/\bbarley\b|\borge\b/, 'barley'],
+  [/\bbulgu?r\b|\bboulgour\b/, 'bulgur'],
+  [/\b(black|kidney|pinto|navy|white|red|mung|lima|cannellini|romano|great northern) beans?\b|\bharicots?\b|\bbeans?\b/, 'Black beans (dry)'],
 ];
+/* v125: kinds with no built-in pair of their own (Kan, 22 Nov: his Atlantic whiting had no switch, "is there a way to have the app
+   know when to add the switch"). Each is a typical raw (or dry) and cooked calories per 100 g, so Cooked = the package x cooked / raw.
+   Meat loses about a quarter of its weight as water when cooked (yield about 0.75-0.8), fish and shrimp a bit less; fattier ground
+   meat also loses fat with the water, so it changes less. Grains and pulses are USDA dry vs cooked. */
+const PKG_KINDS = {
+  groundfat: { state: 'raw', raw: 100, cooked: 115, cook: true },    // ground pork / lamb: x1.15 (fat drips off with the water)
+  oilyfish: { state: 'raw', raw: 100, cooked: 120, cook: true },     // trout, mackerel, tuna steak: x1.2
+  shrimp: { state: 'raw', raw: 100, cooked: 120, cook: true },       // shrimp and prawns: x1.2
+  pork: { state: 'raw', raw: 100, cooked: 125, cook: true },         // pork chops, loin, tenderloin: x1.25
+  beef: { state: 'raw', raw: 100, cooked: 130, cook: true },         // steak, stewing beef, lamb, goat: x1.3
+  eggnoodle: { state: 'dry', raw: 384, cooked: 138, cup: 160 },
+  ricenoodle: { state: 'dry', raw: 364, cooked: 108, cup: 176 },
+  quinoa: { state: 'dry', raw: 368, cooked: 120, cup: 185 },
+  couscous: { state: 'dry', raw: 376, cooked: 112, cup: 157 },
+  lentils: { state: 'dry', raw: 352, cooked: 116, cup: 198 },
+  chickpeas: { state: 'dry', raw: 378, cooked: 164, cup: 164 },
+  barley: { state: 'dry', raw: 352, cooked: 123, cup: 157 },
+  bulgur: { state: 'dry', raw: 342, cooked: 83, cup: 182 },
+};
 /* v77: Canadian packs often reach Open Food Facts under their French name (Kan's "Filets de saumon rose sauvage"), so names
    are matched in English and French. Accents are taken off first (haché -> hache, bœuf -> boeuf), and the French words for
-   cooked, smoked, canned and so on keep ready-to-eat packs out, like the English ones. */
-const PKG_NOT = /\b(cooked|roasted|grilled|smoked|canned|tinned|deli|sliced|nuggets?|breaded|fried|strips|cakes?|crackers?|crisps?|crispy|chips|cereal|milk|flour|bran|bars?|sauce|soup|pudding|salad|bowl|drink|granola|cookies?|vinegar|wine|oil|jerky|sushi|dinner|meal|kit|cuite?s?|roties?|rotis?|grillee?s?|fumee?s?|conserve|tranchee?s?|panee?s?|frite?s?|croustillante?s?|pepites|batonnets|galettes?|craquelins?|cereales?|lait|farine|son|barres?|soupe|pouding|salade|bol|boisson|biscuits?|vinaigre|vin|huile|repas|souper|trousse)\b/;
+   cooked, smoked, canned and so on keep ready-to-eat packs out, like the English ones. v125: also cured and made-up foods
+   (bacon, ham, sausages, pies, wraps, broth, cheese...), canned fish words (flaked, in water) and salt cod. */
+const PKG_NOT = /\b(cooked|roasted|grilled|smoked|canned|tinned|deli|sliced|nuggets?|breaded|fried|strips|cakes?|crackers?|crisps?|crispy|chips|cereal|milk|flour|bran|bars?|sauce|soup|pudding|salad|bowl|drink|granola|cookies?|vinegar|wine|oil|jerky|sushi|dinner|meal|kit|cuite?s?|roties?|rotis?|grillee?s?|fumee?s?|conserve|tranchee?s?|panee?s?|frite?s?|croustillante?s?|pepites|batonnets|galettes?|craquelins?|cereales?|lait|farine|son|barres?|soupe|pouding|salade|bol|boisson|biscuits?|vinaigre|vin|huile|repas|souper|trousse|bacon|ham|jambon|salami|pepperoni|wieners?|hot ?dogs?|pastrami|prosciutto|chorizo|lardons?|sausages?|saucisses?|saucissons?|corned|roast beef|rosbif|pies?|tourtieres?|pizzas?|wraps?|sandwich(es)?|burritos?|dumplings?|gyozas?|samosas?|empanadas?|lasagnas?|lasagnes?|stew|curry|chili|tikka|shawarma|kebabs?|souvlaki|broth|bouillon|stock|gravy|terrine|rillettes|spread|tartinade|popcorn|bites|cheese|fromage|yogh?o?urt|yogourt|creme|cream|flaked|emiettes?|pouch|in water|dans l'eau|stockfish|salted|salee?s?|bacalhau|bacalao|baked beans|refried|hummus|houmous|falafel|tempura|battered|crumbed|coated|enrobee?s?|rings?|cocktail)\b/;
 const PKG_FAT_SALMON = 170;      // kcal per 100 g: under this the pack is wild or pink salmon, not fatty farmed Atlantic
-const pkgName = n => String(n || '').toLowerCase().replace(/œ/g, 'oe').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+const PKG_MAX_RAW = 320;         // v125: raw meat or fish over this per 100 g is cured, dried or mostly fat, so no switch
+const pkgName = n => String(n || '').toLowerCase().replace(/œ/g, 'oe').normalize('NFD').replace(/[̀-ͯ]/g, '');
 function pkgPair(f) {
   if (!f || NOT_SAVED.includes(f.source) || f.source === 'cooked' || f.cookOf || !(f.kcal100 > 0)) return null;
   const low = String(f.name || '').toLowerCase(), nm = pkgName(low);
   if (PKG_NOT.test(nm) || /\bpâtés?\b|pâté/.test(low)) return null;    // pâté (meat spread) isn't pâtes (pasta)
   const hit = PKG_PAIRS.find(([re]) => re.test(nm)); if (!hit) return null;
-  const raw = BUILTIN_FOODS.find(x => x.name === hit[1]), cooked = raw && BUILTIN_FOODS.find(x => x.name === raw.twin);
-  if (!cooked) return null;
+  let raw, cooked, k;
+  const kind = PKG_KINDS[hit[1]];
+  if (kind) {        // v125: a kind with no built-in pair; made up here, never shown as a food of its own
+    raw = { state: kind.state, kcal100: kind.raw, cook: !!kind.cook };
+    cooked = { state: 'cooked', kcal100: kind.cooked, cook: !!kind.cook, cup: kind.cup };
+    k = kind.cooked / kind.raw;
+  } else {
+    raw = BUILTIN_FOODS.find(x => x.name === hit[1]); cooked = raw && BUILTIN_FOODS.find(x => x.name === raw.twin);
+    if (!cooked) return null;
+  }
   if (raw.state === 'dry' && Math.abs(f.kcal100 - raw.kcal100) >= Math.abs(f.kcal100 - cooked.kcal100)) return null;   // already cooked
+  if (raw.state === 'raw' && f.kcal100 > PKG_MAX_RAW) return null;   // v125
   /* v77: the built-in salmon pair is fatty farmed Atlantic (208 raw, 206 cooked: it loses fat as it loses water, so x0.99).
      Wild and pink salmon are lean and just lose water: USDA pink salmon 127 raw, 153 cooked (dry heat), so x1.2. */
   if (raw.name === 'Salmon, Atlantic (raw)' && f.kcal100 < PKG_FAT_SALMON) return { raw, cooked, k: 153 / 127 };
-  return { raw, cooked };
+  return k ? { raw, cooked, k } : { raw, cooked };
 }
 const PKG_SEEN = new Map();   // v63: packs opened this session, so a just-scanned pack can be saved when it's logged as Cooked
 function cookedOf(p, pp = pkgPair(p)) {
@@ -3546,7 +3593,7 @@ const GUIDE = [
     ${gMore('Cooked it yourself? <b>Cooked with oil or butter?</b> adds the oil. Oil is the most common hidden source of calories.',
       'Dishes come in <b>small, regular and large</b> plates or bowls, with a picture guide.',
       'More hand sizes: a <b>cupped hand</b> of snacks, a <b>thumb</b> of oil or peanut butter.',
-      'Your own packs of chicken, beef, fish, rice, pasta and oats get the switch too, whether the name is in English or French. The package numbers are for raw or dry food, and Cooked works out the rest.',
+      'Your own foods get the switch by themselves when the name says what they are, in English or French: chicken, turkey, beef, pork, lamb, goat, any fish (whiting, hake, cod, tilapia, salmon, trout…), shrimp, rice, pasta, noodles, oats, quinoa, couscous, lentils, chickpeas and dry beans. The label numbers are for raw or dry food, and Cooked works out the rest.',
       'Switching between serving, ml and fl oz keeps the same amount (1 serving of 250 ml becomes 250 ml).')}`, 'i-spoon', 'Amounts, hand sizes, raw or cooked'],
   ['Your Today screen', `<p class="g-lead">The top of Today shows how your day is going.</p>
     ${gStep('The left ring is calories, the right ring is protein. <b>Tap the rings</b> to see what\'s <b>left</b> for today instead.',
@@ -5574,6 +5621,7 @@ $('adjNo').onclick = () => adjClose(false);
    set the app up don't get it). Always available in You → Help. Last seen version: localStorage cutlog.seenV (per device).
    Every release adds an entry at the top, in plain words for everyone who uses Cut Log. */
 const CHANGELOG = [
+  { v: 125, d: '2026-11-22', items: ['The Raw weight / Cooked switch now turns up by itself on many more of your own foods: any fish (whiting, hake, cod, tilapia, trout…), shrimp, turkey, pork, steak, lamb, goat, chicken thighs and drumsticks, plus quinoa, couscous, lentils, chickpeas, dry beans and noodles. Foods you already saved get it too, so you don\'t need to ask for it.'] },
   { v: 124, d: '2026-11-20', items: ['Plan my day now syncs: your phone and laptop show the same plan, with the same locked meals, choices and meals left for later. If both had a different plan, the one you changed yourself is kept.'] },
   { v: 123, d: '2026-11-20', items: ['Editing or building a meal now has a Back to My meals button at the bottom. Changes you haven\'t saved are kept, and you can still save them from the message.'] },
   { v: 122, d: '2026-11-17', items: ['Chicken thigh, cooked now uses USDA\'s numbers for a leaner thigh: 176 kcal and 24.6 g protein per 100 g (was 210 and 26). One thigh now reads about the same raw or cooked. Days you already logged keep their numbers.'] },

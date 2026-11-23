@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '125';
+const APP_V = '127';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -369,7 +369,9 @@ function mealPartFood(m) {
   f.fibServ = tot / Math.max(1, m.servings || 1); if (m.cookedG > 0) f.fib100 = tot / m.cookedG * 100;
   return f;
 }
-const mealOf = f => f?.source === 'meal' ? S.meals.find(x => 'meal-' + x.id === f.id) || null : null;
+/* v127: a one-time meal (Group on Today, or a meal changed for one copy) is a food that carries its own ingredients, 1 serving */
+const oneMeal = f => f?.one && Array.isArray(f.items) && f.items.length ? { id: f.id, one: true, name: f.name, servings: 1, items: f.items, kcal: f.kcalServ, pro: f.proServ, ...(f.grp ? { grp: f.grp } : {}), ...(f.adj ? { adj: f.adj } : {}) } : null;
+const mealOf = f => f?.source === 'meal' ? S.meals.find(x => 'meal-' + x.id === f.id) || oneMeal(f) : null;   // v127: or a one-time meal's own ingredients
 /* the known part of a logged meal's fibre, only while the meal still gives the same calories for that amount */
 function entryFibPart(e) {
   const pf = mealPartFood(mealOf(e.food)); if (!pf || !(e.qty > 0) || !unitsFor(pf).some(u => u.key === e.unit)) return null;
@@ -533,7 +535,8 @@ function renderRows() {
   r.innerHTML = SLOTS.map(([k, label]) => {
     const g = es.filter(e => slotOf(e) === k); if (!g.length) return '';
     const tk = g.reduce((a, e) => a + e.kcal, 0), tp = g.reduce((a, e) => a + e.pro, 0);
-    return `<div class="mgroup"><div class="mg-h"><span><i class="mg-dot s-${k}" aria-hidden="true"></i>${label}</span><span class="mg-t">${Math.round(tk).toLocaleString()} kcal · ${fmtG(tp)}g</span></div>${g.map(rowHtml).join('')}</div>`;
+    const grp = g.length >= 2 ? `<button type="button" class="mg-grp" data-grp="${k}" aria-label="Group ${label.toLowerCase()} into one meal">Group</button>` : '';   // v127
+    return `<div class="mgroup"><div class="mg-h"><span><i class="mg-dot s-${k}" aria-hidden="true"></i>${label}${grp}</span><span class="mg-t">${Math.round(tk).toLocaleString()} kcal · ${fmtG(tp)}g</span></div>${g.map(rowHtml).join('')}</div>`;
   }).join('');
   safe(renderShape);   // v80
 }
@@ -1235,6 +1238,7 @@ function openAmount(f, preset, opts = {}) {
     ${moreNote(f)}
     <button class="btn" id="aAdd">${esc(cta)}</button>
     ${picking?.alt ? `<button class="btn ghost" id="aAlt">${esc(picking.alt.label)}</button>` : ''}
+    ${f.source === 'meal' && (!picking || picking.adj) && adjBase(f, startQty, unit) ? '<button class="btn ghost" id="aAdj">Change ingredients for this time</button>' : ''}
     ${f.source === 'idea' && !picking && !editing ? '<button class="btn ghost" id="aIdeaMeal">Save as one of my meals</button>' : ''}
     ${NOT_SAVED.includes(f.source) && !f.cookOf ? '' : '<button class="btn ghost" id="aFix">Numbers look wrong? Fix them</button>'}
     ${editing ? '<button class="btn ghost" id="aMove">Move to another day</button><button class="btn danger" id="aDel">Remove from log</button>' : ''}`);
@@ -1342,6 +1346,22 @@ function openAmount(f, preset, opts = {}) {
       : g ? { kcal: f.kcal100 * g / 100, pro: (f.pro100 || 0) * g / 100 } : { kcal: f.kcal100, pro: f.pro100 };
     openSheet('Fix the numbers', `<p class="hint">Enter what the label says for one serving. The app will use your numbers for this food from now on.</p><div id="labelOut"></div>`);
     labelForm($('labelOut'), { kcal: Math.round(per.kcal), pro: r1(per.pro || 0), fib: fibPerServ(f, g), ...macPerServ(f, g), servingG: g || (f.kcalServ == null ? 100 : null) }, '', f.barcode || null, f.name, f.id, { ...was, src: f });
+  };
+  if ($('aAdj')) $('aAdj').onclick = () => {     // v127: a meal's ingredients changed for this time only (the saved meal stays the same)
+    const q = parseFloat($('aQty').value);
+    if (!(q > 0)) { toast('Enter how much you had.'); return; }
+    if (!adjBase(f, q, unit)) { toast('Pick servings to change the ingredients.'); return; }
+    haptic();
+    openAdjust({ food: f, qty: q, unit, label: cta, back: () => openAmount(f, { qty: q, unit }, { ...opts, slot }), done: r => {
+      if (picking) { pick = null; picking.onDone(r.f, r.qty, r.unit, r.v, null); return; }
+      if (editing) {
+        if (editEntry) { Object.assign(editEntry, { kcal: r1(r.v.kcal), pro: r1(r.v.pro), detail: r.same ? editEntry.detail : r.detail, food: r.f, qty: r.qty, unit: r.unit }); setFib(editEntry, r.v.fib);
+          if (!r.same) { delete editEntry.mi; delete editEntry.parts; snapMealEntry(editEntry); } }
+        touchDay(day); closeSheet(); renderTotals(); renderRows(); toast('Entry updated'); return;
+      }
+      const ne = addEntry(r.f.name, r.v.kcal, r.v.pro, r.detail, { food: r.f, qty: r.qty, unit: r.unit, fib: r.v.fib }, slot), nd = day;
+      closeSheet(); toast(`Added ${Math.round(r.v.kcal)} kcal · ${fmtG(r.v.pro)}g protein`, { label: 'Undo', fn: () => unlogEntry(ne.id, nd) });
+    } });
   };
   if ($('aAlt')) $('aAlt').onclick = () => {     // v112: Plan my day's "Log just this now"
     const q = parseFloat($('aQty').value);
@@ -1907,7 +1927,8 @@ function openQuick(typed) {
 
 /* ---------- meals ---------- */
 function mealFood(m) {
-  const f = { id: 'meal-' + m.id, name: m.name, source: 'meal', kcalServ: m.kcal, proServ: m.pro };
+  const f = { id: m.one ? m.id : 'meal-' + m.id, name: m.name, source: 'meal', kcalServ: m.kcal, proServ: m.pro };
+  if (m.one) { f.one = true; f.items = m.items; if (m.grp) f.grp = m.grp; if (m.adj) f.adj = m.adj; }   // v127: a one-time meal (grouped, or changed for one copy)
   const n = Math.max(1, m.servings || 1);
   if (m.cookedG > 0) {        // weighed batch: log any amount by grams or hand portions
     f.servingG = m.cookedG / n; f.servingLabel = `${Math.round(f.servingG)} g`;
@@ -1949,7 +1970,7 @@ function mealSnap(m, f) {
 }
 /* a meal being logged keeps its ingredients, but only when the food logged is the saved meal as it is now (not an old Recent copy) */
 function snapMealEntry(e) {
-  if (e.food?.source !== 'meal' || e.mi) return;
+  if (e.food?.source !== 'meal' || e.mi || e.food.one) return;   // v127: a one-time meal carries its own ingredients
   const m = mealOf(e.food); if (!m) return;
   const now = mealFood(m); if (now.kcalServ !== e.food.kcalServ || (now.kcal100 ?? null) !== (e.food.kcal100 ?? null)) return;
   const s = mealSnap(m, e.food); if (s) e.mi = s;
@@ -1984,19 +2005,241 @@ function openMealInfo(id, opts = {}) {
   const note = whole ? (r.s.s > 1 ? `The whole recipe (${r.s.s} servings).` : '')
     : r.s.g > 0 && e.unit !== 'serving' ? `Scaled to the ${amt} you ${verb}, from a ${kc(r.s.g)} g pot.`
     : `Scaled to the ${amt} you ${verb}. The recipe makes ${r.s.s} serving${r.s.s === 1 ? '' : 's'}.`;
+  /* v127: a one-time meal says what it is; a logged meal can be copied to another day or put in a plan (its ingredients changed for
+     that copy if you like), and a grouped one can be ungrouped */
+  const one = e.food?.one ? (e.food.adj ? `Changed just for this ${opts.planned ? 'plan' : 'day'} from “${e.food.adj}”. That meal stays as it is.` : e.food.grp ? `Grouped from ${e.food.grp} foods you logged.` : '') : '';
+  const logged = !opts.planned && e.id !== 'plan' && !!entriesFor(opts.d || day).find(x => x === e);
   openSheet('Ingredients', `
     <div class="food-head" id="miHead"><strong>${esc(e.name)}</strong><span>${esc([amt, time].filter(Boolean).join(' · '))}</span></div>
-    ${note ? `<p class="hint" id="miNote">${esc(note)}</p>` : ''}
+    ${note ? `<p class="hint" id="miNote">${esc(note)}</p>` : ''}${one ? `<p class="hint" id="miOne">${esc(one)}</p>` : ''}
     <div class="mi-list" id="miList">${r.items.map(x => `<div class="mi-r"><span class="n">${esc(x.n)}<small>${esc(x.amt)}${x.c != null ? ` · ${fmtG(x.c)}g carbs · ${fmtG(x.f)}g fat` : ''}</small></span><span class="c">${Math.round(x.k)}<small>kcal</small></span><span class="pill">${fmtG(x.p)}g</span></div>`).join('')}</div>
     <div class="mi-tot" id="miTot"><span class="n">Total<small>${allMac ? `${fmtG(sum('c'))}g carbs · ${fmtG(sum('f'))}g fat` : 'Carbs and fat aren\'t known for every ingredient'}</small></span><span class="c">${Math.round(e.kcal)}<small>kcal</small></span><span class="pill">${fmtG(e.pro)}g</span></div>
+    ${logged ? `<div class="pl-btns mi-acts" id="miActs"><button type="button" class="pl-btn" id="miCopy">${icon('i-plus')}Copy to another day</button><button type="button" class="pl-btn" id="miPlan">${icon('i-plan')}Add to a plan</button>${e.parts?.length ? `<button type="button" class="pl-btn" id="miUngroup">${icon('i-grip')}Ungroup</button>` : ''}</div>` : ''}
     ${opts.back ? '<button class="btn ghost" id="miBack">Back to Plan my day</button>' : ''}`);
   if ($('miBack')) $('miBack').onclick = () => { haptic(); opts.back(); };
+  if (logged) {
+    const d = opts.d || day, again = () => openMealInfo(e.id, opts), base = entryAdjBase(e);
+    const go = dest => { haptic(); openAdjust({ food: e.food, qty: e.qty, unit: e.unit, base, sub: e.detail, kcal: e.kcal, pro: e.pro, dest, from: d, slot: slotOf(e), back: again,
+      title: dest === 'day' ? 'Copy to another day' : 'Add to a plan',
+      done: x => dest === 'day' ? copyEntryTo(e, x, d) : addToPlan(x.d, x.slot, x.f, x.qty, x.unit) }); };
+    $('miCopy').onclick = () => go('day'); $('miPlan').onclick = () => go('plan');
+    if ($('miUngroup')) $('miUngroup').onclick = () => ungroupEntry(e.id, d);
+  }
 }
 /* v116: a planned meal as an entry, so its ingredients show at the planned amount (null when it isn't a built meal with ingredients) */
 function planMealEntry(x) {
   const f = freshFood(x.food); if (f?.source !== 'meal') return null;
   const v = planVal({ ...x, food: f });
   return { id: 'plan', name: f.name, food: f, qty: x.qty, unit: x.unit, kcal: v.kcal, pro: v.pro, detail: `${fmtQty(x.qty)} ${unitWord(f, x.unit, x.qty)}` };
+}
+/* =================== v127: GROUP FOODS INTO ONE MEAL, AND CHANGE A MEAL JUST FOR ONE COPY ===================
+   Kan, 23 Nov 2026 (his Today screenshot: a breakfast of 8 foods, 751 kcal): "a feature where after adding ingredients like this we
+   can group them and name it… we can save it to our meals or it's just a one time thing so we can always copy it into another day or
+   even in plan my day", then "adjust the macros when I select a meal in plan my day or copy it… reduce the grams of maybe say chicken
+   or cereal… it won't affect the saved meal itself and it's only in that instance". He chose: Save to My meals off by default, a
+   grouped meal copies over as 1 serving (no amount question), and a Save as new meal button.
+   A one-time meal is a food that carries its own ingredients (source 'meal', one: true, items like a saved meal's, 1 serving; grp =
+   how many foods were grouped, adj = the meal it was changed from). It lives only on the entry or plan item that uses it, never in
+   S.meals or S.foods, and mealOf() treats it like a saved meal, so the ⓘ, carbs, fat, fibre, Plan my day and Copy work as they do
+   for saved meals. A grouped entry also keeps the entries it was made from (e.parts), so Ungroup puts them back. Nothing new at the
+   top level of saved data. */
+function makeOne(name, items, tag = {}) {
+  const its = JSON.parse(JSON.stringify(items)), t = its.reduce((a, it) => { const v = calc(it.food, it.qty, it.unit); return { k: a.k + v.kcal, p: a.p + v.pro }; }, { k: 0, p: 0 });
+  return mealFood({ id: 'one-' + uid(), one: true, name, servings: 1, items: its, kcal: tag.kcal ?? r1(t.k), pro: tag.pro ?? r1(t.p), ...(tag.grp ? { grp: tag.grp } : {}), ...(tag.adj ? { adj: tag.adj } : {}) });
+}
+/* one logged entry as meal ingredients: its own food at its amount (plus the cooking oil as its own line), or, when its numbers
+   can't be rebuilt from a food (a quick add, Subway extras, numbers changed since), exactly what was logged as one serving */
+function groupItems(e) {
+  const f = e.food, oil = OIL[e.oil]?.k || 0;
+  if (f && e.qty > 0 && !e.adds?.length && unitsFor(f).some(u => u.key === e.unit)) {
+    const v = calc(f, e.qty, e.unit), logged = e.kcal - oil;
+    if (Math.abs(v.kcal - logged) <= Math.max(3, logged * 0.03)) {
+      const out = [{ food: JSON.parse(JSON.stringify(f)), qty: e.qty, unit: e.unit }];
+      if (oil) out.push({ food: { id: 'oil-' + e.oil, name: `Cooking oil (${e.oil === 'lot' ? 'plenty' : 'a little'})`, source: 'entry', kcalServ: oil, proServ: 0, carbServ: 0, fatServ: r1(oil / 9) }, qty: 1, unit: 'serving' });
+      return out;
+    }
+  }
+  const sf = { id: 'entry-' + e.id, name: e.name, source: 'entry', kcalServ: r1(e.kcal), proServ: r1(e.pro) };
+  const fb = entryFib(e), mc = entryMac(e);
+  if (fb != null) sf.fibServ = r1(fb);
+  if (mc) { sf.carbServ = r1(mc.carb); sf.fatServ = r1(mc.fat); }
+  return [{ food: sf, qty: 1, unit: 'serving' }];
+}
+function openGroup(slot) {
+  const d = day, es = entriesFor(d).filter(e => slotOf(e) === slot); if (es.length < 2) return;
+  const sel = new Set(es.map(e => e.id)), lab = slotLabel(slot).toLowerCase();
+  let save = false;
+  openSheet(`Group ${lab}`, `
+    <p class="hint" id="grHint">Pick what goes together and give it a name. It becomes one line on ${d === todayIso() ? 'today' : 'that day'}, with its ingredients under the <b>ⓘ</b>.</p>
+    <div class="list gr-list" id="grList">${es.map(e => `<button type="button" class="item gr-i" data-gr="${esc(e.id)}" aria-pressed="true"><i class="gr-c" aria-hidden="true"></i><span class="nm">${esc(e.name)}<small>${esc(e.detail || '')}</small></span><span class="meta">${kc(e.kcal)} kcal · ${fmtG(e.pro)}g</span></button>`).join('')}</div>
+    <label>Name<input id="grName" maxlength="60" placeholder="Like Protein pancakes" autocomplete="off"></label>
+    <div class="nt-row gr-sw"><span class="nt-t"><b>Save to My meals</b><small id="grSwT"></small></span><button class="nt-sw" id="grSave" type="button" role="switch" aria-checked="false" aria-label="Save to My meals"></button></div>
+    <p class="hint" id="grSum"></p>
+    <button class="btn" id="grGo">Group these</button>`);
+  const upd = () => {
+    const g = es.filter(e => sel.has(e.id));
+    $('grSum').textContent = g.length < 2 ? 'Pick at least 2 foods.' : `${g.length} foods · ${kc(g.reduce((a, e) => a + e.kcal, 0))} kcal · ${fmtG(g.reduce((a, e) => a + e.pro, 0))}g protein`;
+    $('grSwT').textContent = save ? 'It’s added to My meals too, so you can log it again with one tap.' : 'Off: just for this day. You can still copy it to another day or add it to a plan.';
+  };
+  upd();
+  $('grList').onclick = ev => { const b = ev.target.closest('[data-gr]'); if (!b) return; haptic();
+    if (sel.has(b.dataset.gr)) sel.delete(b.dataset.gr); else sel.add(b.dataset.gr); b.setAttribute('aria-pressed', sel.has(b.dataset.gr)); upd(); };
+  $('grSave').onclick = () => { save = !save; haptic(); $('grSave').setAttribute('aria-checked', save); upd(); };
+  $('grGo').onclick = () => {
+    const g = es.filter(e => sel.has(e.id)), name = $('grName').value.trim().replace(/\s+/g, ' ');
+    if (g.length < 2) { toast('Pick at least 2 foods.'); return; }
+    if (!name) { toast('Give it a name first.'); $('grName').focus(); return; }
+    if (save && S.meals.some(m => m.name.toLowerCase() === name.toLowerCase())) { toast('You have a meal with that name'); return; }
+    const items = g.flatMap(groupItems), k = r1(g.reduce((a, e) => a + e.kcal, 0)), p = r1(g.reduce((a, e) => a + e.pro, 0)), fibs = g.map(entryFib);
+    let m = null, f;
+    if (save) { m = { id: uid(), name, servings: 1, items: JSON.parse(JSON.stringify(items)) }; const t = mealTotals(m); m.kcal = Math.round(t.kcal); m.pro = Math.round(t.pro); S.meals.push(m); f = mealFood(m); S.slotPref[f.id] = slot; }
+    else f = makeOne(name, items, { kcal: k, pro: p, grp: g.length });
+    const ne = { id: uid(), name, kcal: k, pro: p, detail: '1 serving', at: Math.min(...g.map(e => e.at || Date.now())), slot, food: f, qty: 1, unit: 'serving', parts: JSON.parse(JSON.stringify(g)) };
+    if (fibs.every(x => x != null)) ne.fib = r1(fibs.reduce((a, b) => a + b, 0));
+    if (m) snapMealEntry(ne);
+    const list = entriesFor(d), before = list.slice(), i0 = list.findIndex(e => sel.has(e.id));
+    S.log[d] = list.filter(e => !sel.has(e.id)); S.log[d].splice(Math.min(i0, S.log[d].length), 0, ne);
+    touchDay(d); if (m) touchMeta(); closeSheet(); renderTotals(); renderRows(); haptic();
+    toast(`Grouped: ${name}`, { label: 'Undo', fn: () => { S.log[d] = before; if (m) { S.meals = S.meals.filter(x => x !== m); delete S.slotPref[f.id]; touchMeta(); } touchDay(d); renderTotals(); renderRows(); } });
+  };
+}
+/* Ungroup: the entries it was made from come back (scaled if the grouped line's amount was changed since) */
+function ungroupEntry(id, d) {
+  const list = entriesFor(d), i = list.findIndex(x => x.id === id), e = list[i]; if (!e?.parts?.length) return;
+  const pk = e.parts.reduce((a, x) => a + x.kcal, 0), fr = pk > 0 ? e.kcal / pk : 1, same = Math.abs(fr - 1) < 0.01, before = list.slice();
+  const back = e.parts.map(x => { const c = JSON.parse(JSON.stringify(x)); c.id = uid(); c.slot = slotOf(e);
+    if (!same) { c.kcal = r1(c.kcal * fr); c.pro = r1(c.pro * fr); if (c.fib != null) c.fib = r1(c.fib * fr);
+      if (c.food && c.qty > 0) { c.qty = r1(c.qty * fr); c.detail = `${fmtQty(c.qty)} ${unitWord(c.food, c.unit, c.qty)}${c.oil ? ` · ${OIL[c.oil].d}` : ''}`; delete c.mi; } }
+    return c; });
+  list.splice(i, 1, ...back); touchDay(d); closeSheet(); renderTotals(); renderRows(); haptic();
+  toast(`Ungrouped ${back.length} foods`, { label: 'Undo', fn: () => { S.log[d] = before; touchDay(d); renderTotals(); renderRows(); } });
+}
+/* The ingredients of a meal food at an amount, as editable amounts (null when it has none, or they can't be worked out exactly) */
+const adjRound = (q, u) => bigUnit(u) ? Math.max(1, Math.round(q)) : Math.round(q * 100) / 100;
+function adjBase(f, qty, unit) {
+  const m = mealOf(f); if (!m?.items?.length || !(qty > 0)) return null;
+  const n = Math.max(1, m.servings || 1), u = unitsFor(f).find(x => x.key === unit);
+  const frac = unit === 'serving' ? qty / n : m.cookedG > 0 && u?.g ? qty * u.g / m.cookedG : null; if (!(frac > 0)) return null;
+  const items = m.items.filter(it => it.food && it.qty > 0 && unitsFor(it.food).some(x => x.key === it.unit)); if (items.length !== m.items.length) return null;
+  return { m, frac, items: items.map(it => ({ food: it.food, unit: it.unit, q0: adjRound(it.qty * frac, it.unit) })) };
+}
+/* a logged entry can be changed from its meal only while it's still the meal as it is now (else it's copied exactly as logged) */
+function entryAdjBase(e) {
+  const m = mealOf(e.food); if (!m) return null;
+  if (e.mi && JSON.stringify(e.mi) !== JSON.stringify(mealSnap(m, e.food))) return null;
+  if (!e.mi && !m.one && !entryIngs(e)) return null;
+  return adjBase(e.food, e.qty, e.unit);
+}
+/* The Adjust screen: each ingredient's amount for this copy only (the saved meal never changes). o = {food, qty, unit, base?, title,
+   label, dest: null | 'day' | 'plan', slot, from (the entry's day), back, done(r)}. r = {f, qty, unit, v, detail, same, d, slot}. */
+function openAdjust(o) {
+  const b = o.base !== undefined ? o.base : adjBase(o.food, o.qty, o.unit), t = todayIso(), tm = shift(t, 1);
+  const A = { q: b ? b.items.map(x => x.q0) : [], d: null, slot: o.slot || 'lunch', saved: null };
+  const dn = d => d === t ? 'today' : d === tm ? 'tomorrow' : d === shift(t, -1) ? 'yesterday' : shortDate(d);
+  let days = [];
+  if (o.dest === 'day') { days = [t, shift(t, -1)].filter(d => d !== o.from); A.d = days[0]; }
+  const avail = d => o.dest === 'plan' && d === t ? planCtx(t).avail : SLOTS.map(x => x[0]);
+  if (o.dest === 'plan') { const c = planCtx(t); days = c.closed || !c.avail.length ? [tm] : [t, tm]; A.d = days.includes(t) && avail(t).includes(A.slot) ? t : tm; }   // its own meal, tomorrow if that's done today
+  const fixSlot = () => { const av = avail(A.d); if (!av.includes(A.slot)) A.slot = av[0]; };
+  if (o.dest) fixSlot();
+  const head = o.dest ? '' : '<p class="hint" id="ajOnly">Only for this time. Your saved meal stays as it is.</p>';
+  openSheet(o.title || 'Change ingredients', `
+    <div class="food-head" id="ajHead"><strong>${esc(o.food.name)}</strong><span>${b ? `${b.items.length} ingredient${b.items.length > 1 ? 's' : ''}` : esc(o.sub || '')}</span></div>
+    ${head}
+    ${o.dest ? `<div class="chips" id="ajDays" role="group" aria-label="Which day">${days.map(d => `<button class="chip" data-ad="${d}" aria-pressed="${d === A.d}">${esc(quipCap(dn(d)))}</button>`).join('')}</div>
+      ${o.dest === 'day' ? `<label class="aj-date">Or pick a date<input type="date" id="ajDate" min="${shift(t, -90)}" max="${t}" value="${A.d}"></label>` : ''}
+      ${slotChips(A.slot)}` : ''}
+    <div class="result"><div><span class="num" id="ajK">0</span><small>kcal</small></div><div class="pro"><span class="num" id="ajP">0g</span><small>protein</small></div></div>
+    ${b ? `<div class="aj-list" id="ajList">${b.items.map((x, i) => `<div class="aj-r" data-aj="${i}"><span class="n">${esc(x.food.name)}<small id="ajV-${i}"></small></span><span class="aj-q"><span class="aj-st"><button type="button" class="aj-s" data-ajm="${i}" aria-label="Less ${esc(x.food.name)}">−</button><input type="number" inputmode="decimal" step="any" min="0" id="ajQ-${i}" data-ajq="${i}" value="${x.q0}" aria-label="${esc(x.food.name)}, in ${esc(unitWord(x.food, x.unit, 2))}"><button type="button" class="aj-s" data-ajp="${i}" aria-label="More ${esc(x.food.name)}">+</button></span><span class="aj-u" id="ajU-${i}"></span></span></div>`).join('')}</div>
+      <p class="hint" id="ajHint">${o.dest ? 'Change an amount to have more or less of it this time; your saved meal stays as it is. ' : ''}Set an amount to 0 to leave it out.</p>
+      <button class="linkbtn" id="ajReset" type="button" hidden>Back to the usual amounts</button>`
+    : `<p class="hint" id="ajFixed">This meal has changed since you logged it, so it’s copied exactly as it was.</p>`}
+    <button class="btn" id="ajGo"></button>
+    ${b ? `<button class="btn ghost" id="ajSave" type="button">Save as new meal</button>
+      <div class="aj-new" id="ajNew" hidden><label>Name for the new meal<input id="ajName" maxlength="60" autocomplete="off"></label><button class="btn" id="ajSaveGo" type="button">Save to My meals</button></div>
+      <p class="hint" id="ajSaved" hidden></p>` : ''}
+    ${o.back ? '<button class="btn ghost" id="ajBack" type="button">Back</button>' : ''}`);
+  const changed = () => b && A.q.some((q, i) => Math.abs(q - b.items[i].q0) > 1e-9);
+  const result = () => {
+    if (A.saved) { const f = mealFood(A.saved); return { f, qty: 1, unit: 'serving', detail: '1 serving' }; }
+    if (!changed()) return { f: o.food, qty: o.qty, unit: o.unit, same: true, detail: `${fmtQty(o.qty)} ${unitWord(o.food, o.unit, o.qty)}` };
+    const items = b.items.map((x, i) => ({ food: x.food, qty: A.q[i], unit: x.unit })).filter(x => x.qty > 0);
+    return { f: makeOne(o.food.name, items, { adj: b.m.adj || o.food.name, grp: b.m.grp }), qty: 1, unit: 'serving', detail: '1 serving · changed' };
+  };
+  const goLabel = () => o.dest === 'day' ? `Copy to ${dn(A.d)}` : o.dest === 'plan' ? `Add to ${dn(A.d)}’s ${slotLabel(A.slot).toLowerCase()}` : o.label;
+  const upd = () => {
+    let k = 0, p = 0;
+    if (b) b.items.forEach((x, i) => { const v = calc(x.food, A.q[i], x.unit); k += v.kcal; p += v.pro;
+      $(`ajV-${i}`).textContent = A.q[i] > 0 ? `${kc(v.kcal)} kcal · ${fmtG(v.pro)}g` : 'Left out';
+      $(`ajU-${i}`).textContent = unitWord(x.food, x.unit, A.q[i] === 1 ? 1 : 2);
+      document.querySelector(`.aj-r[data-aj="${i}"]`).classList.toggle('ch', Math.abs(A.q[i] - x.q0) > 1e-9); });
+    else { const v = calc(o.food, o.qty, o.unit); k = o.kcal ?? v.kcal; p = o.pro ?? v.pro; }
+    animateNum($('ajK'), k, undefined, 180); animateNum($('ajP'), p, fmtP, 180);
+    if ($('ajReset')) $('ajReset').hidden = !changed() || !!A.saved;
+    $('ajGo').textContent = goLabel();
+  };
+  upd();
+  if (b) {
+    $('ajList').oninput = ev => { const i = ev.target.dataset.ajq; if (i == null) return; const q = parseFloat(ev.target.value); A.q[+i] = q > 0 ? q : 0; upd(); };
+    $('ajList').onclick = ev => { const m = ev.target.closest('[data-ajm]'), pl = ev.target.closest('[data-ajp]'); if (!m && !pl) return;
+      const i = +(m || pl).dataset[m ? 'ajm' : 'ajp'], x = b.items[i], st = stepFor(x.unit); haptic();
+      A.q[i] = adjRound(Math.max(0, (A.q[i] || 0) + (m ? -st : st)), x.unit); if (A.q[i] < 0.01) A.q[i] = 0; $(`ajQ-${i}`).value = A.q[i]; upd(); };
+    $('ajReset').onclick = () => { haptic(); A.q = b.items.map(x => x.q0); b.items.forEach((x, i) => { $(`ajQ-${i}`).value = x.q0; }); upd(); };
+    $('ajSave').onclick = () => { haptic(); $('ajNew').hidden = false; $('ajSave').hidden = true;
+      $('ajName').value = changed() ? `${o.food.name} (changed)` : o.food.name; $('ajName').focus(); $('ajName').select?.(); };
+    $('ajSaveGo').onclick = () => {
+      const name = $('ajName').value.trim().replace(/\s+/g, ' ');
+      if (!name) { toast('Give it a name first.'); return; }
+      if (S.meals.some(m => m.name.toLowerCase() === name.toLowerCase())) { toast('You have a meal with that name'); return; }
+      const items = b.items.map((x, i) => ({ food: JSON.parse(JSON.stringify(x.food)), qty: A.q[i], unit: x.unit })).filter(x => x.qty > 0);
+      if (!items.length) { toast('Keep at least one ingredient.'); return; }
+      const m = { id: uid(), name, servings: 1, items }, tt = mealTotals(m); m.kcal = Math.round(tt.kcal); m.pro = Math.round(tt.pro);
+      S.meals.push(m); touchMeta(); haptic(); A.saved = m;
+      $('ajNew').hidden = true; $('ajSaved').hidden = false;
+      $('ajSaved').textContent = `Saved to My meals as “${name}”.${mealOf(o.food) && !mealOf(o.food).one ? ` “${o.food.name}” stays as it was.` : ''}`;
+      $('ajList').querySelectorAll('input, button').forEach(x => { x.disabled = true; });
+      upd(); toast('Saved to My meals');
+    };
+  }
+  if ($('ajDays')) $('ajDays').onclick = ev => { const c = ev.target.closest('[data-ad]'); if (!c) return; haptic(); A.d = c.dataset.ad;
+    [...$('ajDays').children].forEach(x => x.setAttribute('aria-pressed', x.dataset.ad === A.d)); if ($('ajDate')) $('ajDate').value = A.d; slotsUpd(); upd(); };
+  if ($('ajDate')) $('ajDate').onchange = () => { const v = $('ajDate').value; if (!v) return; A.d = v; [...$('ajDays').children].forEach(x => x.setAttribute('aria-pressed', x.dataset.ad === A.d)); upd(); };
+  const slotsUpd = () => { if (!$('aSlot')) return; fixSlot(); const av = avail(A.d);
+    [...$('aSlot').children].forEach(c => { c.disabled = !av.includes(c.dataset.s); c.setAttribute('aria-pressed', c.dataset.s === A.slot); }); };
+  if ($('aSlot')) { slotsUpd(); $('aSlot').onclick = ev => { const c = ev.target.closest('[data-s]'); if (!c || c.disabled) return; haptic(); A.slot = c.dataset.s;
+    [...$('aSlot').children].forEach(x => x.setAttribute('aria-pressed', x.dataset.s === A.slot)); upd(); }; }
+  if ($('ajBack')) $('ajBack').onclick = () => { haptic(); o.back(); };
+  $('ajGo').onclick = () => {
+    if (b && !A.q.some(q => q > 0)) { toast('Keep at least one ingredient.'); return; }
+    if (o.dest === 'day' && (!A.d || A.d > t)) { toast("That date hasn't happened yet."); return; }
+    if (o.dest === 'day' && daysBetween(A.d, t) > 90) { toast('Pick a date within the last 3 months.'); return; }
+    const r = b ? result() : { f: o.food, qty: o.qty, unit: o.unit, same: true };
+    r.v = calc(r.f, r.qty, r.unit); r.d = A.d; r.slot = A.slot;
+    o.done(r);
+  };
+}
+/* a logged meal copied to another day: exactly as it was, or with the ingredients changed for that copy */
+function copyEntryTo(e, r, fromD) {
+  const nd = r.d, now = Date.now(), dt = parseIso(nd), at0 = new Date(e.at || now);
+  dt.setHours(at0.getHours(), at0.getMinutes(), 0, 0);
+  const at = nd === todayIso() ? now : dt.getTime();
+  let c;
+  if (r.same) { c = JSON.parse(JSON.stringify(e)); Object.assign(c, { id: uid(), at, slot: r.slot }); }
+  else { c = { id: uid(), name: r.f.name, kcal: r1(r.v.kcal), pro: r1(r.v.pro), detail: r.detail, at, slot: r.slot, food: r.f, qty: r.qty, unit: r.unit }; setFib(c, r.v.fib); snapMealEntry(c); }
+  (S.log[nd] ||= []).push(c); touchDay(nd); closeSheet(); renderTotals(); renderRows(); haptic();
+  const name = nd === todayIso() ? 'today' : nd === shift(todayIso(), -1) ? 'yesterday' : shortDate(nd);
+  toast(`Copied to ${name}`, { label: 'Undo', fn: () => { S.log[nd] = entriesFor(nd).filter(x => x.id !== c.id); if (!S.log[nd].length) delete S.log[nd]; touchDay(nd); renderTotals(); renderRows(); } });
+}
+/* a meal put in a day's plan (today or tomorrow), locked like Add food in Plan my day */
+function addToPlan(d, s, f, q, u) {
+  if (!planStore().plans?.[d]) makePlan(planCtx(d));
+  let prev, prevLater;
+  planEdit(d, p => { prev = p.items.map(x => ({ ...x })); prevLater = p.later ? [...p.later] : null;
+    p.items = p.items.filter(x => x.slot !== s || x.lock);   // what the app suggested for that meal makes way; foods you chose stay
+    p.items.forEach(x => { if (x.slot === s) x.lock = true; }); p.items.push({ slot: s, food: f, qty: q, unit: u, oil: null, idea: false, lock: true });
+    if (p.later) { p.later = p.later.filter(x => x !== s); if (!p.later.length) delete p.later; } });
+  makePlan(planCtx(d)); renderPlanBtn(); openPlan(d === todayIso() ? 'today' : 'tomorrow');
+  toast(`Added to ${slotLabel(s).toLowerCase()}, locked`, { label: 'Undo', fn: () => planUndo(d, prev, prevLater) });
 }
 function openMeals(org) {
   /* v113: Organize (Kan, 10 Nov 2026: "drag and reposition built meals just in case we wanted to reorganize"): the order of S.meals is
@@ -2892,6 +3135,15 @@ function renderTrends() {
   const read = $('tRead'); read.className = 'status';
   const dir = mode() === 'lose' ? -1 : mode() === 'gain' ? 1 : 0;
   const reached = T.goal && now && ((dir < 0 && now <= T.goal) || (dir > 0 && now >= T.goal));
+  /* v126: the goal date is the same on every tab (Kan, 23 Nov: "seeing a different reach goal date on the 30 days weight trend will be
+     confusing"; 7 days said Dec 15, 30 days Dec 7, 90 days another). It always comes from your latest pace, the last 14 days of
+     weigh-ins (the 7-day tab's rate), and says so under the date. The tabs still change the rate and the line above it. */
+  const etaRate = trendRate(to, RATE_MIN_DAYS), etaS = $('tEtaS'); etaS.hidden = true;
+  const goalEta = () => {
+    if (etaRate == null || !(dir * etaRate > 0.05)) { $('tEta').textContent = '–'; return; }
+    const weeks = Math.abs(now - T.goal) / Math.abs(etaRate), eta = new Date(); eta.setDate(eta.getDate() + Math.round(weeks * 7));
+    $('tEta').innerHTML = etaText(eta); etaS.hidden = false;
+  };
   if (rate == null) { $('tEta').textContent = '–'; read.textContent = scale() === 'daily' ? `Weigh in most mornings. After about a week, your weekly rate${T.goal ? ' and goal date' : ''} show up here.`
       : scale() === 'weekly' ? `Weigh in once a week. After three weigh-ins, your weekly rate${T.goal ? ' and goal date' : ''} show up here.`
       : 'No weigh-ins yet. Your waist on the Today tab tracks progress without a scale.'; }
@@ -2905,9 +3157,8 @@ function renderTrends() {
     else { read.className = 'status hi'; read.textContent = `${rate < 0 ? 'Losing' : 'Gaining'} ${fW(Math.abs(rate))} ${wU()} a week. ${rate < 0 ? 'Add' : 'Trim'} about 200 kcal a day to hold steady.`; }
   } else {
     const towards = dir * rate;      // positive = moving toward goal
+    goalEta();                       // v126: from the last 14 days on every tab
     if (towards > 0.05) {
-      const weeks = Math.abs(now - T.goal) / Math.abs(rate), eta = new Date(); eta.setDate(eta.getDate() + Math.round(weeks * 7));
-      $('tEta').innerHTML = etaText(eta);
       const r = Math.abs(rate), verb = dir < 0 ? 'Losing' : 'Gaining';
       const [slow, fast] = dir < 0 ? [0.5, 1.6] : [0.2, 0.8];
       const ate = recentIntake(), full = ate != null && (dir < 0 ? Math.round(ate) <= T.calLo : Math.round(ate) >= T.calHi);   // v76
@@ -2915,7 +3166,7 @@ function renderTrends() {
       else if (r < slow) read.textContent = `${verb} ${fW(r)} ${wU()} a week, which is slow. ${dir < 0 ? 'Trimming' : 'Adding'} about 200 kcal a day would speed it up.`;
       else if (r <= fast) { read.className = 'status ok'; read.textContent = `${verb} ${fW(r)} ${wU()} a week, a steady pace${dir < 0 ? ' that protects your strength' : ' for lean gains'}.`; }
       else { read.className = 'status hi'; read.textContent = `${verb} ${fW(r)} ${wU()} a week, on the fast side. ${dir < 0 ? 'Adding' : 'Trimming'} 200–300 kcal a day would ease the pace.`; }
-    } else { $('tEta').textContent = '–'; read.className = 'status hi'; read.textContent = `Your weight isn't moving toward your goal over this range. Check that you're logging everything, and aim for the ${dir < 0 ? 'low' : 'high'} end of your calorie range.`; }
+    } else { read.className = 'status hi'; read.textContent = `Your weight isn't moving toward your goal over this range. Check that you're logging everything, and aim for the ${dir < 0 ? 'low' : 'high'} end of your calorie range.`; }
   }
   renderBurn(); renderMilestones(); safe(renderCheckin);
   $('tWeightChart').innerHTML = weightChart(from, to);
@@ -3627,7 +3878,9 @@ const GUIDE = [
     ${gTip('Cooking a big pot? Weigh the food once it\'s cooked (without the pot) and enter the cooked weight. Then log whatever you dish out in grams.')}
     ${gMore('If the app closes while you\'re building a meal, it keeps your progress: My meals shows <b>Finish your unsaved meal</b>.',
       'To change the order of your meals, tap <b>Organize</b> in My meals, drag a meal by its handle, then tap <b>Done</b>. The order shows everywhere you pick a meal.',
-      'On Today and in Plan my day, tap the <b>ⓘ</b> next to a meal to see its ingredients and their numbers, scaled to how much you logged or planned. Changing the recipe later doesn\'t change days already logged.')}`, 'i-bowl', 'Build once, log in one tap'],
+      'On Today and in Plan my day, tap the <b>ⓘ</b> next to a meal to see its ingredients and their numbers, scaled to how much you logged or planned. Changing the recipe later doesn\'t change days already logged.',
+      'Logged foods one by one? Tap <b>Group</b> on that meal on Today and name it (<b>Save to My meals</b> keeps it). Its <b>ⓘ</b> has <b>Copy to another day</b>, <b>Add to a plan</b> and <b>Ungroup</b>.',
+      'On a meal\'s How much?, <b>Change ingredients for this time</b> changes that copy only. <b>Save as new meal</b> keeps it.')}`, 'i-bowl', 'Build once, log in one tap'],
   ['Weigh in', `<p class="g-lead">Your weight moves around a lot day to day. Cut Log shows the real trend underneath.</p>
     ${gStep('Choose how often in <b>You → Weigh-ins</b>: every morning, once a week, or no scale.',
       'Weigh after the bathroom, before you eat or drink.',
@@ -3642,7 +3895,8 @@ const GUIDE = [
       '<b>Your real burn</b>: after about 4 weeks, how many calories you actually burn, worked out from what you ate and how your weight moved. No watch needed.',
       'Charts for calories, protein, carbs (with your average protein, carbs and fat split) and fibre. Tap a bar to open that day.')}
     ${gTip('When your calories should change, a <b>Calorie check-in pop-up</b> asks you first, at most once a week. <b>Yes</b> updates your target; <b>Not now</b> leaves it.')}
-    ${gMore('The weekly rate always uses at least 14 days of weigh-ins, because one week is mostly water. On the 7-day view, <b>Vs 7 days ago</b> compares the last 7 days\' average with the 7 days before (the weekly check-in compares whole Monday-to-Sunday weeks, so the two can differ).',
+    ${gMore('The goal date is the same on 7, 30 and 90 days: it always comes from your current pace, the last 14 days of weigh-ins.',
+      'The weekly rate always uses at least 14 days of weigh-ins, because one week is mostly water. On the 7-day view, <b>Vs 7 days ago</b> compares the last 7 days\' average with the 7 days before (the weekly check-in compares whole Monday-to-Sunday weeks, so the two can differ).',
       'A new calorie or protein target counts from the day you set it. Earlier days, the check-in and History keep the range you had then.',
       'The middle number is your <b>7-day average</b> on the 7-day view, and the average of every weigh-in in the range on 30 and 90 days (it says <b>Since</b> a date when your weigh-ins start later than that).',
       `Your real burn uses your weight trend line and leaves out your first 2 weeks of weigh-ins (early loss is mostly water). Big changes are suggested in steps of up to ${BURN_STEP} kcal.`,
@@ -5000,7 +5254,7 @@ function planRemove(d, i) {
 function planItemEdit(d, i, x) {
   const lab = slotLabel(x.slot), back = () => { if (!SH.open || $('sheetTitle').textContent !== 'Plan my day') openPlan(PL.tab); else renderPlan(); };
   const logNow = d === todayIso() && day === todayIso();
-  pick = { label: `Update ${lab.toLowerCase()}`, oil: true, onDone: (f, q, u, v, oil) => {
+  pick = { label: `Update ${lab.toLowerCase()}`, oil: true, adj: true, onDone: (f, q, u, v, oil) => {
       const same = f.id === x.food.id && q === x.qty && u === x.unit && (oil || null) === (x.oil || null);
       if (same) { back(); return; }   // nothing changed: nothing locked
       let prev, prevLater;
@@ -5015,14 +5269,22 @@ function planItemEdit(d, i, x) {
     } } : null };
   openAmount(x.food, { qty: x.qty, unit: x.unit, oil: x.oil }, { slot: x.slot });
 }
+/* v127: one-time grouped meals from the last 2 weeks (newest first, one per name, none that's also a saved meal) */
+function groupedLately() {
+  const t = todayIso(), out = [], names = new Set(S.meals.map(m => m.name.toLowerCase()));
+  for (let i = 0; i <= 14 && out.length < 6; i++) [...entriesFor(shift(t, -i))].reverse().forEach(e => { const f = e.food;
+    if (out.length < 6 && f?.one && f.grp && !f.adj && !names.has(f.name.toLowerCase())) { names.add(f.name.toLowerCase()); out.push(f); } });
+  return out;
+}
 function openPlanPick(s) {
   const d = planDay(), label = slotLabel(s).toLowerCase(), c = planCandidates();
-  const meals = S.meals.map(mealFood), own = c.list.filter(x => !x.idea && x.food.source !== 'meal').sort((a, b) => (b.slots.includes(s) - a.slots.includes(s)) || b.freq - a.freq);
+  const meals = S.meals.map(mealFood), grouped = groupedLately(), own = c.list.filter(x => !x.idea && x.food.source !== 'meal').sort((a, b) => (b.slots.includes(s) - a.slots.includes(s)) || b.freq - a.freq);
   const ideas = c.list.filter(x => x.idea).sort((a, b) => b.slots.includes(s) - a.slots.includes(s));
   const PK = [];
   const row = (f, qty, unit, sub) => { PK.push({ f, qty, unit }); const v = calc(f, qty, unit); return `<button class="item" data-pk2="${PK.length - 1}"><span class="nm">${esc(f.name)}<small>${esc(sub)}</small></span><span class="meta">${kc(v.kcal)} kcal · ${fmtG(v.pro)}g</span></button>`; };
   openSheet(`Add to ${label}`, `<p class="hint">It’s added to your ${label}, and ${label} is locked so Shuffle leaves it alone. The rest of the day is re-planned around it.</p>
     ${meals.length ? `<h3>Your meals</h3><div class="list">${meals.map(f => row(f, 1, 'serving', '1 serving')).join('')}</div>` : ''}
+    ${grouped.length ? `<h3>Grouped lately</h3><div class="list" id="plGrouped">${grouped.map(f => row(f, 1, 'serving', `1 serving · ${f.grp} foods`)).join('')}</div>` : ''}
     ${own.length ? `<h3>Your usual foods</h3><div class="list">${own.map(x => row(x.food, x.qty, x.unit, `${fmtQty(x.qty)} ${unitWord(x.food, x.unit, x.qty)}`)).join('')}</div>` : ''}
     ${ideas.length ? `<h3>Home ideas</h3><div class="list">${ideas.map(x => row(x.food, 1, 'serving', ideaWhat(x.food))).join('')}</div>` : ''}
     <button class="btn ghost" id="plSearch">Search all foods</button>
@@ -5036,7 +5298,7 @@ function openPlanPick(s) {
     makePlan(planCtx(d)); openPlan(PL.tab); renderPlanBtn();
     toast(`Added to ${label}, locked`, { label: 'Undo', fn: () => planUndo(d, prev, prevLater) });
   };
-  const mk = () => ({ label: `Add to ${label}`, title: `Add to ${label}`, onDone: (f, q, u) => put(f, q, u) });
+  const mk = () => ({ label: `Add to ${label}`, title: `Add to ${label}`, adj: true, onDone: (f, q, u) => put(f, q, u) });
   pick = mk();
   sheetBody.onclick = e => {
     const b = e.target.closest('[data-pk2]');
@@ -5621,6 +5883,9 @@ $('adjNo').onclick = () => adjClose(false);
    set the app up don't get it). Always available in You → Help. Last seen version: localStorage cutlog.seenV (per device).
    Every release adds an entry at the top, in plain words for everyone who uses Cut Log. */
 const CHANGELOG = [
+  { v: 127, d: '2026-11-23', items: ['Group foods into one meal: on Today, tap Group next to a meal, pick the foods, give it a name, and it becomes one line with its ingredients under the ⓘ. Save it to My meals if you like, or keep it just for that day. Ungroup puts the foods back.',
+    'Change a meal just for one time: tap Change ingredients for this time on a meal (also in Plan my day), or Copy to another day / Add to a plan under its ⓘ, and set less chicken or more rice for that copy only. Your saved meal stays the same, and Save as new meal keeps the new version.'] },
+  { v: 126, d: '2026-11-23', items: ['Trends: the goal date is now the same on 7, 30 and 90 days. It always comes from your current pace (your last 14 days of weigh-ins), and says so under the date. Switching tabs still changes the weekly rate above it.'] },
   { v: 125, d: '2026-11-22', items: ['The Raw weight / Cooked switch now turns up by itself on many more of your own foods: any fish (whiting, hake, cod, tilapia, trout…), shrimp, turkey, pork, steak, lamb, goat, chicken thighs and drumsticks, plus quinoa, couscous, lentils, chickpeas, dry beans and noodles. Foods you already saved get it too, so you don\'t need to ask for it.'] },
   { v: 124, d: '2026-11-20', items: ['Plan my day now syncs: your phone and laptop show the same plan, with the same locked meals, choices and meals left for later. If both had a different plan, the one you changed yourself is kept.'] },
   { v: 123, d: '2026-11-20', items: ['Editing or building a meal now has a Back to My meals button at the bottom. Changes you haven\'t saved are kept, and you can still save them from the message.'] },
@@ -6197,6 +6462,7 @@ function slideDay(dir) {
 $('prev').onclick = () => { day = shift(day, -1); renderDay(); renderTotals(); renderRows(); slideDay(-1); };
 $('next').onclick = () => { if (day < todayIso()) { day = shift(day, 1); renderDay(); renderTotals(); renderRows(); slideDay(1); } };
 $('rows').onclick = e => {
+  const gb = e.target.closest('[data-grp]'); if (gb) { haptic(); openGroup(gb.dataset.grp); return; }   // v127
   const mi = e.target.closest('[data-mi]'); if (mi) { haptic(); openMealInfo(mi.dataset.mi); return; }   // v114: what's in a logged meal
   const r = e.target.closest('.row[data-id]'); if (!r) return;
   const en = entriesFor(day).find(z => z.id === r.dataset.id); if (!en) return;

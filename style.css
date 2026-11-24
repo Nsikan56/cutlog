@@ -1086,8 +1086,15 @@ details.shut>:not(summary){opacity:0;transform:translateY(-4px);transition:opaci
 .gr-i[aria-pressed="false"] .nm,.gr-i[aria-pressed="false"] .meta{opacity:.55}
 .gr-sw{border-top:0;padding:2px 0}
 .aj-list{display:flex;flex-direction:column}
-.aj-r{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;padding:9px 0;border-top:1px solid var(--line)}
-.aj-r:first-child{border-top:0;padding-top:2px}
+/* v128: each row slides left over a red Remove strip */
+.aj-r{position:relative;overflow:hidden;border-top:1px solid var(--line);touch-action:pan-y}
+.aj-r:first-child{border-top:0}
+.aj-in{position:relative;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;padding:9px 0;background:var(--surface);transition:transform .18s ease}
+.aj-r:first-child .aj-in{padding-top:2px}
+.aj-rm{position:absolute;inset:0 0 0 auto;width:100%;border:0;background:var(--danger-soft);color:var(--danger);font:inherit;font-weight:600;font-size:14px;text-align:right;padding:0 16px;cursor:pointer}
+.aj-r:not(.sw) .aj-rm{visibility:hidden}
+.aj-r.add .n small{color:var(--accent)}
+.aj-add{margin-top:6px}
 .aj-r .n{min-width:0;overflow-wrap:anywhere;font-weight:500}
 .aj-r .n small{display:block;color:var(--muted);font-size:12px;font-weight:400}
 .aj-q{display:flex;flex-direction:column;align-items:center;gap:2px}

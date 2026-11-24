@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '127';
+const APP_V = '128';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -1856,6 +1856,7 @@ function listHtml(items) {
 function openSearch() {
   openSheet(pick ? (pick.title || 'Add an ingredient') : 'Search foods', `
     ${pick ? '<button class="btn ghost" id="pickScan">Scan a barcode instead</button>' : ''}
+    ${pick?.back ? '<button class="btn ghost" id="pickBack">Back</button>' : ''}
     <input id="q" type="search" placeholder="Sweet potato, eggs, yogurt…" aria-label="Search foods" autocomplete="off">
     <div class="list" id="results"></div>
     <button class="btn ghost" id="online" hidden>Search packaged foods online</button>
@@ -1863,6 +1864,7 @@ function openSearch() {
     ${pick ? '' : '<button class="btn ghost" id="quick">Quick add: just calories and protein</button>'}`);
   let items = [];
   if ($('pickScan')) $('pickScan').onclick = openScan;
+  if ($('pickBack')) { const bk = pick.back; $('pickBack').onclick = () => { haptic(); pick = null; bk(); }; }   // v128: back to Change ingredients
   const show = () => {
     const q = $('q').value.trim().toLowerCase();
     if (!q) {
@@ -2014,11 +2016,35 @@ function openMealInfo(id, opts = {}) {
     ${note ? `<p class="hint" id="miNote">${esc(note)}</p>` : ''}${one ? `<p class="hint" id="miOne">${esc(one)}</p>` : ''}
     <div class="mi-list" id="miList">${r.items.map(x => `<div class="mi-r"><span class="n">${esc(x.n)}<small>${esc(x.amt)}${x.c != null ? ` · ${fmtG(x.c)}g carbs · ${fmtG(x.f)}g fat` : ''}</small></span><span class="c">${Math.round(x.k)}<small>kcal</small></span><span class="pill">${fmtG(x.p)}g</span></div>`).join('')}</div>
     <div class="mi-tot" id="miTot"><span class="n">Total<small>${allMac ? `${fmtG(sum('c'))}g carbs · ${fmtG(sum('f'))}g fat` : 'Carbs and fat aren\'t known for every ingredient'}</small></span><span class="c">${Math.round(e.kcal)}<small>kcal</small></span><span class="pill">${fmtG(e.pro)}g</span></div>
-    ${logged ? `<div class="pl-btns mi-acts" id="miActs"><button type="button" class="pl-btn" id="miCopy">${icon('i-plus')}Copy to another day</button><button type="button" class="pl-btn" id="miPlan">${icon('i-plan')}Add to a plan</button>${e.parts?.length ? `<button type="button" class="pl-btn" id="miUngroup">${icon('i-grip')}Ungroup</button>` : ''}</div>` : ''}
+    ${opts.pi != null ? `<div class="pl-btns mi-acts" id="miActs"><button type="button" class="pl-btn" id="miAdj">${icon('i-adjust')}Change ingredients</button></div>` : ''}
+    ${logged ? `<div class="pl-btns mi-acts" id="miActs"><button type="button" class="pl-btn" id="miAdj">${icon('i-adjust')}Change ingredients</button><button type="button" class="pl-btn" id="miCopy">${icon('i-plus')}Copy to another day</button><button type="button" class="pl-btn" id="miPlan">${icon('i-plan')}Add to a plan</button>${e.parts?.length ? `<button type="button" class="pl-btn" id="miUngroup">${icon('i-grip')}Ungroup</button>` : ''}</div>` : ''}
     ${opts.back ? '<button class="btn ghost" id="miBack">Back to Plan my day</button>' : ''}`);
   if ($('miBack')) $('miBack').onclick = () => { haptic(); opts.back(); };
+  /* v127b (Kan, 23 Nov: "What I want is being able to adjust the ingredients" in Plan my day): Change ingredients right here, for this
+     planned meal (only the plan changes) or this logged entry (only that entry changes); the saved meal stays the same */
+  if (opts.pi != null && $('miAdj')) $('miAdj').onclick = () => {
+    const d = opts.pd, i = opts.pi, x = planStore().plans?.[d]?.items?.[i]; if (!x) return; haptic();
+    const lab = slotLabel(x.slot), f = freshFood(x.food);
+    openAdjust({ food: f, qty: x.qty, unit: x.unit, label: `Update ${lab.toLowerCase()}`, back: () => openMealInfo(id, opts), done: r => {
+      if (r.same) { opts.back(); return; }
+      let prev, prevLater;
+      planEdit(d, p => { prev = p.items.map(y => ({ ...y })); prevLater = p.later ? [...p.later] : null; const y = p.items[i]; if (!y) return;
+        p.items[i] = { ...y, food: r.f, qty: r.qty, unit: r.unit, oil: null, idea: false }; p.items.forEach(z => { if (z.slot === y.slot) z.lock = true; }); });
+      makePlan(planCtx(d)); renderPlanBtn(); opts.back();
+      toast(`${lab} updated, locked`, { label: 'Undo', fn: () => planUndo(d, prev, prevLater) });
+    } });
+  };
   if (logged) {
     const d = opts.d || day, again = () => openMealInfo(e.id, opts), base = entryAdjBase(e);
+    $('miAdj').hidden = !base;
+    $('miAdj').onclick = () => { haptic(); openAdjust({ food: e.food, qty: e.qty, unit: e.unit, base, label: 'Save changes', back: again, done: r => {
+      if (r.same) { again(); return; }
+      const was = JSON.parse(JSON.stringify(e));
+      Object.assign(e, { name: r.f.name, kcal: r1(r.v.kcal), pro: r1(r.v.pro), detail: r.detail, food: r.f, qty: r.qty, unit: r.unit }); setFib(e, r.v.fib);
+      delete e.mi; delete e.parts; snapMealEntry(e);
+      touchDay(d); closeSheet(); renderTotals(); renderRows(); haptic();
+      toast('Entry updated', { label: 'Undo', fn: () => { const l = entriesFor(d), j = l.indexOf(e); if (j >= 0) { l[j] = was; touchDay(d); renderTotals(); renderRows(); } } });
+    } }); };
     const go = dest => { haptic(); openAdjust({ food: e.food, qty: e.qty, unit: e.unit, base, sub: e.detail, kcal: e.kcal, pro: e.pro, dest, from: d, slot: slotOf(e), back: again,
       title: dest === 'day' ? 'Copy to another day' : 'Add to a plan',
       done: x => dest === 'day' ? copyEntryTo(e, x, d) : addToPlan(x.d, x.slot, x.f, x.qty, x.unit) }); };
@@ -2132,47 +2158,54 @@ function entryAdjBase(e) {
 }
 /* The Adjust screen: each ingredient's amount for this copy only (the saved meal never changes). o = {food, qty, unit, base?, title,
    label, dest: null | 'day' | 'plan', slot, from (the entry's day), back, done(r)}. r = {f, qty, unit, v, detail, same, d, slot}. */
-function openAdjust(o) {
+/* v128 (Kan, 23 Nov: "swipe and remove an ingredient I do not want in the plan my day grouped meal and also maybe add an ingredient"):
+   the list is this panel's own copy: A.items = [{food, unit, q0, q, add?, gone?}]. Swipe a row left to take it out (Undo puts it back),
+   + Add ingredient opens the food search and comes back here with it. The saved meal never changes. A0 = the state when coming back. */
+const ingCount = n => `${n} ingredient${n === 1 ? '' : 's'}`;
+function openAdjust(o, A0) {
   const b = o.base !== undefined ? o.base : adjBase(o.food, o.qty, o.unit), t = todayIso(), tm = shift(t, 1);
-  const A = { q: b ? b.items.map(x => x.q0) : [], d: null, slot: o.slot || 'lunch', saved: null };
+  const A = A0 || { items: b ? b.items.map(x => ({ food: x.food, unit: x.unit, q0: x.q0, q: x.q0 })) : [], d: null, slot: o.slot || 'lunch', saved: null };
+  const live = () => A.items.filter(x => !x.gone);
   const dn = d => d === t ? 'today' : d === tm ? 'tomorrow' : d === shift(t, -1) ? 'yesterday' : shortDate(d);
   let days = [];
-  if (o.dest === 'day') { days = [t, shift(t, -1)].filter(d => d !== o.from); A.d = days[0]; }
+  if (o.dest === 'day') { days = [t, shift(t, -1)].filter(d => d !== o.from); if (!A0) A.d = days[0]; else if (!days.includes(A.d)) days.push(A.d); }
   const avail = d => o.dest === 'plan' && d === t ? planCtx(t).avail : SLOTS.map(x => x[0]);
-  if (o.dest === 'plan') { const c = planCtx(t); days = c.closed || !c.avail.length ? [tm] : [t, tm]; A.d = days.includes(t) && avail(t).includes(A.slot) ? t : tm; }   // its own meal, tomorrow if that's done today
+  if (o.dest === 'plan') { const c = planCtx(t); days = c.closed || !c.avail.length ? [tm] : [t, tm]; if (!A0) A.d = days.includes(t) && avail(t).includes(A.slot) ? t : tm; }   // its own meal, tomorrow if that's done today
   const fixSlot = () => { const av = avail(A.d); if (!av.includes(A.slot)) A.slot = av[0]; };
   if (o.dest) fixSlot();
   const head = o.dest ? '' : '<p class="hint" id="ajOnly">Only for this time. Your saved meal stays as it is.</p>';
   openSheet(o.title || 'Change ingredients', `
-    <div class="food-head" id="ajHead"><strong>${esc(o.food.name)}</strong><span>${b ? `${b.items.length} ingredient${b.items.length > 1 ? 's' : ''}` : esc(o.sub || '')}</span></div>
+    <div class="food-head" id="ajHead"><strong>${esc(o.food.name)}</strong><span id="ajCount">${b ? ingCount(live().length) : esc(o.sub || '')}</span></div>
     ${head}
     ${o.dest ? `<div class="chips" id="ajDays" role="group" aria-label="Which day">${days.map(d => `<button class="chip" data-ad="${d}" aria-pressed="${d === A.d}">${esc(quipCap(dn(d)))}</button>`).join('')}</div>
       ${o.dest === 'day' ? `<label class="aj-date">Or pick a date<input type="date" id="ajDate" min="${shift(t, -90)}" max="${t}" value="${A.d}"></label>` : ''}
       ${slotChips(A.slot)}` : ''}
     <div class="result"><div><span class="num" id="ajK">0</span><small>kcal</small></div><div class="pro"><span class="num" id="ajP">0g</span><small>protein</small></div></div>
-    ${b ? `<div class="aj-list" id="ajList">${b.items.map((x, i) => `<div class="aj-r" data-aj="${i}"><span class="n">${esc(x.food.name)}<small id="ajV-${i}"></small></span><span class="aj-q"><span class="aj-st"><button type="button" class="aj-s" data-ajm="${i}" aria-label="Less ${esc(x.food.name)}">−</button><input type="number" inputmode="decimal" step="any" min="0" id="ajQ-${i}" data-ajq="${i}" value="${x.q0}" aria-label="${esc(x.food.name)}, in ${esc(unitWord(x.food, x.unit, 2))}"><button type="button" class="aj-s" data-ajp="${i}" aria-label="More ${esc(x.food.name)}">+</button></span><span class="aj-u" id="ajU-${i}"></span></span></div>`).join('')}</div>
-      <p class="hint" id="ajHint">${o.dest ? 'Change an amount to have more or less of it this time; your saved meal stays as it is. ' : ''}Set an amount to 0 to leave it out.</p>
-      <button class="linkbtn" id="ajReset" type="button" hidden>Back to the usual amounts</button>`
+    ${b ? `<div class="aj-list" id="ajList">${A.items.map((x, i) => x.gone ? '' : `<div class="aj-r${x.add ? ' add' : ''}" data-aj="${i}"><button type="button" class="aj-rm" data-ajx="${i}" aria-label="Remove ${esc(x.food.name)}" tabindex="-1">Remove</button><div class="aj-in"><span class="n">${esc(x.food.name)}<small id="ajV-${i}"></small></span><span class="aj-q"><span class="aj-st"><button type="button" class="aj-s" data-ajm="${i}" aria-label="Less ${esc(x.food.name)}">−</button><input type="number" inputmode="decimal" step="any" min="0" id="ajQ-${i}" data-ajq="${i}" value="${x.q}" aria-label="${esc(x.food.name)}, in ${esc(unitWord(x.food, x.unit, 2))}"><button type="button" class="aj-s" data-ajp="${i}" aria-label="More ${esc(x.food.name)}">+</button></span><span class="aj-u" id="ajU-${i}"></span></span></div></div>`).join('')}</div>
+      <button class="btn ghost aj-add" id="ajAdd" type="button">+ Add ingredient</button>
+      <p class="hint" id="ajHint">${o.dest ? 'Change an amount to have more or less of it this time; your saved meal stays as it is. ' : ''}Swipe an ingredient left to remove it.</p>
+      <button class="linkbtn" id="ajReset" type="button" hidden>Back to the usual ingredients</button>`
     : `<p class="hint" id="ajFixed">This meal has changed since you logged it, so it’s copied exactly as it was.</p>`}
     <button class="btn" id="ajGo"></button>
     ${b ? `<button class="btn ghost" id="ajSave" type="button">Save as new meal</button>
       <div class="aj-new" id="ajNew" hidden><label>Name for the new meal<input id="ajName" maxlength="60" autocomplete="off"></label><button class="btn" id="ajSaveGo" type="button">Save to My meals</button></div>
       <p class="hint" id="ajSaved" hidden></p>` : ''}
     ${o.back ? '<button class="btn ghost" id="ajBack" type="button">Back</button>' : ''}`);
-  const changed = () => b && A.q.some((q, i) => Math.abs(q - b.items[i].q0) > 1e-9);
+  const changed = () => b && A.items.some(x => x.add ? !x.gone && x.q > 0 : x.gone || Math.abs(x.q - x.q0) > 1e-9);
   const result = () => {
     if (A.saved) { const f = mealFood(A.saved); return { f, qty: 1, unit: 'serving', detail: '1 serving' }; }
     if (!changed()) return { f: o.food, qty: o.qty, unit: o.unit, same: true, detail: `${fmtQty(o.qty)} ${unitWord(o.food, o.unit, o.qty)}` };
-    const items = b.items.map((x, i) => ({ food: x.food, qty: A.q[i], unit: x.unit })).filter(x => x.qty > 0);
+    const items = live().map(x => ({ food: x.food, qty: x.q, unit: x.unit })).filter(x => x.qty > 0);
     return { f: makeOne(o.food.name, items, { adj: b.m.adj || o.food.name, grp: b.m.grp }), qty: 1, unit: 'serving', detail: '1 serving · changed' };
   };
   const goLabel = () => o.dest === 'day' ? `Copy to ${dn(A.d)}` : o.dest === 'plan' ? `Add to ${dn(A.d)}’s ${slotLabel(A.slot).toLowerCase()}` : o.label;
   const upd = () => {
     let k = 0, p = 0;
-    if (b) b.items.forEach((x, i) => { const v = calc(x.food, A.q[i], x.unit); k += v.kcal; p += v.pro;
-      $(`ajV-${i}`).textContent = A.q[i] > 0 ? `${kc(v.kcal)} kcal · ${fmtG(v.pro)}g` : 'Left out';
-      $(`ajU-${i}`).textContent = unitWord(x.food, x.unit, A.q[i] === 1 ? 1 : 2);
-      document.querySelector(`.aj-r[data-aj="${i}"]`).classList.toggle('ch', Math.abs(A.q[i] - x.q0) > 1e-9); });
+    if (b) { A.items.forEach((x, i) => { if (x.gone) return; const v = calc(x.food, x.q, x.unit); k += v.kcal; p += v.pro;
+      $(`ajV-${i}`).textContent = x.q > 0 ? `${kc(v.kcal)} kcal · ${fmtG(v.pro)}g${x.add ? ' · added' : ''}` : 'Left out';
+      $(`ajU-${i}`).textContent = unitWord(x.food, x.unit, x.q === 1 ? 1 : 2);
+      document.querySelector(`.aj-r[data-aj="${i}"]`).classList.toggle('ch', !x.add && Math.abs(x.q - x.q0) > 1e-9); });
+      $('ajCount').textContent = ingCount(live().length); }
     else { const v = calc(o.food, o.qty, o.unit); k = o.kcal ?? v.kcal; p = o.pro ?? v.pro; }
     animateNum($('ajK'), k, undefined, 180); animateNum($('ajP'), p, fmtP, 180);
     if ($('ajReset')) $('ajReset').hidden = !changed() || !!A.saved;
@@ -2180,24 +2213,45 @@ function openAdjust(o) {
   };
   upd();
   if (b) {
-    $('ajList').oninput = ev => { const i = ev.target.dataset.ajq; if (i == null) return; const q = parseFloat(ev.target.value); A.q[+i] = q > 0 ? q : 0; upd(); };
-    $('ajList').onclick = ev => { const m = ev.target.closest('[data-ajm]'), pl = ev.target.closest('[data-ajp]'); if (!m && !pl) return;
-      const i = +(m || pl).dataset[m ? 'ajm' : 'ajp'], x = b.items[i], st = stepFor(x.unit); haptic();
-      A.q[i] = adjRound(Math.max(0, (A.q[i] || 0) + (m ? -st : st)), x.unit); if (A.q[i] < 0.01) A.q[i] = 0; $(`ajQ-${i}`).value = A.q[i]; upd(); };
-    $('ajReset').onclick = () => { haptic(); A.q = b.items.map(x => x.q0); b.items.forEach((x, i) => { $(`ajQ-${i}`).value = x.q0; }); upd(); };
+    $('ajList').oninput = ev => { const i = ev.target.dataset.ajq; if (i == null) return; const q = parseFloat(ev.target.value); A.items[+i].q = q > 0 ? q : 0; upd(); };
+    const remove = i => { const x = A.items[i]; if (!x || x.gone) return;
+      if (live().length < 2) { toast('Keep at least one ingredient.'); swipeBack(i); return; }
+      haptic(); x.gone = true; openAdjust(o, A);
+      toast(`Removed ${x.food.name}`, { label: 'Undo', fn: () => { if (SH.open && $('ajList') && !A.saved) { x.gone = false; openAdjust(o, A); } } }); };
+    const swipeBack = i => { const r = document.querySelector(`.aj-r[data-aj="${i}"] .aj-in`); if (r) { r.style.transition = ''; r.style.transform = ''; setTimeout(() => r.parentElement.classList.remove('sw'), 200); } };
+    $('ajList').onclick = ev => { const x0 = ev.target.closest('[data-ajx]'); if (x0) { remove(+x0.dataset.ajx); return; }
+      const m = ev.target.closest('[data-ajm]'), pl = ev.target.closest('[data-ajp]'); if (!m && !pl) return;
+      const i = +(m || pl).dataset[m ? 'ajm' : 'ajp'], x = A.items[i], st = stepFor(x.unit); haptic();
+      x.q = adjRound(Math.max(0, (x.q || 0) + (m ? -st : st)), x.unit); if (x.q < 0.01) x.q = 0; $(`ajQ-${i}`).value = x.q; upd(); };
+    // swipe left on a row: it slides with the finger; past a third of its width it's removed, otherwise it springs back
+    let sw = null;
+    $('ajList').addEventListener('pointerdown', ev => { const r = ev.target.closest('.aj-r'); if (!r || A.saved || ev.target.closest('input, button')) return;
+      sw = { i: +r.dataset.aj, x0: ev.clientX, y0: ev.clientY, el: r.querySelector('.aj-in'), w: r.offsetWidth, on: false, id: ev.pointerId }; });
+    $('ajList').addEventListener('pointermove', ev => { if (!sw || ev.pointerId !== sw.id) return; const dx = ev.clientX - sw.x0, dy = ev.clientY - sw.y0;
+      if (!sw.on) { if (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) { sw = null; return; } if (dx < -10 && Math.abs(dx) > Math.abs(dy)) { sw.on = true; sw.el.parentElement.classList.add('sw'); sw.el.style.transition = 'none'; try { ev.target.setPointerCapture?.(ev.pointerId); } catch (e) {} } else return; }
+      ev.preventDefault(); sw.el.style.transform = `translateX(${Math.min(0, dx)}px)`; });
+    const swEnd = ev => { if (!sw || ev.pointerId !== sw.id) return; const s0 = sw; sw = null; if (!s0.on) return;
+      const dx = ev.clientX - s0.x0; s0.el.style.transition = '';
+      if (ev.type === 'pointerup' && dx < -Math.min(120, s0.w / 3)) { s0.el.style.transform = `translateX(-${s0.w}px)`; setTimeout(() => remove(s0.i), 160); } else { s0.el.style.transform = ''; setTimeout(() => s0.el.parentElement.classList.remove('sw'), 200); } };
+    $('ajList').addEventListener('pointerup', swEnd); $('ajList').addEventListener('pointercancel', swEnd);
+    $('ajList').addEventListener('keydown', ev => { if ((ev.key === 'Delete' || ev.key === 'Backspace') && ev.target.closest('.aj-r') && !ev.target.matches('input')) { ev.preventDefault(); remove(+ev.target.closest('.aj-r').dataset.aj); } });
+    $('ajAdd').onclick = () => { haptic();
+      pick = { label: 'Add to this meal', back: () => openAdjust(o, A), onDone: (f, q, u) => { A.items.push({ food: f, unit: u, q0: 0, q, add: true }); openAdjust(o, A); } };
+      openSearch(); };
+    $('ajReset').onclick = () => { haptic(); A.items = A.items.filter(x => !x.add); A.items.forEach(x => { x.q = x.q0; delete x.gone; }); openAdjust(o, A); };
     $('ajSave').onclick = () => { haptic(); $('ajNew').hidden = false; $('ajSave').hidden = true;
       $('ajName').value = changed() ? `${o.food.name} (changed)` : o.food.name; $('ajName').focus(); $('ajName').select?.(); };
     $('ajSaveGo').onclick = () => {
       const name = $('ajName').value.trim().replace(/\s+/g, ' ');
       if (!name) { toast('Give it a name first.'); return; }
       if (S.meals.some(m => m.name.toLowerCase() === name.toLowerCase())) { toast('You have a meal with that name'); return; }
-      const items = b.items.map((x, i) => ({ food: JSON.parse(JSON.stringify(x.food)), qty: A.q[i], unit: x.unit })).filter(x => x.qty > 0);
+      const items = live().map(x => ({ food: JSON.parse(JSON.stringify(x.food)), qty: x.q, unit: x.unit })).filter(x => x.qty > 0);
       if (!items.length) { toast('Keep at least one ingredient.'); return; }
       const m = { id: uid(), name, servings: 1, items }, tt = mealTotals(m); m.kcal = Math.round(tt.kcal); m.pro = Math.round(tt.pro);
       S.meals.push(m); touchMeta(); haptic(); A.saved = m;
       $('ajNew').hidden = true; $('ajSaved').hidden = false;
       $('ajSaved').textContent = `Saved to My meals as “${name}”.${mealOf(o.food) && !mealOf(o.food).one ? ` “${o.food.name}” stays as it was.` : ''}`;
-      $('ajList').querySelectorAll('input, button').forEach(x => { x.disabled = true; });
+      $('ajList').querySelectorAll('input, button').forEach(x => { x.disabled = true; }); $('ajAdd').disabled = true;
       upd(); toast('Saved to My meals');
     };
   }
@@ -2210,7 +2264,7 @@ function openAdjust(o) {
     [...$('aSlot').children].forEach(x => x.setAttribute('aria-pressed', x.dataset.s === A.slot)); upd(); }; }
   if ($('ajBack')) $('ajBack').onclick = () => { haptic(); o.back(); };
   $('ajGo').onclick = () => {
-    if (b && !A.q.some(q => q > 0)) { toast('Keep at least one ingredient.'); return; }
+    if (b && !live().some(x => x.q > 0)) { toast('Keep at least one ingredient.'); return; }
     if (o.dest === 'day' && (!A.d || A.d > t)) { toast("That date hasn't happened yet."); return; }
     if (o.dest === 'day' && daysBetween(A.d, t) > 90) { toast('Pick a date within the last 3 months.'); return; }
     const r = b ? result() : { f: o.food, qty: o.qty, unit: o.unit, same: true };
@@ -3880,7 +3934,7 @@ const GUIDE = [
       'To change the order of your meals, tap <b>Organize</b> in My meals, drag a meal by its handle, then tap <b>Done</b>. The order shows everywhere you pick a meal.',
       'On Today and in Plan my day, tap the <b>ⓘ</b> next to a meal to see its ingredients and their numbers, scaled to how much you logged or planned. Changing the recipe later doesn\'t change days already logged.',
       'Logged foods one by one? Tap <b>Group</b> on that meal on Today and name it (<b>Save to My meals</b> keeps it). Its <b>ⓘ</b> has <b>Copy to another day</b>, <b>Add to a plan</b> and <b>Ungroup</b>.',
-      'On a meal\'s How much?, <b>Change ingredients for this time</b> changes that copy only. <b>Save as new meal</b> keeps it.')}`, 'i-bowl', 'Build once, log in one tap'],
+      'On a meal\'s How much? or ⓘ, <b>Change ingredients</b> changes that copy only: swipe one left to remove it, or add one. <b>Save as new meal</b> keeps it.')}`, 'i-bowl', 'Build once, log in one tap'],
   ['Weigh in', `<p class="g-lead">Your weight moves around a lot day to day. Cut Log shows the real trend underneath.</p>
     ${gStep('Choose how often in <b>You → Weigh-ins</b>: every morning, once a week, or no scale.',
       'Weigh after the bathroom, before you eat or drink.',
@@ -5196,7 +5250,7 @@ function openPlan(tab) {
     const mu = e.target.closest('[data-pmu]'), mp = e.target.closest('[data-pmp]');      // v116: what's in a meal
     if (mu || mp) { e.stopPropagation(); haptic(); const tb = PL.tab, back = () => openPlan(tb);
       if (mu) openMealInfo(mu.dataset.pmu, { d: todayIso(), back });
-      else { const d = planDay(), x = planStore().plans?.[d]?.items?.[+mp.dataset.pmp], pe = x && planMealEntry(x); if (pe) openMealInfo(pe, { planned: x.slot, back }); }
+      else { const d = planDay(), x = planStore().plans?.[d]?.items?.[+mp.dataset.pmp], pe = x && planMealEntry(x); if (pe) openMealInfo(pe, { planned: x.slot, back, pd: d, pi: +mp.dataset.pmp }); }
       return; }
     const t = e.target.closest('[data-pt]'), lg = e.target.closest('[data-pl]'), it = e.target.closest('[data-pi]');
     const ch = e.target.closest('[data-pc]'), lk = e.target.closest('[data-pk]'), rm = e.target.closest('[data-px]');
@@ -5883,6 +5937,7 @@ $('adjNo').onclick = () => adjClose(false);
    set the app up don't get it). Always available in You → Help. Last seen version: localStorage cutlog.seenV (per device).
    Every release adds an entry at the top, in plain words for everyone who uses Cut Log. */
 const CHANGELOG = [
+  { v: 128, d: '2026-11-23', items: ['Change ingredients now lets you take a food out or add one: swipe an ingredient left to remove it (Undo puts it back), or tap + Add ingredient to pick another food. It works on a meal in Plan my day (also from its ⓘ), when copying a meal to another day, and on How much?. Only that copy changes; your saved meal stays the same.'] },
   { v: 127, d: '2026-11-23', items: ['Group foods into one meal: on Today, tap Group next to a meal, pick the foods, give it a name, and it becomes one line with its ingredients under the ⓘ. Save it to My meals if you like, or keep it just for that day. Ungroup puts the foods back.',
     'Change a meal just for one time: tap Change ingredients for this time on a meal (also in Plan my day), or Copy to another day / Add to a plan under its ⓘ, and set less chicken or more rice for that copy only. Your saved meal stays the same, and Save as new meal keeps the new version.'] },
   { v: 126, d: '2026-11-23', items: ['Trends: the goal date is now the same on 7, 30 and 90 days. It always comes from your current pace (your last 14 days of weigh-ins), and says so under the date. Switching tabs still changes the weekly rate above it.'] },

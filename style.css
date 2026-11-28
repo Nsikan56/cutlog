@@ -1111,6 +1111,9 @@ details.shut>:not(summary){opacity:0;transform:translateY(-4px);transition:opaci
 .aj-date{flex-direction:row;align-items:center;gap:10px}
 .aj-date input{width:auto;flex:1;padding:8px 10px}
 #aSlot .chip:disabled{opacity:.35}
+/* v129: the burn card's details sit behind an ⓘ (Kan, 28 Nov: "a lot of words") */
+.burn-n .b-info{margin:0 0 0 2px;position:relative;top:3px}
+.b-info-box{display:flex;flex-direction:column;gap:8px;padding:10px 12px;border-radius:12px;background:var(--raised)}
 @media (min-width:980px){
   #scroller{padding:28px 32px 48px calc(var(--side) + 32px)}
   :root{--side:204px}

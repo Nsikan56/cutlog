@@ -2,7 +2,7 @@
    Data is saved on the phone first (works offline), then synced to Firebase when signed in. */
 'use strict';
 /* The page and this script must come from the same update; if a cached copy is mixed in, reload once */
-const APP_V = '128';
+const APP_V = '129';
 (() => {
   const htmlV = document.querySelector('meta[name="app-v"]')?.content;
   if (htmlV && htmlV !== APP_V) {
@@ -3087,8 +3087,22 @@ function estimateBurn() {
   if (perWeek == null) return { ready: false, need, have, skipped, settle, from };
   const burn = intake - (perWeek / 7) * KCAL_PER_LB;
   const conf = have.days >= 21 && have.weighs >= 14 && have.span >= 21 ? 'High' : 'Medium';
-  return { ready: true, intake, perWeek, burn, conf, have, skipped, from, days: daysBetween(from, to) + 1 };
+  return { ready: true, intake, perWeek, burn, conf, have, skipped, from, to, days: daysBetween(from, to) + 1 };
 }
+/* v129: does your recent pace agree with the 4 weeks the burn uses? (Kan, 27 Nov: the burn said High confidence and eat 250 more
+   from 1.6 lb a week over 4 weeks, while his last 2 weeks were 1.1, already in his 1-1.5 range.) The recent rate is the one the
+   7-day tab shows (last 14 days of weigh-ins). A gap of 0.4 lb a week or more (about 200 kcal a day) makes the burn Medium, and a
+   change in the direction the recent pace argues against waits (the card says so, and the calorie pop-up doesn't offer it). */
+const PACE_SHIFT = 0.4;
+let burnInfo = false;   // v129: the burn card's ⓘ details, open or closed (this visit only)
+function burnPace(e) {
+  if (!e || !e.ready || !(e.days >= 21) || e.perWeek == null) return null;     // a shorter window is mostly the same 2 weeks
+  const r = trendRate(todayIso(), RATE_MIN_DAYS);
+  if (r == null || Math.abs(r - e.perWeek) < PACE_SHIFT) return null;
+  return { recent: r, up: r > e.perWeek };   // up: the recent trend is higher (losing slower, or gaining faster)
+}
+const paceHold = (p, eatMore) => !!p && (eatMore ? p.up : !p.up);   // the recent pace says this change is premature
+const burnDates = e => [e.from, e.to].map(d => parseIso(d).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })).join(' – ');
 /* v79: targets move toward the real burn in steps of up to 250 kcal. Even a good estimate has some error, so a big gap is
    closed over a few check-ins, each one confirmed by the next week's weigh-ins (no jumping 750 kcal overnight). */
 const BURN_STEP = 250;
@@ -3127,24 +3141,47 @@ function renderBurn() {
       </div>`;
     return;
   }
-  conf.textContent = e.conf + ' confidence'; conf.className = 'conf ' + (e.conf === 'High' ? 'ok' : '');
+  const pace = burnPace(e), cf = pace ? 'Medium' : e.conf;
+  conf.textContent = cf + ' confidence'; conf.className = 'conf ' + (cf === 'High' ? 'ok' : '');
   const m = mode();
   const [dLo, dHi, label] = m === 'lose' ? [-750, -500, `For ${PACE().lose} a week`] : m === 'gain' ? [200, 400, 'For a lean gain'] : [-150, 150, 'To hold steady'];
   const lo = Math.max(1200, r50(e.burn + dLo)), hi = Math.max(lo + 100, r50(e.burn + dHi));
   const T = S.targets, st = burnStep(lo, hi, T), same = T.calLo === st.lo && T.calHi === st.hi;
   const lossTxt = e.perWeek < -0.05 ? `lost ${fW(Math.abs(e.perWeek))} ${wU()} a week` : e.perWeek > 0.05 ? `gained ${fW(e.perWeek)} ${wU()} a week` : 'held your weight steady';
+  let paceTxt = '', paceMore = '';
+  if (pace) {
+    const r = pace.recent, p = e.perWeek, bothLose = r < -0.05 && p < -0.05;
+    const rt = v => v < -0.05 ? `losing ${fW(-v)} ${wU()} a week` : v > 0.05 ? `gaining ${fW(v)} ${wU()} a week` : 'holding steady';
+    const how = bothLose ? (r > p ? 'Slowed' : 'Sped up') : 'Changed';   // v129: short on the card, the numbers behind the ⓘ (Kan, 28 Nov: "a lot of words")
+    const now = bothLose ? `${fW(-r)} ${wU()} a week` : rt(r), vs = bothLose ? `${fW(-p)}` : rt(p);
+    paceMore = `Last 2 weeks: ${now}. ${e.days >= BURN_WINDOW ? 'All 4 weeks' : `All ${e.days} days`}: ${vs}.`;
+    const more = st.lo > T.calLo;
+    paceTxt = `${how} lately.`;
+    if (!same && paceHold(pace, more)) {
+      const band = metric() ? [0.5 / KG, 0.7 / KG] : [1, 1.5], loss = -r;
+      const inBand = m === 'lose' && loss >= band[0] - 0.05 && loss <= band[1] + 0.05;
+      paceTxt = `${how} lately, so wait a week before ${more ? 'raising' : 'lowering'}.`;
+      if (inBand) paceMore += ` That's already in your ${PACE().lose} range.`;
+    }
+  }
   box.innerHTML = `
-    <div class="burn-n"><span class="num" id="burnNum">${r50(e.burn).toLocaleString()}</span><span class="u">kcal a day</span></div>
-    <p class="hint">Over the last ${e.days >= BURN_WINDOW ? '4 weeks' : `${e.days} days`} you ate about ${Math.round(e.intake).toLocaleString()} kcal a day and ${lossTxt} on your trend line. That works out to this daily burn, including your training.${e.skipped ? ' Your first 2 weeks of weigh-ins are left out, because early loss is mostly water.' : ''}</p>
+    <div class="burn-n"><span class="num" id="burnNum">${r50(e.burn).toLocaleString()}</span><span class="u">kcal a day</span><button class="mi-b b-info" id="bInfoBtn" type="button" aria-expanded="${burnInfo}" aria-controls="bInfo" aria-label="How your real burn is worked out"><svg><use href="#i-info"/></svg></button></div>
+    <div class="b-info-box" id="bInfo"${burnInfo ? '' : ' hidden'}>
+      <p class="hint">Over the last ${e.days >= BURN_WINDOW ? '4 weeks' : `${e.days} days`} you ate about ${Math.round(e.intake).toLocaleString()} kcal a day and ${lossTxt} on your trend line. That works out to this daily burn, including your training.${e.skipped ? ' Your first 2 weeks of weigh-ins are left out, because early loss is mostly water.' : ''}</p>
+      ${e.from && e.to ? `<p class="hint" id="bDates">Counts ${esc(burnDates(e))}, on every tab.</p>` : ''}
+      ${paceMore ? `<p class="hint" id="bPaceMore">${esc(paceMore)}</p>` : ''}
+      ${!same && pbClash(st.lo > T.calLo) ? `<p class="hint pb-clash" id="bPb">${esc(pbClash(true).txt)}</p>` : ''}
+      <p class="hint">Only as accurate as your logging: days with forgotten snacks make your burn look lower than it is.</p>
+    </div>
+    ${paceTxt ? `<p class="hint" id="bPace">${esc(paceTxt)}</p>` : ''}
     <div class="suggest">
       <div><span class="k">${label}</span><span class="v">${lo.toLocaleString()}–${hi.toLocaleString()}<small>kcal</small></span></div>
       <div><span class="k">Your target now</span><span class="v">${T.calLo.toLocaleString()}–${T.calHi.toLocaleString()}<small>kcal</small></span></div>
     </div>
     ${st.capped && !same ? (st.rest < STEP_NEAR ? `<p class="hint" id="bStep">Going ${st.lo > T.calLo ? 'up' : 'down'} ${BURN_STEP} kcal gets you within ${st.rest} kcal of it, which is close enough.</p>`
       : `<p class="hint" id="bStep">That's a big change, so move there in steps: ${st.lo > T.calLo ? 'up' : 'down'} ${BURN_STEP} kcal now, then check again after a week of weigh-ins.</p>`) : ''}
-    ${!same && pbClash(st.lo > T.calLo) ? `<p class="hint pb-clash" id="bPb">${esc(pbClash(true).txt)}</p>` : ''}
-    ${same ? '<p class="hint">Your target already matches. Nothing to change.</p>' : `<button class="btn" id="useBurn">Use ${st.lo.toLocaleString()}–${st.hi.toLocaleString()} as my target</button>`}
-    <p class="hint">Only as accurate as your logging: days with forgotten snacks make your burn look lower than it is.</p>`;
+    ${same ? '<p class="hint">Your target already matches. Nothing to change.</p>' : `<button class="btn" id="useBurn">Use ${st.lo.toLocaleString()}–${st.hi.toLocaleString()} as my target</button>`}`;
+  $('bInfoBtn').onclick = () => { burnInfo = !burnInfo; $('bInfo').hidden = !burnInfo; $('bInfoBtn').setAttribute('aria-expanded', burnInfo); haptic(); };
   if ($('viewTrends').classList.contains('anim') || chartAnim) { const n = $('burnNum'); n._v = 0; animateNum(n, r50(e.burn), undefined, 800); }
   if ($('useBurn')) $('useBurn').onclick = () => {
     const old = { ...S.targets };
@@ -3953,7 +3990,7 @@ const GUIDE = [
       'The weekly rate always uses at least 14 days of weigh-ins, because one week is mostly water. On the 7-day view, <b>Vs 7 days ago</b> compares the last 7 days\' average with the 7 days before (the weekly check-in compares whole Monday-to-Sunday weeks, so the two can differ).',
       'A new calorie or protein target counts from the day you set it. Earlier days, the check-in and History keep the range you had then.',
       'The middle number is your <b>7-day average</b> on the 7-day view, and the average of every weigh-in in the range on 30 and 90 days (it says <b>Since</b> a date when your weigh-ins start later than that).',
-      `Your real burn uses your weight trend line and leaves out your first 2 weeks of weigh-ins (early loss is mostly water). Big changes are suggested in steps of up to ${BURN_STEP} kcal.`,
+      `Your real burn uses your trend line over the last 4 weeks, whichever tab you're on, minus your first 2 weeks. Steps are ${BURN_STEP} kcal; if your last 2 weeks differ, it shows <b>Medium</b>.`,
       'On a cut, a day a little under your range still counts as <b>on target</b>. Only days more than 300 kcal under it are flagged.',
       'If your loss is slow but you already eat at the low end of your range, it suggests another week of full logging rather than eating less.',
       'Under the charts: See calendar by month, See full protein history, See full carbs and fat history and See full fibre history. Longer ranges (3M, 6M, 1Y) come on once you\'ve logged long enough.',
@@ -5879,7 +5916,7 @@ function adjOffer() {
   const sug = goalSuggestion(m);
   if (sug && sug.src === 'burn') {
     const st = burnStep(sug.lo, sug.hi, T);
-    if (Math.abs(st.lo - T.calLo) >= 100 || Math.abs(st.hi - T.calHi) >= 100) {
+    if ((Math.abs(st.lo - T.calLo) >= 100 || Math.abs(st.hi - T.calHi) >= 100) && !paceHold(burnPace(estimateBurn()), st.lo > T.calLo)) {   // v129: wait while the recent pace says it's premature
       const gap = (sug.lo + sug.hi) / 2 - (T.calLo + T.calHi) / 2;
       return { kind: 'burn', lo: st.lo, hi: st.hi, steps: Math.max(1, Math.ceil(Math.abs(gap) / BURN_STEP - 0.2)),
         why: `Your real burn is about ${kc(r50(sug.burn))} kcal a day, so ${MODES[m].toLowerCase()} is about ${kc(sug.lo)}\u2060–\u2060${kc(sug.hi)}.${st.capped && st.rest >= STEP_NEAR ? ` Going ${st.lo > T.calLo ? 'up' : 'down'} ${BURN_STEP} at a time lets next week's weigh-ins check it.` : ''}${pbClash(st.lo > T.calLo) ? ` ${pbClash(true).txt}` : ''}` };
@@ -5937,6 +5974,7 @@ $('adjNo').onclick = () => adjClose(false);
    set the app up don't get it). Always available in You → Help. Last seen version: localStorage cutlog.seenV (per device).
    Every release adds an entry at the top, in plain words for everyone who uses Cut Log. */
 const CHANGELOG = [
+  { v: 129, d: '2026-11-27', items: ['Your real burn is shorter: tap ⓘ for how it\'s worked out and which dates it counts (always the last 4 weeks, on every Trends tab). If your last 2 weeks are noticeably faster or slower than the full 4, it says Medium confidence and suggests waiting a week before changing your target, and the calorie pop-up waits too.'] },
   { v: 128, d: '2026-11-23', items: ['Change ingredients now lets you take a food out or add one: swipe an ingredient left to remove it (Undo puts it back), or tap + Add ingredient to pick another food. It works on a meal in Plan my day (also from its ⓘ), when copying a meal to another day, and on How much?. Only that copy changes; your saved meal stays the same.'] },
   { v: 127, d: '2026-11-23', items: ['Group foods into one meal: on Today, tap Group next to a meal, pick the foods, give it a name, and it becomes one line with its ingredients under the ⓘ. Save it to My meals if you like, or keep it just for that day. Ungroup puts the foods back.',
     'Change a meal just for one time: tap Change ingredients for this time on a meal (also in Plan my day), or Copy to another day / Add to a plan under its ⓘ, and set less chicken or more rice for that copy only. Your saved meal stays the same, and Save as new meal keeps the new version.'] },
